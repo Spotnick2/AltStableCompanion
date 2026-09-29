@@ -35,13 +35,6 @@ dotnet build -warnaserror
 dotnet test
 ```
 
-```
-pwsh Tools/deploy.ps1               # -Shortcut for the Start menu, -Destination for another folder
-```
-
-puts one self-contained `AltStableCompanion.exe` in `%LOCALAPPDATA%\Programs\AltStableCompanion`.
-It refuses while the app is running, and it does not start the app.
-
 Warnings are errors (`Directory.Build.props`). Tests generate their own images and
 SavedVariables files in temp folders — there are no binary fixtures, and none should be
 added.
@@ -55,6 +48,17 @@ shell is drawing and Win32, checked by hand.
 Running the app while developing: always with `--wow-dir` and `--data-dir` pointed at a copy.
 Without them it detects the real install and its first pass deletes the screenshots it
 converts.
+
+## Deploy
+
+```
+pwsh Tools/deploy.ps1               # -Shortcut for the Start menu, -Destination for another folder
+```
+
+`Tools/deploy.ps1` puts one self-contained `AltStableCompanion.exe` in
+`%LOCALAPPDATA%\Programs\AltStableCompanion`. It refuses while the copy it would replace is
+running, and it does not start the app. An exe built from a working tree with uncommitted
+changes says `-dirty` in its version.
 
 ## Conventions
 
