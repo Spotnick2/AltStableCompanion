@@ -203,6 +203,32 @@ public class CapturePairingTests
     }
 
     [Fact]
+    public void A_second_ticking_between_the_stamp_and_the_file_name_is_still_the_pair()
+    {
+        // The stamp is read when the shot is asked for, the file named when it is written.
+        // Stamps 1 s apart, files 2 s apart: the second ticked for the white shot only.
+        var late = CapturePairing.Assign([Cap(T0)], Files(T0, T0.AddSeconds(2))).Single();
+        Assert.Equal(MatchProblem.None, late.Problem);
+        // And the other way: stamps 2 s apart, files 1 s.
+        var wide = new Capture("A", "g1", T0, T0.AddSeconds(2), TestData.Epoch(T0), 2160, "a");
+        Assert.Equal(MatchProblem.None, CapturePairing.Assign([wide], Files(T0, T0.AddSeconds(1))).Single().Problem);
+        // Two seconds out is somebody else's file.
+        Assert.Equal(MatchProblem.Ambiguous, CapturePairing.Assign([Cap(T0)], Files(T0, T0.AddSeconds(3))).Single().Problem);
+    }
+
+    [Fact]
+    public void A_file_a_broken_capture_also_wants_is_left_alone()
+    {
+        // g2's own screenshots never reached disk; the nearest files to its stamps are g1's,
+        // wrongly spaced, so g2 is ambiguous. It still WANTS them - and the contract leaves a
+        // file wanted by two records alone, so g1 waits too.
+        var g1 = Cap(T0, "g1");
+        var g2 = Cap(T0.AddSeconds(3), "g2");
+        var result = CapturePairing.Assign([g1, g2], Files(T0, T0.AddSeconds(1)));
+        Assert.All(result, a => Assert.Equal(MatchProblem.Ambiguous, a.Problem));
+    }
+
+    [Fact]
     public void A_file_two_captures_want_belongs_to_neither()
     {
         // Two accounts capturing in the same seconds.

@@ -41,6 +41,9 @@ public static partial class CapturePairing
 {
     public static readonly TimeSpan Tolerance = TimeSpan.FromSeconds(4);
 
+    /// <summary>How far the gap between the two files may differ from the gap between the two stamps.</summary>
+    public static readonly TimeSpan SpacingSlack = TimeSpan.FromSeconds(1);
+
     /// <summary>
     /// Every capture, oldest first. Pairing is PER STORE: both shots of a capture are recorded
     /// by the same client, and two accounts shooting at the same moment must not have their
@@ -99,9 +102,12 @@ public static partial class CapturePairing
     /// Here:
     /// <list type="bullet">
     /// <item>each stamp takes its nearest file within tolerance, and a TIE is ambiguous;</item>
-    /// <item>the two files must be spaced as the two stamps were, to the second - a black shot
-    ///   that is really somebody else's file fails this;</item>
-    /// <item>a file wanted by two captures in the pass is ambiguous for BOTH.</item>
+    /// <item>the two files must be spaced as the two stamps were, give or take ONE second - a
+    ///   black shot that is really somebody else's file fails this. Not "to the second": the
+    ///   stamp is read when the shot is asked for and the file is named when it is written, so
+    ///   a second can tick in between for one shot and not for the other;</item>
+    /// <item>a file wanted by two captures in the pass is ambiguous for every capture that
+    ///   wants it, whatever else is wrong with the other one.</item>
     /// </list>
     /// An ambiguous capture is left pending and nothing of it is deleted.
     /// </summary>
@@ -124,15 +130,17 @@ public static partial class CapturePairing
             }
             var expected = cap.Second - cap.First;
             var actual = times[white] - times[black];
-            var spacedRight = Math.Abs((actual - expected).TotalSeconds) < 1;
+            var spacedRight = Math.Abs((actual - expected).TotalSeconds) <= SpacingSlack.TotalSeconds;
             proposed.Add(blackTie || whiteTie || !spacedRight
                 ? new Assignment(cap, black, white, MatchProblem.Ambiguous)
                 : new Assignment(cap, black, white, MatchProblem.None));
         }
 
-        // A file two captures both want belongs to neither, this pass.
-        var wanted = proposed.Where(a => a.Problem == MatchProblem.None)
-            .SelectMany(a => new[] { a.Black!, a.White! })
+        // A file two captures both want belongs to neither, this pass. EVERY proposal counts,
+        // not only the clean ones: a capture that is itself ambiguous or half missing still
+        // names the files it would have taken, and the contract leaves those alone.
+        var wanted = proposed
+            .SelectMany(a => new[] { a.Black, a.White }.OfType<string>())
             .GroupBy(p => p, StringComparer.OrdinalIgnoreCase)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
