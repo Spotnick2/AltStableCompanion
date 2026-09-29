@@ -9,10 +9,15 @@ namespace AltStableCompanion.Core;
 /// NO "seen" list, as in Update-Cutouts.ps1: a pair is only convertible once its record reaches
 /// disk, so marking files seen on sight would skip exactly the capture just taken. Every pass is
 /// a full, idempotent pass instead.
+///
+/// A pass runs on a timer thread, where an exception nobody catches ends the process. So a
+/// pass that throws is reported to <c>failed</c> and forgotten: the next trigger, or the poll,
+/// runs a whole pass again.
 /// </summary>
 public sealed class Watcher : IDisposable
 {
     private readonly Action _pass;
+    private readonly Action<Exception>? _failed;
     private readonly TimeSpan _debounce;
     private readonly List<FileSystemWatcher> _watchers = [];
     private readonly Timer _debounceTimer;
@@ -21,11 +26,13 @@ public sealed class Watcher : IDisposable
     private bool _running;
     private bool _again;
     private bool _paused;
+    private bool _disposed;
 
     public Watcher(IEnumerable<(string Folder, string Filter, bool Recursive)> targets, Action pass,
-        TimeSpan? debounce = null, TimeSpan? poll = null)
+        TimeSpan? debounce = null, TimeSpan? poll = null, Action<Exception>? failed = null)
     {
         _pass = pass;
+        _failed = failed;
         _debounce = debounce ?? TimeSpan.FromSeconds(2);
         _debounceTimer = new Timer(_ => Run(), null, Timeout.Infinite, Timeout.Infinite);
         var every = poll ?? TimeSpan.FromSeconds(60);
@@ -50,16 +57,28 @@ public sealed class Watcher : IDisposable
     }
 
     /// <summary>The Screenshots folder and every account's AltStable.lua.</summary>
-    public static Watcher For(WowInstall install, Action pass) => new(
+    public static Watcher For(WowInstall install, Action pass, Action<Exception>? failed = null) => new(
         [
             (install.Screenshots, "*.tga", false),
             (install.AccountsDir, SavedVariablesReader.FileName, true),
-        ], pass);
+        ], pass, failed: failed);
 
+    /// <summary>
+    /// Paused means nothing runs: not a new trigger, not a debounce that was already counting
+    /// down, not the rerun queued behind a pass. A pass deletes screenshots; "pause" that let one
+    /// more through would not be one. A pass already running finishes.
+    /// </summary>
     public bool Paused
     {
         get { lock (_gate) return _paused; }
-        set { lock (_gate) _paused = value; }
+        set
+        {
+            lock (_gate)
+            {
+                _paused = value;
+                if (value) _again = false;
+            }
+        }
     }
 
     /// <summary>Something changed: run a pass once things have been quiet for the debounce.</summary>
@@ -67,9 +86,9 @@ public sealed class Watcher : IDisposable
     {
         lock (_gate)
         {
-            if (_paused) return;
+            if (_paused || _disposed) return;
+            _debounceTimer.Change(_debounce, Timeout.InfiniteTimeSpan);
         }
-        _debounceTimer.Change(_debounce, Timeout.InfiniteTimeSpan);
     }
 
     // One pass at a time; a trigger during a pass runs one more after it.
@@ -77,30 +96,53 @@ public sealed class Watcher : IDisposable
     {
         lock (_gate)
         {
+            if (_paused || _disposed) return;
             if (_running) { _again = true; return; }
             _running = true;
         }
-        try
+        while (true)
         {
-            while (true)
+            try
             {
                 _pass();
-                lock (_gate)
+            }
+            catch (Exception ex)
+            {
+                Report(ex);
+            }
+            lock (_gate)
+            {
+                if (!_again || _paused || _disposed)
                 {
-                    if (!_again) { _running = false; return; }
                     _again = false;
+                    _running = false;
+                    return;
                 }
+                _again = false;
             }
         }
-        catch
+    }
+
+    // Whoever is told must not be able to end the process either.
+    private void Report(Exception ex)
+    {
+        try
         {
-            lock (_gate) _running = false;
-            throw;
+            _failed?.Invoke(ex);
+        }
+        catch (Exception)
+        {
         }
     }
 
     public void Dispose()
     {
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _again = false;
+        }
         foreach (var w in _watchers) w.Dispose();
         _debounceTimer.Dispose();
         _pollTimer.Dispose();

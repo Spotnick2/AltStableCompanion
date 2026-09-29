@@ -275,6 +275,70 @@ public class InstallAndSettingsTests
     }
 
     [Fact]
+    public void A_pass_that_throws_is_reported_and_the_next_one_still_runs()
+    {
+        using var t = new TempInstall();
+        using var failed = new ManualResetEventSlim();
+        using var ran = new ManualResetEventSlim();
+        var calls = 0;
+        using var w = new Watcher([(t.Install.Screenshots, "*.tga", false)],
+            () =>
+            {
+                if (Interlocked.Increment(ref calls) == 1) throw new UnauthorizedAccessException("in use");
+                ran.Set();
+            },
+            debounce: TimeSpan.FromMilliseconds(50), poll: TimeSpan.FromHours(1),
+            failed: ex => { if (ex is UnauthorizedAccessException) failed.Set(); });
+
+        w.Trigger();
+        Assert.True(failed.Wait(TimeSpan.FromSeconds(10)), "the failure was not reported");
+        w.Trigger();
+        Assert.True(ran.Wait(TimeSpan.FromSeconds(10)), "no pass ran after the one that threw");
+    }
+
+    [Fact]
+    public void Pausing_stops_a_pass_that_was_already_counting_down()
+    {
+        using var t = new TempInstall();
+        using var ran = new ManualResetEventSlim();
+        using var w = new Watcher([(t.Install.Screenshots, "*.tga", false)], ran.Set,
+            debounce: TimeSpan.FromMilliseconds(200), poll: TimeSpan.FromHours(1));
+        w.Trigger();
+        w.Paused = true;
+        Assert.False(ran.Wait(TimeSpan.FromMilliseconds(900)));
+        // And it is a pause, not a stop.
+        w.Paused = false;
+        w.Trigger();
+        Assert.True(ran.Wait(TimeSpan.FromSeconds(10)), "no pass ran after the pause ended");
+    }
+
+    [Fact]
+    public void Pausing_drops_the_rerun_queued_behind_a_running_pass()
+    {
+        using var t = new TempInstall();
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var calls = 0;
+        using var w = new Watcher([(t.Install.Screenshots, "*.tga", false)],
+            () =>
+            {
+                Interlocked.Increment(ref calls);
+                started.Set();
+                release.Wait(TimeSpan.FromSeconds(10));
+            },
+            debounce: TimeSpan.FromMilliseconds(20), poll: TimeSpan.FromHours(1));
+
+        w.Trigger();
+        Assert.True(started.Wait(TimeSpan.FromSeconds(10)));
+        w.Trigger();                                              // queues a rerun behind the pass
+        Thread.Sleep(300);
+        w.Paused = true;
+        release.Set();
+        Thread.Sleep(500);
+        Assert.Equal(1, Volatile.Read(ref calls));
+    }
+
+    [Fact]
     public void A_paused_watcher_runs_nothing()
     {
         using var t = new TempInstall();
