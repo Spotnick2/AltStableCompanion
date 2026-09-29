@@ -183,8 +183,8 @@ public class PassTextTests
     {
         using var t = new TempInstall();
         var quiet = With(t, Report(states: CharacterState.Portrait));
-        Assert.Equal("Watching", PassText.StatusLine(quiet));
-        Assert.StartsWith("Watching - in game", PassText.StatusLine(With(t, Report())));
+        Assert.Equal("Watching for new captures", PassText.StatusLine(quiet));
+        Assert.StartsWith("Watching for captures - in game", PassText.StatusLine(With(t, Report())));
         Assert.Equal("Starting...", PassText.StatusLine(With(t)));
 
         // Each of these outranks everything after it.
@@ -208,6 +208,40 @@ public class PassTextTests
         Assert.StartsWith("No AltStable data yet", PassText.StatusLine(all));
         all = all with { Report = Report(stale: true) };
         Assert.StartsWith("Newer screenshots found", PassText.StatusLine(all));
+    }
+
+    [Fact]
+    public void A_pass_that_found_nothing_still_shows_that_it_ran()
+    {
+        using var t = new TempInstall();
+        var at = new DateTime(2026, 9, 29, 12, 31, 5);
+        Assert.Null(PassText.Activity(With(t)));
+        Assert.Null(PassText.Activity(With(t, Report())));           // no time: no pass has ended
+
+        Assert.Equal("Last check 12:31:05: nothing new.",
+            PassText.Activity(With(t, Report()) with { CheckedAt = at }));
+        Assert.Equal("Last check 12:31:05: wrote Name 1.",
+            PassText.Activity(With(t, Report(written: 1)) with { CheckedAt = at }));
+        Assert.Equal("Last check 12:31:05: wrote 3 portraits.",
+            PassText.Activity(With(t, Report(written: 3)) with { CheckedAt = at }));
+        Assert.Equal("Last check 12:31:05: the pass failed.",
+            PassText.Activity(With(t, Report(written: 1)) with { CheckedAt = at, LastError = "boom" }));
+    }
+
+    [Fact]
+    public void The_last_portrait_written_stays_in_view_when_later_passes_find_nothing()
+    {
+        using var t = new TempInstall();
+        var wrote = new DateTime(2026, 9, 29, 12, 13, 54);
+        var s = With(t, Report()) with
+        {
+            CheckedAt = wrote.AddMinutes(17), LastWritten = ["Karuzo Macphisto"], LastWrittenAt = wrote,
+        };
+        Assert.Equal("Last check 12:30:54: nothing new. Last written: Karuzo Macphisto, at 12:13:54.", PassText.Activity(s));
+
+        // The pass that writes says it once, not twice.
+        var now = With(t, Report(written: 1)) with { CheckedAt = wrote, LastWritten = ["Name 1"], LastWrittenAt = wrote };
+        Assert.Equal("Last check 12:13:54: wrote Name 1.", PassText.Activity(now));
     }
 
     [Fact]

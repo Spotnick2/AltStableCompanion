@@ -34,8 +34,10 @@ public sealed record Snapshot(
 ///   What is owed to the player (the restart notice) must not depend on one write.</item>
 /// </list>
 /// </summary>
-public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect = null) : IDisposable
+public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
+    Func<DateTime>? clock = null) : IDisposable
 {
+    private readonly Func<DateTime> _clock = clock ?? (() => DateTime.Now);
     private const string UnreadableCopy = "settings.unreadable.json";
 
     private readonly Lock _passGate = new();                   // held for the length of a pass
@@ -242,6 +244,10 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                     InstallProblem = problem,
                     Report = null,
                     LastError = null,
+                    // What was checked and written was the other install's.
+                    CheckedAt = null,
+                    LastWritten = null,
+                    LastWrittenAt = null,
                 },
             };
         }
@@ -296,6 +302,8 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                 _current = _current with { Shell = _current.Shell with { Converting = false } };
                 if (current)
                 {
+                    var now = _clock();
+                    var wrote = report is { Written.Count: > 0 };
                     _current = _current with
                     {
                         RestartNotice = RestartNoticeDue(install),
@@ -303,6 +311,9 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                         {
                             Report = report ?? _current.Shell.Report,
                             LastError = error,
+                            CheckedAt = now,
+                            LastWritten = wrote ? report!.Written : _current.Shell.LastWritten,
+                            LastWrittenAt = wrote ? now : _current.Shell.LastWrittenAt,
                         },
                     };
                 }

@@ -15,10 +15,11 @@ public class ControllerTests
 
     private static string Data(TempInstall t) => Path.Combine(t.Root, "appdata");
 
-    private static Controller Started(TempInstall t, string? wowDir = null, Func<WowInstall?>? detect = null)
+    private static Controller Started(TempInstall t, string? wowDir = null, Func<WowInstall?>? detect = null,
+        Func<DateTime>? clock = null)
     {
         var c = new Controller(new StartupOptions(WowDir: wowDir, DataDir: Data(t)),
-            detect ?? (() => throw new InvalidOperationException("detection was used")));
+            detect ?? (() => throw new InvalidOperationException("detection was used")), clock);
         c.Start();
         return c;
     }
@@ -304,6 +305,39 @@ public class ControllerTests
         if (report.Written.Count == 0) report = Pass(c);         // the watcher may have got there first
         Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0))));
         Assert.True(Settings.Load(Data(t)).KeepScreenshots);
+    }
+
+    [Fact]
+    public void Every_pass_leaves_its_time_and_the_last_portrait_stays()
+    {
+        using var t = new TempInstall();
+        using var other = new TempInstall();
+        new Settings { WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        var ticks = 0;
+        DateTime Clock() => T0.AddMinutes(Interlocked.Increment(ref ticks));
+
+        using var c = Started(t, clock: Clock);
+        Assert.Null(c.Current.Shell.CheckedAt);
+        FirstPass(c);
+        var first = c.Current.Shell;
+        Assert.Equal(["Aaa"], first.LastWritten!);
+        Assert.Equal(first.CheckedAt, first.LastWrittenAt);
+
+        // Convert now, with nothing to convert: it ran, and says when.
+        Pass(c);
+        var second = c.Current.Shell;
+        Assert.Empty(second.Report!.Written);
+        Assert.True(second.CheckedAt > first.CheckedAt);
+        Assert.Equal(["Aaa"], second.LastWritten!);
+        Assert.Equal(first.LastWrittenAt, second.LastWrittenAt);
+
+        // Another game: what was checked and written there is not this one's.
+        Assert.True(c.Browse(other.Install.FlavorDir));
+        Assert.Null(c.Current.Shell.LastWritten);
+        FirstPass(c);
+        Assert.NotNull(c.Current.Shell.CheckedAt);
+        Assert.Null(c.Current.Shell.LastWritten);
     }
 
     [Fact]

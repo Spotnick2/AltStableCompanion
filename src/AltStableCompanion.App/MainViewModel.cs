@@ -29,6 +29,7 @@ internal sealed class MainViewModel : ObservableObject
     private string? _flavorWarning;
     private string? _browseProblem;
     private string _statusLine = "";
+    private string? _activity;
     private bool _canChangeInstall = true;
     private bool _keepScreenshots;
     private bool _restartNotice;
@@ -61,6 +62,14 @@ internal sealed class MainViewModel : ObservableObject
     public string InstallPath { get => _installPath; private set => Set(ref _installPath, value); }
     public string InstallDetail { get => _installDetail; private set => Set(ref _installDetail, value); }
     public string StatusLine { get => _statusLine; private set => Set(ref _statusLine, value); }
+
+    public string? Activity
+    {
+        get => _activity;
+        private set { if (Set(ref _activity, value)) Raise(nameof(HasActivity)); }
+    }
+
+    public bool HasActivity => _activity is not null;
     public bool CanChangeInstall { get => _canChangeInstall; private set => Set(ref _canChangeInstall, value); }
     public bool RestartNotice { get => _restartNotice; private set => Set(ref _restartNotice, value); }
 
@@ -123,6 +132,7 @@ internal sealed class MainViewModel : ObservableObject
         FlavorWarning = shell.Install is null ? null : PassText.FlavorWarning(shell.Install);
         CanChangeInstall = !now.Pinned && !shell.Stopping;
         StatusLine = PassText.StatusLine(shell);
+        Activity = PassText.Activity(shell);
         RestartNotice = now.RestartNotice;
 
         // Through the field: this is the controller telling the window, not the player.

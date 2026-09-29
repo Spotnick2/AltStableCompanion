@@ -8,7 +8,12 @@ public sealed record ShellState(
     bool Converting = false,
     bool Stopping = false,
     string? LastError = null,
-    PassReport? Report = null);
+    PassReport? Report = null,
+    /// <summary>When the last pass of this install ended, whatever it found.</summary>
+    DateTime? CheckedAt = null,
+    /// <summary>The last portraits written for this install since the app started, and when.</summary>
+    IReadOnlyList<string>? LastWritten = null,
+    DateTime? LastWrittenAt = null);
 
 /// <summary>
 /// What the app says about a pass: the status line, the balloon, a character's state. Plain
@@ -46,10 +51,38 @@ public static class PassText
         {
             return "Newer screenshots found. If you just captured a portrait, Reload in game.";
         }
+        // "Watching" is where the app rests: a capture has been dealt with and it is waiting
+        // for the next. What it last did is said beside it, by Activity.
         return s.Report.Characters.Count == 0
-            ? "Watching - in game: /alts portrait, then Reload"
-            : "Watching";
+            ? "Watching for captures - in game: /alts portrait, then Reload"
+            : "Watching for new captures";
     }
+
+    /// <summary>
+    /// What the last pass did, and when - so that a pass which found nothing still shows that
+    /// it ran ("Convert now" with nothing to convert looked like a button that does nothing),
+    /// and so that the last portrait written stays in view after later passes find nothing.
+    /// Null until a pass has run.
+    /// </summary>
+    public static string? Activity(ShellState s)
+    {
+        if (s.CheckedAt is not { } at) return null;
+        var wrote = s.Report?.Written ?? [];
+        var what = s.LastError is not null ? "the pass failed"
+            : wrote.Count > 0 ? "wrote " + Names(wrote)
+            : "nothing new";
+        var line = $"Last check {Time(at)}: {what}.";
+        if (wrote.Count == 0 && s.LastWritten is { Count: > 0 } last && s.LastWrittenAt is { } when)
+        {
+            line += $" Last written: {Names(last)}, at {Time(when)}.";
+        }
+        return line;
+    }
+
+    private static string Names(IReadOnlyList<string> names) =>
+        names.Count == 1 ? names[0] : $"{names.Count} portraits";
+
+    private static string Time(DateTime t) => t.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>The tray icon's tooltip: the app's name and, in a word, what it is doing.</summary>
     public static string TrayTip(ShellState s)
