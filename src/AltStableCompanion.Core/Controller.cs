@@ -1,9 +1,7 @@
-using AltStableCompanion.Core;
-
-namespace AltStableCompanion.App;
+namespace AltStableCompanion.Core;
 
 /// <summary>What the window shows, as of now. Replaced whole, never changed in place.</summary>
-internal sealed record Snapshot(
+public sealed record Snapshot(
     ShellState Shell,
     bool Pinned,
     bool KeepScreenshots,
@@ -11,7 +9,7 @@ internal sealed record Snapshot(
     string? SettingsProblem);
 
 /// <summary>
-/// Everything the shell does that is not drawing: which install, the watcher, the passes, the
+/// Everything a shell does that is not drawing: which install, the watcher, the passes, the
 /// settings. No UI type in it; it raises <see cref="Changed"/> on whatever thread it is on, and
 /// the subscriber reads <see cref="Current"/> on its own.
 ///
@@ -28,17 +26,25 @@ internal sealed record Snapshot(
 ///   exception ends the process.</item>
 /// <item>Whether a pass may START is decided when it starts - after the wait for the pass
 ///   before it, not before. The player may have paused in between.</item>
-/// <item>Settings that could not be read are not defaults. The folder is then not known, the
-///   screenshots are kept, and the file is left as it is until the player chooses again.</item>
+/// <item>Settings that could not be read are not defaults. Which folder the player chose is
+///   then UNKNOWN, and stays unknown - through other settings being changed, and through
+///   restarts - until they choose one with Browse or Detect again. Nothing is detected for
+///   them meanwhile, and screenshots are kept.</item>
+/// <item>Settings that could not be WRITTEN are written again, at every pass, until they are.
+///   What is owed to the player (the restart notice) must not depend on one write.</item>
 /// </list>
 /// </summary>
-internal sealed class Controller(StartupOptions options) : IDisposable
+public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect = null) : IDisposable
 {
+    private const string UnreadableCopy = "settings.unreadable.json";
+
     private readonly Lock _passGate = new();                   // held for the length of a pass
     private readonly Lock _gate = new();                       // guards everything below
     private readonly string _dataDir = options.DataDir ?? Settings.DefaultDir;
     private Settings _settings = new();
-    private string? _unread;                                   // the settings file, while it is unreadable
+    private bool _unreadOnDisk;                                // settings.json is still the file that could not be read
+    private bool _saveOwed;                                    // the last write failed
+    private string? _saveProblem;
     private Log? _log;
     private ConvertPass? _pass;
     private Watcher? _watcher;
@@ -73,21 +79,22 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         if (unread is not null)
         {
             // What the player chose is in a file that cannot be read. Deleting is the one
-            // thing that cannot be taken back, so until they choose again nothing is deleted.
-            _settings = _settings with { KeepScreenshots = true };
+            // thing that cannot be taken back, so until they say otherwise nothing is deleted.
+            _settings = _settings with { KeepScreenshots = true, InstallUnknown = true };
+            _unreadOnDisk = true;
             _log.Write(unread);
         }
-        var resolved = ResolvedInstall.Resolve(options.WowDir, _settings.WowFlavorDir, settingsProblem: unread);
+        var resolved = ResolvedInstall.Resolve(options.WowDir, _settings.WowFlavorDir, detect,
+            settingsProblem: _settings.InstallUnknown ? "unknown" : null);
         _log.Write($"started - install: {resolved.Install?.FlavorDir ?? "none"}"
             + (resolved.Problem is null ? "" : $" ({resolved.Problem})"));
         lock (_gate)
         {
-            _unread = unread is null ? null : unread + " - screenshots are kept until you choose again";
             _current = _current with
             {
                 Pinned = resolved.Pinned,
                 KeepScreenshots = _settings.KeepScreenshots,
-                SettingsProblem = _unread,
+                SettingsProblem = Problem(),
                 Shell = new ShellState(Paused: _settings.Paused),
             };
         }
@@ -104,16 +111,19 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         if (ResolvedInstall.FromPicked(folder) is not { } install) return false;
         // Used first, saved after: a folder that could not be set up is not one to remember.
         if (!Use(install, null)) return false;
-        Save(s => s with { WowFlavorDir = install.FlavorDir });
+        Save(s => s with { WowFlavorDir = install.FlavorDir, InstallUnknown = false });
         return true;
     }
 
-    /// <summary>Forget the chosen folder and look for the game again.</summary>
+    /// <summary>Forget the chosen folder and look for the game again. The player's own choice.</summary>
     public void DetectAgain()
     {
         if (Current.Pinned) return;
-        var resolved = ResolvedInstall.Resolve(null, null);
-        if (Use(resolved.Install, resolved.Problem)) Save(s => s with { WowFlavorDir = null });
+        var resolved = ResolvedInstall.Resolve(null, null, detect);
+        if (Use(resolved.Install, resolved.Problem))
+        {
+            Save(s => s with { WowFlavorDir = null, InstallUnknown = false });
+        }
     }
 
     public void ConvertNow()
@@ -134,7 +144,6 @@ internal sealed class Controller(StartupOptions options) : IDisposable
             _current = _current with { Shell = _current.Shell with { Paused = paused } };
         }
         Save(s => s with { Paused = paused });
-        Changed?.Invoke();
     }
 
     /// <summary>
@@ -151,16 +160,14 @@ internal sealed class Controller(StartupOptions options) : IDisposable
             if (_pass is not null) _pass.Options = new ConvertOptions(KeepScreenshots: keep);
         }
         Save(s => s with { KeepScreenshots = keep });
-        Changed?.Invoke();
     }
 
     public void DismissRestartNotice()
     {
         var install = Current.Shell.Install;
         if (install is null) return;
-        Save(s => s.WithRestartNotice(install.FlavorDir, owed: false));
         lock (_gate) _current = _current with { RestartNotice = false };
-        Changed?.Invoke();
+        Save(s => s.WithRestartNotice(install.FlavorDir, owed: false));
     }
 
     /// <summary>
@@ -201,7 +208,7 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         {
             try
             {
-                pass = NewPass(install, Current.KeepScreenshots);
+                pass = new ConvertPass(install, new ConvertOptions(Current.KeepScreenshots), m => _log?.Write(m));
                 watcher = Watcher.For(install, () => RunPass(generation), Failed);
             }
             catch (Exception ex)
@@ -245,9 +252,6 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         return true;
     }
 
-    private ConvertPass NewPass(WowInstall install, bool keep) =>
-        new(install, new ConvertOptions(KeepScreenshots: keep), m => _log?.Write(m));
-
     private void RunPass(int generation)
     {
         lock (_passGate)
@@ -256,6 +260,9 @@ internal sealed class Controller(StartupOptions options) : IDisposable
             WowInstall install;
             lock (_gate)
             {
+                // The generation here is a second guard, and no test reaches it: a watcher that
+                // has been replaced is disposed, and a disposed watcher starts nothing. What IS
+                // tested is the check after the pass, which drops a report whose install has gone.
                 if (_stopping || generation != _generation || _pass is null || _current.Shell.Install is null) return;
                 // Asked here, with the gate in hand: this pass may have waited for another,
                 // and the player may have paused while it did.
@@ -283,6 +290,8 @@ internal sealed class Controller(StartupOptions options) : IDisposable
             var current = false;
             lock (_gate)
             {
+                // Whatever could not be written before, the restart notice included.
+                if (_saveOwed) Write();
                 current = generation == _generation;
                 _current = _current with { Shell = _current.Shell with { Converting = false } };
                 if (current)
@@ -309,14 +318,20 @@ internal sealed class Controller(StartupOptions options) : IDisposable
     /// <summary>
     /// Written down BEFORE the pass that may create the addon, so the notice is owed even if
     /// the app is killed the moment after. An addon that is already there is never owed one.
+    /// When the write fails the notice is owed in memory, and the write is tried again.
     /// </summary>
     private void OweRestartNotice(WowInstall install)
     {
+        if (_settings.OwesRestartNotice(install.FlavorDir))
+        {
+            lock (_gate)
+            {
+                if (_saveOwed) Write();
+            }
+            return;
+        }
         if (File.Exists(new CutoutFolder(install.CutoutAddonDir).TocPath)) return;
-        if (_settings.OwesRestartNotice(install.FlavorDir)) return;
-        // Not the player choosing: an unreadable settings file is not written over for this.
-        if (_unread is not null) return;
-        Save(s => s.WithRestartNotice(install.FlavorDir, owed: true));
+        Save(s => s.WithRestartNotice(install.FlavorDir, owed: true), quiet: true);
     }
 
     private bool RestartNoticeDue(WowInstall? install) =>
@@ -324,25 +339,46 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         && _settings.OwesRestartNotice(install.FlavorDir)
         && File.Exists(new CutoutFolder(install.CutoutAddonDir).TocPath);
 
-    private void Save(Func<Settings, Settings> change)
+    private void Save(Func<Settings, Settings> change, bool quiet = false)
     {
-        string? problem = null;
         lock (_gate)
         {
             _settings = change(_settings);
-            _unread = null;
-            try
-            {
-                _settings.Save(_dataDir);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                problem = $"Settings could not be saved: {ex.Message}";
-            }
-            _current = _current with { SettingsProblem = problem };
+            Write();
         }
-        if (problem is not null) _log?.Write(problem);
+        if (!quiet) Changed?.Invoke();
     }
+
+    // Under _gate. The file that could not be read is kept beside the new one: what the player
+    // had chosen is in it, for them to look at.
+    private void Write()
+    {
+        string? problem = null;
+        try
+        {
+            if (_unreadOnDisk)
+            {
+                File.Copy(Path.Combine(_dataDir, "settings.json"), Path.Combine(_dataDir, UnreadableCopy), overwrite: true);
+                _unreadOnDisk = false;
+            }
+            _settings.Save(_dataDir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            problem = $"Settings could not be saved: {ex.Message}";
+        }
+        _saveOwed = problem is not null;
+        if (problem is not null && problem != _saveProblem) _log?.Write(problem);
+        _saveProblem = problem;
+        _current = _current with { SettingsProblem = Problem() };
+    }
+
+    private string? Problem() =>
+        _saveProblem
+        ?? (_settings.InstallUnknown
+            ? "The settings could not be read, so the WoW folder has to be chosen again: Browse, or Detect again."
+              + (_unreadOnDisk ? "" : $" The old file is kept as {UnreadableCopy}.")
+            : null);
 
     public void Dispose()
     {

@@ -15,6 +15,13 @@ public sealed record Settings
     public bool Paused { get; init; }
 
     /// <summary>
+    /// Which folder the player chose is not known: the settings could not be read at some
+    /// start, and they have not chosen since. While this is set nothing is detected for them -
+    /// it is cleared by Browse and by Detect again, and by nothing else.
+    /// </summary>
+    public bool InstallUnknown { get; init; }
+
+    /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
     /// notice is dismissed, so the notice survives the app being closed - or killed - in
@@ -46,9 +53,11 @@ public sealed record Settings
         && WowFlavorDir == other.WowFlavorDir
         && KeepScreenshots == other.KeepScreenshots
         && Paused == other.Paused
+        && InstallUnknown == other.InstallUnknown
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
-    public override int GetHashCode() => HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, RestartNoticeInstalls.Count);
+    public override int GetHashCode() =>
+        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, InstallUnknown, RestartNoticeInstalls.Count);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
