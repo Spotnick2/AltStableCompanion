@@ -107,22 +107,26 @@ internal sealed class Win32TrayIcon : IDisposable
     /// while the game is full screen, which is when most portraits are written. The window's
     /// list is the record; this is the nudge.
     /// </summary>
-    public void ShowBalloon(string title, string text)
+    /// <returns>Whether the shell took it. Whether the player SAW it, nobody can tell.</returns>
+    public bool ShowBalloon(string title, string text)
     {
-        if (_disposed || !Present) return;
+        if (_disposed || !Present) return false;
         var data = Data(NIF_INFO);
         data.szInfoTitle = Fit(title, 63);
         data.szInfo = Fit(text, 255);
         data.dwInfoFlags = _large != 0 ? NIIF_USER | NIIF_LARGE_ICON : NIIF_USER;
         data.hBalloonIcon = _large;
-        Shell_NotifyIconW(NIM_MODIFY, ref data);
+        return Shell_NotifyIconW(NIM_MODIFY, ref data);
     }
 
+    // Put the icon in the tray, whether or not it is there. NIM_ADD fails for an icon that
+    // exists, and the shell does not say which way it failed - so when it fails, the icon is
+    // asked to change instead: that succeeds exactly when it is there.
     private void Add()
     {
         if (_disposed) return;
         var data = Data(NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP);
-        var added = Shell_NotifyIconW(NIM_ADD, ref data);
+        var added = Shell_NotifyIconW(NIM_ADD, ref data) || Shell_NotifyIconW(NIM_MODIFY, ref data);
         if (added)
         {
             data.uVersion = NOTIFYICON_VERSION_4;
@@ -167,8 +171,10 @@ internal sealed class Win32TrayIcon : IDisposable
             }
             if (msg == _taskbarCreated && _taskbarCreated != 0)
             {
-                // Explorer started again and knows nothing of the icon it had.
-                Present = false;
+                // Explorer started again and knows nothing of the icon it had - or the primary
+                // display's scale changed, which Windows 10 and 11 announce the same way, and
+                // the icon is still there. Add() copes with both, and says so if the icon is
+                // gone and cannot be put back.
                 LoadIcons();
                 Add();
                 return 0;

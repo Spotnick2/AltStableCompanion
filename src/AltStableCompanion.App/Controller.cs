@@ -26,6 +26,10 @@ internal sealed record Snapshot(
 ///   install has changed since.</item>
 /// <item>Nothing thrown by a pass leaves the pass: it runs on a timer thread, where an
 ///   exception ends the process.</item>
+/// <item>Whether a pass may START is decided when it starts - after the wait for the pass
+///   before it, not before. The player may have paused in between.</item>
+/// <item>Settings that could not be read are not defaults. The folder is then not known, the
+///   screenshots are kept, and the file is left as it is until the player chooses again.</item>
 /// </list>
 /// </summary>
 internal sealed class Controller(StartupOptions options) : IDisposable
@@ -34,10 +38,13 @@ internal sealed class Controller(StartupOptions options) : IDisposable
     private readonly Lock _gate = new();                       // guards everything below
     private readonly string _dataDir = options.DataDir ?? Settings.DefaultDir;
     private Settings _settings = new();
+    private string? _unread;                                   // the settings file, while it is unreadable
     private Log? _log;
     private ConvertPass? _pass;
     private Watcher? _watcher;
     private int _generation;
+    private int _lastGeneration;
+    private int _asked;
     private bool _stopping;
     private Snapshot _current = new(new ShellState(), Pinned: false, KeepScreenshots: false,
         RestartNotice: false, SettingsProblem: null);
@@ -62,20 +69,32 @@ internal sealed class Controller(StartupOptions options) : IDisposable
     public void Start()
     {
         _log = new Log(_dataDir);
-        _settings = Settings.Load(_dataDir);
-        var resolved = ResolvedInstall.Resolve(options.WowDir, _settings.WowFlavorDir);
+        _settings = Settings.Load(_dataDir, out var unread);
+        if (unread is not null)
+        {
+            // What the player chose is in a file that cannot be read. Deleting is the one
+            // thing that cannot be taken back, so until they choose again nothing is deleted.
+            _settings = _settings with { KeepScreenshots = true };
+            _log.Write(unread);
+        }
+        var resolved = ResolvedInstall.Resolve(options.WowDir, _settings.WowFlavorDir, settingsProblem: unread);
         _log.Write($"started - install: {resolved.Install?.FlavorDir ?? "none"}"
             + (resolved.Problem is null ? "" : $" ({resolved.Problem})"));
         lock (_gate)
         {
+            _unread = unread is null ? null : unread + " - screenshots are kept until you choose again";
             _current = _current with
             {
                 Pinned = resolved.Pinned,
                 KeepScreenshots = _settings.KeepScreenshots,
+                SettingsProblem = _unread,
                 Shell = new ShellState(Paused: _settings.Paused),
             };
         }
-        Use(resolved.Install, resolved.Problem);
+        if (!Use(resolved.Install, resolved.Problem))
+        {
+            Use(null, "The WoW folder could not be set up - see the log");
+        }
     }
 
     /// <summary>The player picked a folder. False when it is not a WoW folder: nothing changes.</summary>
@@ -83,8 +102,9 @@ internal sealed class Controller(StartupOptions options) : IDisposable
     {
         if (Current.Pinned) return false;
         if (ResolvedInstall.FromPicked(folder) is not { } install) return false;
+        // Used first, saved after: a folder that could not be set up is not one to remember.
+        if (!Use(install, null)) return false;
         Save(s => s with { WowFlavorDir = install.FlavorDir });
-        Use(install, null);
         return true;
     }
 
@@ -92,16 +112,18 @@ internal sealed class Controller(StartupOptions options) : IDisposable
     public void DetectAgain()
     {
         if (Current.Pinned) return;
-        Save(s => s with { WowFlavorDir = null });
         var resolved = ResolvedInstall.Resolve(null, null);
-        Use(resolved.Install, resolved.Problem);
+        if (Use(resolved.Install, resolved.Problem)) Save(s => s with { WowFlavorDir = null });
     }
 
     public void ConvertNow()
     {
         Watcher? watcher;
         lock (_gate) watcher = _stopping ? null : _watcher;
-        watcher?.RunNow();
+        if (watcher is null) return;
+        // The pass that runs next is one the player asked for, paused or not.
+        Interlocked.Exchange(ref _asked, 1);
+        watcher.RunNow();
     }
 
     public void SetPaused(bool paused)
@@ -125,7 +147,8 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         {
             if (_current.KeepScreenshots == keep) return;
             _current = _current with { KeepScreenshots = keep };
-            if (_current.Shell.Install is { } install) _pass = NewPass(install, keep);
+            // The option, not the pass: the pass remembers the pairs it would not use.
+            if (_pass is not null) _pass.Options = new ConvertOptions(KeepScreenshots: keep);
         }
         Save(s => s with { KeepScreenshots = keep });
         Changed?.Invoke();
@@ -150,7 +173,6 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         lock (_gate)
         {
             _stopping = true;
-            _generation++;
             watcher = _watcher;
             _watcher = null;
             _current = _current with { Shell = _current.Shell with { Stopping = true } };
@@ -164,24 +186,45 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         });
     }
 
-    private void Use(WowInstall? install, string? problem)
+    /// <summary>
+    /// Watch this install from now on. Everything that can fail is built BEFORE anything is
+    /// replaced: when it returns false, the install in use is the one that was in use.
+    /// </summary>
+    private bool Use(WowInstall? install, string? problem)
     {
-        Watcher? old;
+        // A number of its own, captured by the watcher's callback: a callback that arrives
+        // after the install has changed again finds another number current and does nothing.
+        var generation = Interlocked.Increment(ref _lastGeneration);
+        ConvertPass? pass = null;
         Watcher? watcher = null;
+        if (install is not null)
+        {
+            try
+            {
+                pass = NewPass(install, Current.KeepScreenshots);
+                watcher = Watcher.For(install, () => RunPass(generation), Failed);
+            }
+            catch (Exception ex)
+            {
+                watcher?.Dispose();
+                _log?.Write($"could not watch {install.FlavorDir}: {ex}");
+                return false;
+            }
+        }
+
+        Watcher? old;
         lock (_gate)
         {
-            if (_stopping) return;
-            var generation = ++_generation;
-            old = _watcher;
-            _pass = null;
-            if (install is not null)
+            if (_stopping)
             {
-                _pass = NewPass(install, _current.KeepScreenshots);
-                // The generation is captured: a callback of THIS watcher that arrives after the
-                // install has changed again finds a newer number and does nothing.
-                watcher = Watcher.For(install, () => RunPass(generation), Failed);
-                watcher.Paused = _current.Shell.Paused;
+                watcher?.Dispose();
+                return false;
             }
+            _generation = generation;
+            old = _watcher;
+            _pass = pass;
+            if (pass is not null) pass.Options = new ConvertOptions(KeepScreenshots: _current.KeepScreenshots);
+            if (watcher is not null) watcher.Paused = _current.Shell.Paused;
             _watcher = watcher;
             _current = _current with
             {
@@ -197,7 +240,9 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         }
         old?.Dispose();
         Changed?.Invoke();
-        if (watcher is not null && !Current.Shell.Paused) watcher.RunNow();
+        // The first look, at once - and not one the player asked for: it obeys a pause.
+        watcher?.TriggerNow();
+        return true;
     }
 
     private ConvertPass NewPass(WowInstall install, bool keep) =>
@@ -212,6 +257,10 @@ internal sealed class Controller(StartupOptions options) : IDisposable
             lock (_gate)
             {
                 if (_stopping || generation != _generation || _pass is null || _current.Shell.Install is null) return;
+                // Asked here, with the gate in hand: this pass may have waited for another,
+                // and the player may have paused while it did.
+                var asked = Interlocked.Exchange(ref _asked, 0) == 1;
+                if (_current.Shell.Paused && !asked) return;
                 pass = _pass;
                 install = _current.Shell.Install;
                 _current = _current with { Shell = _current.Shell with { Converting = true } };
@@ -265,6 +314,8 @@ internal sealed class Controller(StartupOptions options) : IDisposable
     {
         if (File.Exists(new CutoutFolder(install.CutoutAddonDir).TocPath)) return;
         if (_settings.OwesRestartNotice(install.FlavorDir)) return;
+        // Not the player choosing: an unreadable settings file is not written over for this.
+        if (_unread is not null) return;
         Save(s => s.WithRestartNotice(install.FlavorDir, owed: true));
     }
 
@@ -279,6 +330,7 @@ internal sealed class Controller(StartupOptions options) : IDisposable
         lock (_gate)
         {
             _settings = change(_settings);
+            _unread = null;
             try
             {
                 _settings.Save(_dataDir);

@@ -47,18 +47,23 @@ internal sealed partial class App : Application
                 ico.CopyTo(bytes);
                 _tray = new Win32TrayIcon(bytes.ToArray(), Tip(), Menu);
             }
-            _tray.Activated += ShowWindow;
+            _tray.Activated += () => ShowWindow();
             _controller.Note(_tray.Present ? "tray icon added" : "tray icon could not be added - trying again");
             // No icon means no way in: a window that started hidden has to come out.
             _tray.PresenceChanged += present =>
             {
-                _controller.Note(present ? "tray icon added" : "tray icon lost");
+                _controller.Note(present ? "tray icon added" : "tray icon lost - trying again");
                 if (!present) ShowWindow();
             };
             // The process ending by another road: take the icon out, touch nothing else.
             AppDomain.CurrentDomain.ProcessExit += (_, _) => _tray?.RemoveIcon();
 
-            Instance?.Listen(() => Dispatcher.UIThread.Post(ShowWindow));
+            // The instance that asked is waiting to hear that the window is out. It hears
+            // nothing when this one is on its way out, and tells the player so.
+            Instance?.Listen(() => Dispatcher.UIThread.Post(() =>
+            {
+                if (ShowWindow()) Instance?.Acknowledge();
+            }));
 
             if (!Options.Minimized || !_tray.Present) ShowWindow();
         }
@@ -81,25 +86,16 @@ internal sealed partial class App : Application
         });
     }
 
-    private string Tip()
-    {
-        var shell = _controller?.Current.Shell;
-        var what = shell switch
-        {
-            null or { Install: null } => "no WoW folder",
-            { Converting: true } => "converting",
-            { Paused: true } => "paused",
-            _ => "watching",
-        };
-        return $"AltStable Companion - {what}";
-    }
+    private string Tip() => PassText.TrayTip(_controller?.Current.Shell ?? new ShellState());
 
     private void Announce(PassReport report)
     {
         if (_quitting) return;
         if (PassText.Balloon(report) is not { } balloon) return;
-        _tray?.ShowBalloon(balloon.Title, balloon.Text);
-        _controller?.Note($"balloon: {balloon.Title}");
+        var taken = _tray?.ShowBalloon(balloon.Title, balloon.Text) ?? false;
+        _controller?.Note(taken
+            ? $"balloon handed to Windows: {balloon.Title}"
+            : $"no balloon, there is no tray icon: {balloon.Title}");
     }
 
     private IReadOnlyList<TrayMenuItem> Menu()
@@ -108,7 +104,7 @@ internal sealed partial class App : Application
         var usable = now.Shell.Install is not null && !now.Shell.Stopping;
         return
         [
-            new TrayMenuItem("Open", ShowWindow),
+            new TrayMenuItem("Open", () => ShowWindow()),
             new TrayMenuItem("Convert now", _controller.ConvertNow, Enabled: usable),
             new TrayMenuItem("Pause watching", () => _controller.SetPaused(!_controller.Current.Shell.Paused),
                 Checked: now.Shell.Paused),
@@ -118,9 +114,9 @@ internal sealed partial class App : Application
         ];
     }
 
-    private void ShowWindow()
+    private bool ShowWindow()
     {
-        if (_quitting || _viewModel is null) return;
+        if (_quitting || _viewModel is null) return false;
         if (_window is null)
         {
             _window = new MainWindow { DataContext = _viewModel };
@@ -130,6 +126,7 @@ internal sealed partial class App : Application
         _window.Show();
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
         _window.Activate();
+        return true;
     }
 
     // Quit waits for the pass in hand - a pass cut short has written cutouts its manifest
@@ -145,7 +142,6 @@ internal sealed partial class App : Application
                 _window.Quitting = true;
                 _window.Close();
             }
-            _tray?.SetTip("AltStable Companion - finishing");
             if (_controller is not null) await _controller.StopAsync();
         }
         catch (Exception)

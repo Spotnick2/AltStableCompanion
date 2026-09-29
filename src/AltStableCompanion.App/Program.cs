@@ -44,9 +44,23 @@ internal static class Program
                 instance.Dispose();
                 return 1;
             }
-            instance.AskFirstToShow();
+            // Started to sit in the tray, and it is sitting there already: nothing to do, and
+            // certainly no window to put in front of the player at logon.
+            var answered = options.Minimized || instance.AskFirstToShow(TimeSpan.FromSeconds(5));
             instance.Dispose();
-            return 0;
+            if (answered) return 0;
+            NativeMethods.MessageBoxW(0,
+                "AltStable Companion is closing - it is finishing the portraits it was working on.\n\n"
+                + "Start it again in a moment.", Title, NativeMethods.MB_ICONINFORMATION);
+            return 4;
+        }
+
+        // Only now, as the instance that runs, is anything created on disk.
+        if (options.PrepareDataDir() is { } unusable)
+        {
+            NativeMethods.MessageBoxW(0, unusable + "\n\nNothing was started.", Title, NativeMethods.MB_ICONERROR);
+            instance.Dispose();
+            return 2;
         }
 
         App.Options = options;

@@ -18,8 +18,10 @@ internal sealed class SingleInstance : IDisposable
 {
     private const string MutexName = @"Local\AltStableCompanion";
     private const string EventName = @"Local\AltStableCompanion.Show";
+    private const string ShownName = @"Local\AltStableCompanion.Shown";
 
     private readonly EventWaitHandle? _show;
+    private readonly EventWaitHandle? _shown;
     private readonly Mutex? _mutex;
     private RegisteredWaitHandle? _wait;
     private bool _disposed;
@@ -35,6 +37,7 @@ internal sealed class SingleInstance : IDisposable
         try
         {
             _show = new EventWaitHandle(false, EventResetMode.AutoReset, EventName);
+            _shown = new EventWaitHandle(false, EventResetMode.AutoReset, ShownName);
             _mutex = new Mutex(false, MutexName);
             try
             {
@@ -52,13 +55,27 @@ internal sealed class SingleInstance : IDisposable
         }
     }
 
-    /// <summary>Ask the first instance to show its window. From the instance that is leaving.</summary>
-    public void AskFirstToShow()
+    /// <summary>
+    /// Ask the first instance to show its window, and wait for it to say that it has. From the
+    /// instance that is leaving. False when no answer came: the first instance is on its way
+    /// out (it holds the mutex until its last pass is done), and telling the player that all
+    /// is well would leave them with nothing running.
+    /// </summary>
+    public bool AskFirstToShow(TimeSpan wait)
     {
+        if (_show is null || _shown is null) return false;
         // This process was started by the player and may take the foreground; hand that on,
         // or the first instance's window opens behind whatever is in front. Best effort.
         NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
-        _show?.Set();
+        _shown.Reset();
+        _show.Set();
+        return _shown.WaitOne(wait);
+    }
+
+    /// <summary>The window is out: tell the instance that asked.</summary>
+    public void Acknowledge()
+    {
+        if (!_disposed) _shown?.Set();
     }
 
     /// <summary>Call <paramref name="show"/> whenever a later instance asks. Once the UI exists.</summary>
@@ -90,5 +107,6 @@ internal sealed class SingleInstance : IDisposable
         }
         _mutex?.Dispose();
         _show?.Dispose();
+        _shown?.Dispose();
     }
 }
