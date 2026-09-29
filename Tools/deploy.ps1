@@ -40,6 +40,21 @@ $target = Join-Path $Destination $Exe
 $stage = Join-Path $RepoRoot "publish\win-x64"
 $link = Join-Path $ShortcutFolder "AltStable Companion.lnk"
 
+# The stage is emptied before the build and removed after the copy. A folder the caller
+# named must survive the script: neither it nor the shortcut's folder may be the stage,
+# or be inside it.
+function Test-InStage([string]$path) {
+    $full = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($path))
+    $in = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($stage))
+    return [string]::Equals($full, $in, [StringComparison]::OrdinalIgnoreCase) -or
+        $full.StartsWith($in + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+}
+foreach ($named in @($Destination, $ShortcutFolder)) {
+    if (Test-InStage $named) {
+        throw "$named is the folder this script builds in ($stage), which it empties and removes. Name another."
+    }
+}
+
 # The copy that is being replaced holds its exe open, and may be in the middle of a
 # pass. It is not killed from here: Quit waits for the pass, a kill does not.
 # Only THAT copy: one run from bin\Debug against a copy of the game is in nobody's way.
