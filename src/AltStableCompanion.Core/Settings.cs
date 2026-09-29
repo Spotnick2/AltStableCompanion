@@ -13,8 +13,37 @@ public sealed record Settings
     public string? WowFlavorDir { get; init; }
     public bool KeepScreenshots { get; init; }
     public bool Paused { get; init; }
-    /// <summary>The "restart the game once" notice for a new addon folder has been dismissed.</summary>
-    public bool FirstFolderNoticeShown { get; init; }
+
+    /// <summary>
+    /// Flavour folders that owe the player the "restart the game once" notice. A folder is
+    /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
+    /// notice is dismissed, so the notice survives the app being closed - or killed - in
+    /// between. The notice shows once the addon's .toc exists. An install whose addon was
+    /// already there when the app first met it is never added.
+    /// </summary>
+    public IReadOnlyList<string> RestartNoticeInstalls { get; init; } = [];
+
+    public bool OwesRestartNotice(string flavorDir) =>
+        RestartNoticeInstalls.Contains(flavorDir, StringComparer.OrdinalIgnoreCase);
+
+    public Settings WithRestartNotice(string flavorDir, bool owed) => this with
+    {
+        RestartNoticeInstalls = owed
+            ? [.. RestartNoticeInstalls.Where(d => !Same(d, flavorDir)), flavorDir]
+            : [.. RestartNoticeInstalls.Where(d => !Same(d, flavorDir))],
+    };
+
+    private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    // A record compares a list by reference; two settings with the same folders are the same.
+    public bool Equals(Settings? other) =>
+        other is not null
+        && WowFlavorDir == other.WowFlavorDir
+        && KeepScreenshots == other.KeepScreenshots
+        && Paused == other.Paused
+        && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
+
+    public override int GetHashCode() => HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, RestartNoticeInstalls.Count);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

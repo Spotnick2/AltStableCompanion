@@ -25,6 +25,7 @@ public sealed class Watcher : IDisposable
     private readonly Lock _gate = new();
     private bool _running;
     private bool _again;
+    private bool _againAsked;
     private bool _paused;
     private bool _disposed;
 
@@ -34,7 +35,7 @@ public sealed class Watcher : IDisposable
         _pass = pass;
         _failed = failed;
         _debounce = debounce ?? TimeSpan.FromSeconds(2);
-        _debounceTimer = new Timer(_ => Run(), null, Timeout.Infinite, Timeout.Infinite);
+        _debounceTimer = new Timer(_ => Run(asked: false), null, Timeout.Infinite, Timeout.Infinite);
         var every = poll ?? TimeSpan.FromSeconds(60);
         _pollTimer = new Timer(_ => Trigger(), null, every, every);
 
@@ -75,10 +76,33 @@ public sealed class Watcher : IDisposable
         {
             lock (_gate)
             {
+                var resumed = _paused && !value;
                 _paused = value;
-                if (value) _again = false;
+                if (value)
+                {
+                    _again = false;
+                }
+                else if (resumed && !_disposed)
+                {
+                    // Whatever happened during the pause was not looked at: look now.
+                    _debounceTimer.Change(_debounce, Timeout.InfiniteTimeSpan);
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// The player asked for a pass ("Convert now"): run one at once, paused or not. It does not
+    /// go through the debounce - the next file event would push it back - and if a pass is
+    /// running, one more follows it.
+    /// </summary>
+    public void RunNow()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+        }
+        ThreadPool.QueueUserWorkItem(_ => Run(asked: true));
     }
 
     /// <summary>Something changed: run a pass once things have been quiet for the debounce.</summary>
@@ -91,13 +115,18 @@ public sealed class Watcher : IDisposable
         }
     }
 
-    // One pass at a time; a trigger during a pass runs one more after it.
-    private void Run()
+    // One pass at a time; a trigger during a pass runs one more after it. A pause stops what
+    // the watcher started by itself, never what the player asked for.
+    private void Run(bool asked)
     {
         lock (_gate)
         {
-            if (_paused || _disposed) return;
-            if (_running) { _again = true; return; }
+            if (_disposed || (_paused && !asked)) return;
+            if (_running)
+            {
+                if (asked) _againAsked = true; else _again = true;
+                return;
+            }
             _running = true;
         }
         while (true)
@@ -112,13 +141,14 @@ public sealed class Watcher : IDisposable
             }
             lock (_gate)
             {
-                if (!_again || _paused || _disposed)
+                var more = !_disposed && (_againAsked || (_again && !_paused));
+                _again = false;
+                _againAsked = false;
+                if (!more)
                 {
-                    _again = false;
                     _running = false;
                     return;
                 }
-                _again = false;
             }
         }
     }
@@ -142,6 +172,7 @@ public sealed class Watcher : IDisposable
             if (_disposed) return;
             _disposed = true;
             _again = false;
+            _againAsked = false;
         }
         foreach (var w in _watchers) w.Dispose();
         _debounceTimer.Dispose();

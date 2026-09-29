@@ -26,7 +26,11 @@ public sealed record PassReport(
     long BytesFreed,
     (DateTime NewestShot, DateTime? NewestRecord)? Stale,
     bool FolderCreated,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    /// <summary>How many accounts have an AltStable.lua at all.</summary>
+    int Accounts = 0,
+    /// <summary>How many of their stores are a version this app does not read.</summary>
+    int Refused = 0);
 
 /// <summary>
 /// One full, idempotent pass: read every store, pair the newest capture of each character with
@@ -231,7 +235,9 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
 
         return new PassReport(
             [.. statuses.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)],
-            written, freed, stale, folderCreated, warnings);
+            written, freed, stale, folderCreated, warnings,
+            Accounts: SavedVariablesReader.FindStores(install.AccountsDir).Count(),
+            Refused: stores.Count(s => s.Refused is not null));
     }
 
     // The capture's identity in a sidecar: the shot-1 epoch, or its local stamp for a record
