@@ -66,7 +66,7 @@ public sealed class Log(string dir)
                 }
                 File.AppendAllText(Path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {message}{Environment.NewLine}");
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // A log that cannot be written must not take the app with it.
             }

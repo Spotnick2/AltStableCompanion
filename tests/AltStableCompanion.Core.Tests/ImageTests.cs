@@ -87,6 +87,33 @@ public class TgaCodecTests
         Assert.Throws<TgaFormatException>(() =>
             TgaCodec.Read(new MemoryStream([.. header, 0x84, 1, 2, 3, 0])));
     }
+
+    [Fact]
+    public void Only_a_file_that_ends_early_is_worth_reading_again()
+    {
+        var bytes = TestData.WowScreenshot(Gradient(8, 8));
+        var cutShort = Assert.Throws<TgaFormatException>(() => TgaCodec.Read(new MemoryStream(bytes[..(bytes.Length / 2)])));
+        Assert.True(cutShort.Truncated);
+
+        var header = new byte[18];
+        header[2] = 2; header[12] = 1; header[14] = 1; header[16] = 16; header[17] = 0x20;
+        var depth = Assert.Throws<TgaFormatException>(() => TgaCodec.Read(new MemoryStream([.. header, 0, 0])));
+        Assert.False(depth.Truncated);
+    }
+
+    [Fact]
+    public void A_header_claiming_more_pixels_than_a_screen_has_is_a_format_error()
+    {
+        // 65535 x 65535: the product does not fit an int, and the allocation threw OverflowException.
+        var header = new byte[18];
+        header[2] = 2; header[12] = 0xFF; header[13] = 0xFF; header[14] = 0xFF; header[15] = 0xFF;
+        header[16] = 32; header[17] = 0x20;
+        var ex = Assert.Throws<TgaFormatException>(() => TgaCodec.Read(new MemoryStream(header)));
+        Assert.False(ex.Truncated);
+        // 30000 x 30000 fits an int as a count and not as a byte length.
+        header[12] = 0x30; header[13] = 0x75; header[14] = 0x30; header[15] = 0x75;
+        Assert.Throws<TgaFormatException>(() => TgaCodec.Read(new MemoryStream(header)));
+    }
 }
 
 public class MatteTests

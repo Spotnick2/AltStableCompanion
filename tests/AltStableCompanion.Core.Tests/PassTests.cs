@@ -301,6 +301,168 @@ public class ConvertPassTests
     }
 
     [Fact]
+    public void A_portrait_the_python_converter_made_is_a_portrait()
+    {
+        // Its sidecar has the guid and no epoch, and it deleted the screenshots it used.
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        f.EnsureToc();
+        f.WriteCutout("kaleid-sumner", TestData.Solid(4, 4, 1, 1, 1),
+            new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = Guid1 });
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+
+        var status = new ConvertPass(t.Install, new ConvertOptions()).Run().Characters.Single();
+        Assert.Equal(CharacterState.Portrait, status.State);
+        Assert.Contains("earlier converter", status.Note);
+    }
+
+    [Fact]
+    public void A_portrait_the_python_converter_made_is_replaced_when_its_screenshots_are_there()
+    {
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        f.EnsureToc();
+        f.WriteCutout("kaleid-sumner", TestData.Solid(4, 4, 1, 1, 1),
+            new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = Guid1 });
+        Capture(t, "1#12", "Kaleid Sumner", Guid1, T0);
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+        Assert.Equal(["Kaleid Sumner"], report.Written);
+        Assert.Equal(TestData.Epoch(T0), f.ReadMeta("kaleid-sumner")!.Epoch);
+    }
+
+    [Fact]
+    public void The_nearly_square_warning_outlives_the_pass_that_wrote_the_cutout()
+    {
+        using var t = new TempInstall();
+        var (b, w) = TestData.Pair(400, 1200, 100, 300, 90, 100);
+        t.WriteShot(T0, b);
+        t.WriteShot(T0.AddSeconds(1), w);
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+        var pass = new ConvertPass(t.Install, new ConvertOptions());
+
+        Assert.Contains("nearly square", pass.Run().Characters.Single().Note);
+        var again = pass.Run();
+        Assert.Empty(again.Written);
+        Assert.Contains("nearly square", again.Characters.Single().Note);
+    }
+
+    [Fact]
+    public void A_screenshot_that_cannot_be_deleted_is_a_warning_not_the_end_of_the_pass()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#12", "Kaleid Sumner", Guid1, T0);
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+        var black = Path.Combine(t.Install.Screenshots, TestData.ShotName(T0));
+        File.SetAttributes(black, FileAttributes.ReadOnly);       // File.Delete: UnauthorizedAccessException
+        try
+        {
+            var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+            Assert.Equal(["Kaleid Sumner"], report.Written);
+            Assert.Contains(report.Warnings, x => x.Contains("could not delete"));
+            Assert.True(File.Exists(black));
+            // The other file went, and the manifest was still written.
+            Assert.False(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0.AddSeconds(1)))));
+            Assert.Contains(Guid1, File.ReadAllText(new CutoutFolder(t.Install.CutoutAddonDir).ManifestPath));
+        }
+        finally
+        {
+            File.SetAttributes(black, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
+    public void One_capture_that_fails_does_not_take_the_others_with_it()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#12", "Aaa First", "Player-1-AAAAAAAA", T0);
+        Capture(t, "1#12", "Bbb Second", "Player-1-BBBBBBBB", T0.AddMinutes(1));
+        t.WriteStore("1#12", Records(("Aaa First", "Player-1-AAAAAAAA", T0), ("Bbb Second", "Player-1-BBBBBBBB", T0.AddMinutes(1))));
+        // Where the first cutout has to go there is a FOLDER of that name: the write fails.
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        Directory.CreateDirectory(Path.Combine(f.CutoutsDir, "aaa-first.tga"));
+
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+
+        Assert.Equal(["Bbb Second"], report.Written);
+        Assert.Equal([CharacterState.Failed, CharacterState.Portrait], report.Characters.Select(c => c.State));
+        Assert.Contains(report.Warnings, x => x.StartsWith("Aaa First"));
+        Assert.Contains("Player-1-BBBBBBBB", File.ReadAllText(f.ManifestPath));
+        // What failed keeps its screenshots, to be tried again.
+        Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0))));
+    }
+
+    [Fact]
+    public void A_screenshot_this_codec_will_never_read_is_not_waited_for()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#12", "Kaleid Sumner", Guid1, T0);
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+        var black = Path.Combine(t.Install.Screenshots, TestData.ShotName(T0));
+        var bytes = File.ReadAllBytes(black);
+        bytes[16] = 16;                                           // 16 bits a pixel: not a depth it reads
+        File.WriteAllBytes(black, bytes);
+        var pass = new ConvertPass(t.Install, new ConvertOptions());
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var status = pass.Run().Characters.Single();
+        Assert.Equal(CharacterState.Rejected, status.State);
+        Assert.Contains("cannot be read", status.Note);
+        // Four waits of half a second were spent on it before.
+        Assert.True(clock.ElapsedMilliseconds < 1500, $"waited {clock.ElapsedMilliseconds} ms for a file that will not change");
+        Assert.True(File.Exists(black));
+    }
+
+    [Fact]
+    public void A_screenshot_cut_short_is_waited_for_once_then_left_until_it_changes()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#12", "Kaleid Sumner", Guid1, T0);
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+        var black = Path.Combine(t.Install.Screenshots, TestData.ShotName(T0));
+        var whole = File.ReadAllBytes(black);
+        File.WriteAllBytes(black, whole[..(whole.Length / 2)]);
+        var pass = new ConvertPass(t.Install, new ConvertOptions());
+
+        Assert.Equal(CharacterState.Missing, pass.Run().Characters.Single().State);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(CharacterState.Missing, pass.Run().Characters.Single().State);
+        Assert.True(clock.ElapsedMilliseconds < 1500, $"read it again: {clock.ElapsedMilliseconds} ms");
+
+        // The client finishes writing it: the file changed, so it is read again.
+        File.WriteAllBytes(black, whole);
+        Assert.Equal(["Kaleid Sumner"], pass.Run().Written);
+    }
+
+    [Fact]
+    public void Cancelling_stops_between_captures_and_still_reports()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#12", "Kaleid Sumner", Guid1, T0);
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+        using var stop = new CancellationTokenSource();
+        stop.Cancel();
+
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run(stop.Token);
+        Assert.Empty(report.Written);
+        Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0))));
+    }
+
+    [Fact]
+    public void A_warning_is_in_every_report_and_in_the_log_once()
+    {
+        using var t = new TempInstall();
+        t.WriteStore("1#12", TestData.SavedVariables([TestData.Record("A", Guid1, 1, T0)], version: 2));
+        var log = new List<string>();
+        var pass = new ConvertPass(t.Install, new ConvertOptions(), log.Add);
+
+        Assert.Single(pass.Run().Warnings);
+        Assert.Single(pass.Run().Warnings);
+        Assert.Single(log);
+    }
+
+    [Fact]
     public void With_nothing_to_convert_no_addon_folder_is_created()
     {
         using var t = new TempInstall();
@@ -335,6 +497,16 @@ public class InstallAndSettingsTests
         Assert.Equal(new Settings { KeepScreenshots = true, WowFlavorDir = "X" }, Settings.Load(dir));
         File.WriteAllText(Path.Combine(dir, "settings.json"), "{ not json");
         Assert.Equal(new Settings(), Settings.Load(dir));
+    }
+
+    [Fact]
+    public void A_log_that_cannot_be_written_does_not_take_the_app_with_it()
+    {
+        using var t = new TempInstall();
+        var dir = Path.Combine(t.Root, "appdata");
+        // A folder where the file should be: appending to it is refused, not an IOException.
+        Directory.CreateDirectory(Path.Combine(dir, "log.txt"));
+        new Log(dir).Write("a line");
     }
 
     [Fact]

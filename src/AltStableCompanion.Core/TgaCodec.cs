@@ -1,7 +1,14 @@
 namespace AltStableCompanion.Core;
 
-/// <summary>A TGA file that is truncated or not one this codec reads - usually still being written.</summary>
-public sealed class TgaFormatException(string message) : Exception(message);
+/// <summary>
+/// A TGA file this codec does not read. <see cref="Truncated"/> tells the two kinds apart: a
+/// file that ends early may still be being written and is worth reading again; a header this
+/// codec does not understand will say the same thing however often it is read.
+/// </summary>
+public sealed class TgaFormatException(string message, bool truncated = false) : Exception(message)
+{
+    public bool Truncated { get; } = truncated;
+}
 
 /// <summary>
 /// The two TGA shapes this app meets, and nothing more.
@@ -17,6 +24,13 @@ public sealed class TgaFormatException(string message) : Exception(message);
 /// </summary>
 public static class TgaCodec
 {
+    /// <summary>
+    /// More pixels than any screenshot has (two 8K screens side by side are 66 million). The
+    /// header's two 16-bit sizes can multiply past what an int holds; a file claiming that is
+    /// corrupt, and is refused before anything is allocated for it.
+    /// </summary>
+    public const int MaxPixels = 128 * 1024 * 1024;
+
     public static RgbaImage Read(string path)
     {
         using var s = new FileStream(path, FileMode.Open, FileAccess.Read,
@@ -48,6 +62,10 @@ public static class TgaCodec
         if (width == 0 || height == 0)
         {
             throw new TgaFormatException("TGA with no pixels");
+        }
+        if ((long)width * height > MaxPixels)
+        {
+            throw new TgaFormatException($"TGA of {width} x {height} is larger than any screenshot");
         }
 
         // Skip the image ID and any colour map; true-colour files do not use it.
@@ -170,7 +188,7 @@ public static class TgaCodec
         while (got < n)
         {
             var r = s.Read(buf, got, n - got);
-            if (r == 0) throw new TgaFormatException("TGA ends early - still being written?");
+            if (r == 0) throw new TgaFormatException("TGA ends early - still being written?", truncated: true);
             got += r;
         }
     }
@@ -178,7 +196,7 @@ public static class TgaCodec
     private static int ReadByte(Stream s)
     {
         var b = s.ReadByte();
-        if (b < 0) throw new TgaFormatException("TGA ends early - still being written?");
+        if (b < 0) throw new TgaFormatException("TGA ends early - still being written?", truncated: true);
         return b;
     }
 }

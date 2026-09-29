@@ -19,9 +19,20 @@ public sealed record CutoutMeta
     public string? Guid { get; init; }
     /// <summary>The capture's shot-1 epoch: "already converted" is guid + epoch.</summary>
     public long? Epoch { get; init; }
+
+    /// <summary>
+    /// A standing character is much taller than it is wide. Nearly square means something else
+    /// survived the matte - a tooltip above the stage is the one that has happened. Worked out
+    /// from the native size the sidecar keeps, so EVERY pass can say it, not only the one that
+    /// wrote the cutout (the next pass follows within seconds).
+    /// </summary>
+    public bool NearlySquare => NativePx is [var w, var h] && w > h * 0.8;
 }
 
-public sealed record Cutout(RgbaImage Canvas, CutoutMeta Meta, bool NearlySquare);
+public sealed record Cutout(RgbaImage Canvas, CutoutMeta Meta)
+{
+    public bool NearlySquare => Meta.NearlySquare;
+}
 
 /// <summary>One black/white pair to one cutout. Ported from make-cutout.py's convert().</summary>
 public static class CutoutConverter
@@ -70,9 +81,7 @@ public static class CutoutConverter
             Epoch = epoch,
         };
 
-        // A standing character is much taller than it is wide. Nearly square means something
-        // else survived the matte - a tooltip above the stage is the one that has happened.
-        return new Cutout(canvas, meta, NearlySquare: nativeW > nativeH * 0.8);
+        return new Cutout(canvas, meta);
     }
 
     /// <summary>The smallest power of two at least <paramref name="n"/>. WoW reloads those reliably.</summary>
