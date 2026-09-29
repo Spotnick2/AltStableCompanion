@@ -1,5 +1,26 @@
 namespace AltStableCompanion.Core;
 
+/// <summary>
+/// What one pass did, written down when it ended. Its own record, and not read back out of
+/// the last report: a pass that throws has no report, and the one before it is still there.
+/// </summary>
+/// <param name="At">When it ended.</param>
+/// <param name="Written">The portraits it wrote.</param>
+/// <param name="Unconverted">Captures it looked at and could not use: collided, rejected,
+///   ambiguous, or failed in the writing. They are in the list, each with its reason.</param>
+/// <param name="Waiting">Screenshots newer than any record: a capture may be waiting for a Reload.</param>
+/// <param name="Failed">The pass itself threw.</param>
+public sealed record PassNote(DateTime At, IReadOnlyList<string> Written, int Unconverted = 0,
+    bool Waiting = false, bool Failed = false)
+{
+    public static PassNote Of(PassReport? report, DateTime at) => report is null
+        ? new PassNote(at, [], Failed: true)
+        : new PassNote(at, report.Written,
+            report.Characters.Count(c => c.State is CharacterState.Collided or CharacterState.Rejected
+                or CharacterState.Ambiguous or CharacterState.Failed),
+            Waiting: report.Stale is not null);
+}
+
 /// <summary>Everything the status line is worked out from. No UI type in it.</summary>
 public sealed record ShellState(
     WowInstall? Install = null,
@@ -9,11 +30,10 @@ public sealed record ShellState(
     bool Stopping = false,
     string? LastError = null,
     PassReport? Report = null,
-    /// <summary>When the last pass of this install ended, whatever it found.</summary>
-    DateTime? CheckedAt = null,
-    /// <summary>The last portraits written for this install since the app started, and when.</summary>
-    IReadOnlyList<string>? LastWritten = null,
-    DateTime? LastWrittenAt = null);
+    /// <summary>The last pass of this install, whatever it found.</summary>
+    PassNote? LastPass = null,
+    /// <summary>The last pass of this install that wrote a portrait, since the app started.</summary>
+    PassNote? LastWritten = null);
 
 /// <summary>
 /// What the app says about a pass: the status line, the balloon, a character's state. Plain
@@ -63,18 +83,30 @@ public static class PassText
     /// it ran ("Convert now" with nothing to convert looked like a button that does nothing),
     /// and so that the last portrait written stays in view after later passes find nothing.
     /// Null until a pass has run.
+    ///
+    /// "Nothing new" is only said of a pass that had nothing to look at. One that looked at a
+    /// capture and could not use it says so, and so does one with screenshots no record owns.
+    /// A time that is not of <paramref name="today"/> carries its date: the app stays in the
+    /// tray for days.
     /// </summary>
-    public static string? Activity(ShellState s)
+    public static string? Activity(ShellState s, DateTime today)
     {
-        if (s.CheckedAt is not { } at) return null;
-        var wrote = s.Report?.Written ?? [];
-        var what = s.LastError is not null ? "the pass failed"
-            : wrote.Count > 0 ? "wrote " + Names(wrote)
-            : "nothing new";
-        var line = $"Last check {Time(at)}: {what}.";
-        if (wrote.Count == 0 && s.LastWritten is { Count: > 0 } last && s.LastWrittenAt is { } when)
+        if (s.LastPass is not { } pass) return null;
+        var attention = pass.Unconverted switch
         {
-            line += $" Last written: {Names(last)}, at {Time(when)}.";
+            0 => null,
+            1 => "1 capture could not be converted - see the list",
+            var n => $"{n} captures could not be converted - see the list",
+        };
+        var what = pass.Failed ? "the pass failed"
+            : pass.Written.Count > 0 ? "wrote " + Names(pass.Written) + (attention is null ? "" : "; " + attention)
+            : attention is not null ? "nothing written; " + attention
+            : pass.Waiting ? "nothing to convert yet"
+            : "nothing new";
+        var line = $"Last check {Time(pass.At, today)}: {what}.";
+        if (pass.Written.Count == 0 && s.LastWritten is { Written.Count: > 0 } last)
+        {
+            line += $" Last written: {Names(last.Written)}, at {Time(last.At, today)}.";
         }
         return line;
     }
@@ -82,7 +114,8 @@ public static class PassText
     private static string Names(IReadOnlyList<string> names) =>
         names.Count == 1 ? names[0] : $"{names.Count} portraits";
 
-    private static string Time(DateTime t) => t.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Time(DateTime t, DateTime today) => t.ToString(
+        t.Date == today.Date ? "HH:mm:ss" : "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>The tray icon's tooltip: the app's name and, in a word, what it is doing.</summary>
     public static string TrayTip(ShellState s)
@@ -106,8 +139,8 @@ public static class PassText
     {
         if (report.Written.Count == 0) return null;
         var what = report.Written.Count == 1
-            ? $"Portrait written: {report.Written[0]}"
-            : $"{report.Written.Count} portraits written";
+            ? $"Portrait written: {Names(report.Written)}"
+            : $"{Names(report.Written)} written";
         if (report.FolderCreated)
         {
             return (what, "WoW only notices a new addon folder at startup: quit the game completely and start it again once.");

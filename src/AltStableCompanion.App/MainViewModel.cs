@@ -132,7 +132,7 @@ internal sealed class MainViewModel : ObservableObject
         FlavorWarning = shell.Install is null ? null : PassText.FlavorWarning(shell.Install);
         CanChangeInstall = !now.Pinned && !shell.Stopping;
         StatusLine = PassText.StatusLine(shell);
-        Activity = PassText.Activity(shell);
+        Activity = PassText.Activity(shell, DateTime.Now);
         RestartNotice = now.RestartNotice;
 
         // Through the field: this is the controller telling the window, not the player.
