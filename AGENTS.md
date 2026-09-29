@@ -1,0 +1,55 @@
+# AGENTS.md — AltStable Companion
+
+A Windows tray app that turns AltStable's in-game portrait captures into the cutouts the
+addon's Roster scene draws. The addon lives in `C:\Projects\AltStable`
+(`Spotnick2/AltStable`); the work is tracked in AltStable#89.
+
+## The contract is the source of truth
+
+Everything this app reads and writes is specified in the addon's
+`docs/PORTRAIT-CONTRACT.md`. Read it before touching the readers or writers. When the two
+disagree, the contract wins — and a change here that the contract does not allow is a
+change to the contract first, made in the addon's repo, with a `version` bump if a reader
+could misparse.
+
+The reference implementation is the addon's own `Tools/RenderCutout/make-cutout.py` and
+`Update-Cutouts.ps1`. Their numbers (matte, floors, thresholds, canvas sizes, manifest
+format) are measured on the live client; port them, do not re-derive them. Where this app
+deliberately differs (pass-wide screenshot claims, no superseded-file deletion, GUID
+identity, epoch ordering) the contract says so.
+
+## Layout
+
+```
+AltStableCompanion.slnx
+src/AltStableCompanion.Core/        no UI: install, records, pairing, matte, TGA, manifest, watcher
+src/AltStableCompanion.App/         Avalonia tray shell (milestone 2)
+tests/AltStableCompanion.Core.Tests xunit
+```
+
+## Build & test
+
+```
+dotnet build -warnaserror
+dotnet test
+```
+
+Warnings are errors (`Directory.Build.props`). Tests generate their own images and
+SavedVariables files in temp folders — there are no binary fixtures, and none should be
+added.
+
+## Conventions
+
+- **Right-size for a single maintainer.** No DI container, no plugin system, no i18n, no
+  auto-update. An interface with one implementation is speculation.
+- **No network, ever.** It is a promise in the README. The app touches only screenshots it
+  matched to a capture, the `AltStableCutouts` folder and `%APPDATA%\AltStableCompanion`.
+- **Never delete what you did not match.** Screenshots belong to the player; only the two
+  files a capture consumed may go, and only after its cutout is on disk.
+- **Hand-rolled images.** The TGA codec and the resampler are ours (no ImageSharp): small,
+  exact, and unit-tested. WoW writes RLE TGA (type 10), 32-bit, top-left origin; cutouts
+  are written uncompressed, bottom-left origin, like the files known to load.
+- **Mutation-test claims.** A test that passes with the behaviour broken proves nothing;
+  break it and confirm the suite goes red.
+- Branch per milestone, PR into `main`. Commit or push only when asked. The owner runs
+  reviews.

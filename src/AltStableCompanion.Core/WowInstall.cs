@@ -1,0 +1,86 @@
+using Microsoft.Win32;
+
+namespace AltStableCompanion.Core;
+
+/// <summary>One WoW flavour folder, e.g. <c>...\World of Warcraft\_classic_beta_</c> (Forever).</summary>
+public sealed record WowInstall(string FlavorDir)
+{
+    public string Root => Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(FlavorDir)) ?? FlavorDir;
+    public string Flavor => Path.GetFileName(Path.TrimEndingDirectorySeparator(FlavorDir));
+    public string Screenshots => Path.Combine(FlavorDir, "Screenshots");
+    public string AccountsDir => Path.Combine(FlavorDir, "WTF", "Account");
+    public string AddOnsDir => Path.Combine(FlavorDir, "Interface", "AddOns");
+    public string CutoutAddonDir => Path.Combine(AddOnsDir, CutoutFolder.AddonName);
+    public bool AltStableInstalled => File.Exists(Path.Combine(AddOnsDir, "AltStable", "AltStable.toc"));
+}
+
+/// <summary>
+/// Where WoW is. Measured on this owner's machine (2026-09-29): the registry's
+/// <c>World of Warcraft\InstallPath</c> is whichever flavour ran LAST (<c>_anniversary_</c>),
+/// so only its parent is useful; the <c>World of Warcraft\Beta\InstallPath</c> subkey names
+/// <c>_classic_beta_</c>, which is Forever, and is tried first. Forever's executable is
+/// <c>WowB.exe</c>, so a flavour folder is recognised by any <c>Wow*.exe</c>, not one name.
+/// </summary>
+public static class WowInstallLocator
+{
+    public const string DefaultFlavor = "_classic_beta_";
+    private const string DefaultRoot = @"C:\Program Files (x86)\World of Warcraft";
+    private const string BlizzardKey = @"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft";
+
+    public static bool IsFlavorDir(string dir) =>
+        Directory.Exists(dir) && Directory.EnumerateFiles(dir, "Wow*.exe").Any();
+
+    /// <summary>Flavour folders under a root: <c>_name_</c> directories that hold a WoW executable.</summary>
+    public static IReadOnlyList<string> FlavorsUnder(string root)
+    {
+        if (!Directory.Exists(root)) return [];
+        return [.. Directory.EnumerateDirectories(root)
+            .Where(d => Path.GetFileName(d) is { Length: > 2 } n && n.StartsWith('_') && n.EndsWith('_'))
+            .Where(IsFlavorDir)
+            .Order(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>
+    /// The install to use: <paramref name="overrideFlavorDir"/> when it is a flavour folder,
+    /// else Forever's, found through the registry or the default location. Null when none is.
+    /// </summary>
+    public static WowInstall? Detect(string? overrideFlavorDir = null)
+    {
+        if (!string.IsNullOrWhiteSpace(overrideFlavorDir) && IsFlavorDir(overrideFlavorDir))
+        {
+            return new WowInstall(overrideFlavorDir);
+        }
+        foreach (var dir in CandidateFlavorDirs())
+        {
+            if (IsFlavorDir(dir)) return new WowInstall(dir);
+        }
+        return null;
+    }
+
+    private static IEnumerable<string> CandidateFlavorDirs()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in Candidates())
+        {
+            var full = Path.TrimEndingDirectorySeparator(dir);
+            if (seen.Add(full)) yield return full;
+        }
+
+        static IEnumerable<string> Candidates()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                if (Registry.LocalMachine.OpenSubKey(BlizzardKey + @"\Beta")?.GetValue("InstallPath") is string beta)
+                {
+                    yield return beta;
+                }
+                if (Registry.LocalMachine.OpenSubKey(BlizzardKey)?.GetValue("InstallPath") is string last
+                    && Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(last)) is { } root)
+                {
+                    yield return Path.Combine(root, DefaultFlavor);
+                }
+            }
+            yield return Path.Combine(DefaultRoot, DefaultFlavor);
+        }
+    }
+}

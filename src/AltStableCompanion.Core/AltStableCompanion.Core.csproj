@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything the app does that is not UI: finding the install, reading the
+       capture records, pairing them with screenshots, the matte, and writing the
+       AltStableCutouts addon folder. No UI dependency, so a Mac shell can come
+       later without touching it. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="AltStableCompanion.Core.Tests" />
+  </ItemGroup>
+
+</Project>
