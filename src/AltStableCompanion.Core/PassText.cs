@@ -51,6 +51,20 @@ public static class PassText
             : "Watching";
     }
 
+    /// <summary>The tray icon's tooltip: the app's name and, in a word, what it is doing.</summary>
+    public static string TrayTip(ShellState s)
+    {
+        var what = s switch
+        {
+            { Stopping: true } => "finishing",
+            { Install: null } => "no WoW folder",
+            { Converting: true } => "converting",
+            { Paused: true } => "paused",
+            _ => "watching",
+        };
+        return $"AltStable Companion - {what}";
+    }
+
     /// <summary>
     /// The balloon for a pass, or null when it wrote nothing. Rejections and failures never
     /// raise one: the list in the window is where they are read.

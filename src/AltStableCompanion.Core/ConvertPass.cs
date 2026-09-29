@@ -45,10 +45,20 @@ public sealed record PassReport(
 ///   until either file changes;</item>
 /// <item>one capture that fails does not take the others, or the manifest, with it.</item>
 /// </list>
-/// Keep one instance for the app's lifetime: the memory of unusable pairs lives on it.
+/// Keep one instance for the app's lifetime: the memory of unusable pairs lives on it. What
+/// the player changes meanwhile is <see cref="Options"/>, not the instance.
 /// </summary>
 public sealed class ConvertPass(WowInstall install, ConvertOptions options, Action<string>? log = null)
 {
+    private volatile ConvertOptions _options = options;
+
+    /// <summary>Read once, when a pass starts: a pass ends under the options it began with.</summary>
+    public ConvertOptions Options
+    {
+        get => _options;
+        set => _options = value;
+    }
+
     private const string SquareNote =
         "nearly square - something other than the character may have been on screen; re-capture";
 
@@ -70,7 +80,19 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             if (_logged.Add(message)) log?.Invoke(message);
         }
 
-        var stores = SavedVariablesReader.ReadAll(install.AccountsDir, Warn);
+        var options = _options;
+        // Listed once, here, before anything is written: the count in the report is of these.
+        IReadOnlyList<string> accounts;
+        try
+        {
+            accounts = [.. SavedVariablesReader.FindStores(install.AccountsDir)];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Warn($"could not list the accounts: {ex.Message}");
+            accounts = [];
+        }
+        var stores = SavedVariablesReader.ReadAll(accounts, Warn);
         foreach (var refused in stores.Where(s => s.Refused is not null))
         {
             Warn($"{refused.Path}: {refused.Refused}");
@@ -236,7 +258,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
         return new PassReport(
             [.. statuses.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)],
             written, freed, stale, folderCreated, warnings,
-            Accounts: SavedVariablesReader.FindStores(install.AccountsDir).Count(),
+            Accounts: accounts.Count,
             Refused: stores.Count(s => s.Refused is not null));
     }
 

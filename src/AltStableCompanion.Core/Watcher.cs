@@ -42,18 +42,30 @@ public sealed class Watcher : IDisposable
         foreach (var (folder, filter, recursive) in targets)
         {
             if (!Directory.Exists(folder)) continue;
-            var w = new FileSystemWatcher(folder, filter)
+            FileSystemWatcher? w = null;
+            try
             {
-                IncludeSubdirectories = recursive,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
-            };
-            w.Created += (_, _) => Trigger();
-            w.Changed += (_, _) => Trigger();
-            w.Renamed += (_, _) => Trigger();
-            w.Deleted += (_, _) => Trigger();
-            w.Error += (_, _) => Trigger();              // buffer overflow: better one pass too many
-            w.EnableRaisingEvents = true;
-            _watchers.Add(w);
+                w = new FileSystemWatcher(folder, filter)
+                {
+                    IncludeSubdirectories = recursive,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                };
+                w.Created += (_, _) => Trigger();
+                w.Changed += (_, _) => Trigger();
+                w.Renamed += (_, _) => Trigger();
+                w.Deleted += (_, _) => Trigger();
+                w.Error += (_, _) => Trigger();          // buffer overflow: better one pass too many
+                w.EnableRaisingEvents = true;
+                _watchers.Add(w);
+            }
+            catch (Exception ex)
+            {
+                // A folder that is there and cannot be watched (no rights, a share that does not
+                // notify, gone since the check). The poll still looks at it; a watcher that threw
+                // here would leave whoever is building it with half of one.
+                w?.Dispose();
+                Report(ex);
+            }
         }
     }
 
@@ -106,12 +118,20 @@ public sealed class Watcher : IDisposable
     }
 
     /// <summary>Something changed: run a pass once things have been quiet for the debounce.</summary>
-    public void Trigger()
+    public void Trigger() => Trigger(_debounce);
+
+    /// <summary>
+    /// Look now, without waiting for things to go quiet - but only if not paused. For the
+    /// watcher's own first look at a folder. What the player asks for is <see cref="RunNow"/>.
+    /// </summary>
+    public void TriggerNow() => Trigger(TimeSpan.Zero);
+
+    private void Trigger(TimeSpan after)
     {
         lock (_gate)
         {
             if (_paused || _disposed) return;
-            _debounceTimer.Change(_debounce, Timeout.InfiniteTimeSpan);
+            _debounceTimer.Change(after, Timeout.InfiniteTimeSpan);
         }
     }
 

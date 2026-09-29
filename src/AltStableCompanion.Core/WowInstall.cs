@@ -41,15 +41,12 @@ public static class WowInstallLocator
     }
 
     /// <summary>
-    /// The install to use: <paramref name="overrideFlavorDir"/> when it is a flavour folder,
-    /// else Forever's, found through the registry or the default location. Null when none is.
+    /// Forever's install, found through the registry or the default location. Null when none
+    /// is. It takes no folder to prefer: one that fell back to this when the folder was wrong
+    /// is how a pass ends up in the wrong game. <see cref="ResolvedInstall"/> decides.
     /// </summary>
-    public static WowInstall? Detect(string? overrideFlavorDir = null)
+    public static WowInstall? Detect()
     {
-        if (!string.IsNullOrWhiteSpace(overrideFlavorDir) && IsFlavorDir(overrideFlavorDir))
-        {
-            return new WowInstall(overrideFlavorDir);
-        }
         foreach (var dir in CandidateFlavorDirs())
         {
             if (IsFlavorDir(dir)) return new WowInstall(dir);

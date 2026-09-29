@@ -55,10 +55,6 @@ public sealed record StartupOptions(bool Minimized = false, string? WowDir = nul
                     else
                     {
                         if (options.DataDir is not null) return (null, "--data-dir is given twice.");
-                        if (WhyNotWritable(folder) is { } why)
-                        {
-                            return (null, $"--data-dir: \"{folder}\" cannot be used: {why}");
-                        }
                         options = options with { DataDir = folder };
                     }
                     i++;
@@ -71,19 +67,25 @@ public sealed record StartupOptions(bool Minimized = false, string? WowDir = nul
         return (options, null);
     }
 
-    private static string? WhyNotWritable(string folder)
+    /// <summary>
+    /// Make sure <c>--data-dir</c> can be written to; what is wrong with it when it cannot.
+    /// Apart from <see cref="Parse"/>, which changes nothing on disk: a folder is only created
+    /// once the whole command line is known to be right and this is the instance that runs.
+    /// </summary>
+    public string? PrepareDataDir()
     {
+        if (DataDir is null) return null;
         try
         {
-            Directory.CreateDirectory(folder);
-            var probe = Path.Combine(folder, ".write-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(DataDir);
+            var probe = Path.Combine(DataDir, ".write-test-" + Guid.NewGuid().ToString("N"));
             File.WriteAllText(probe, "");
             File.Delete(probe);
             return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return ex.Message;
+            return $"--data-dir: \"{DataDir}\" cannot be used: {ex.Message}";
         }
     }
 }
@@ -96,8 +98,12 @@ public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool 
     /// else, and ONLY when neither was given, detection. A saved folder that has stopped being
     /// a flavour folder is a problem to show, not a reason to look elsewhere: silently picking
     /// another install could convert - and delete - in the wrong game.
+    ///
+    /// Settings that could not be READ (<paramref name="settingsProblem"/>) are not "no folder
+    /// was saved". What the player chose is unknown, so nothing is chosen for them.
     /// </summary>
-    public static ResolvedInstall Resolve(string? pinned, string? saved, Func<WowInstall?>? detect = null)
+    public static ResolvedInstall Resolve(string? pinned, string? saved, Func<WowInstall?>? detect = null,
+        string? settingsProblem = null)
     {
         if (pinned is not null)
         {
@@ -105,13 +111,17 @@ public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool 
                 ? new ResolvedInstall(new WowInstall(pinned), null, Pinned: true)
                 : new ResolvedInstall(null, $"The folder given with --wow-dir is not a WoW flavour folder: {pinned}", Pinned: true);
         }
+        if (settingsProblem is not null)
+        {
+            return new ResolvedInstall(null, "The settings could not be read, so the WoW folder is not known", Pinned: false);
+        }
         if (!string.IsNullOrWhiteSpace(saved))
         {
             return WowInstallLocator.IsFlavorDir(saved)
                 ? new ResolvedInstall(new WowInstall(saved), null, Pinned: false)
                 : new ResolvedInstall(null, $"The WoW folder chosen before is not there any more: {saved}", Pinned: false);
         }
-        var found = (detect ?? (() => WowInstallLocator.Detect()))();
+        var found = (detect ?? WowInstallLocator.Detect)();
         return new ResolvedInstall(found, found is null ? "Couldn't find the WoW folder" : null, Pinned: false);
     }
 

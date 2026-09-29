@@ -24,7 +24,24 @@ public class StartupOptionsTests
         Assert.Equal(t.Install.FlavorDir, options.WowDir);
         Assert.Equal(data, options.DataDir);
         Assert.True(options.Explicit);
+    }
+
+    [Fact]
+    public void Reading_the_command_line_changes_nothing_on_disk()
+    {
+        // The data folder named BEFORE an option that is wrong: "nothing was started" has to
+        // mean that nothing was created either.
+        using var t = new TempInstall();
+        var data = Path.Combine(t.Root, "data");
+        Assert.Null(StartupOptions.Parse(["--data-dir", data, "--wow-dir", Path.Combine(t.Root, "_typo_")]).Options);
+        Assert.False(Directory.Exists(data));
+
+        var (options, _) = StartupOptions.Parse(["--data-dir", data]);
+        Assert.False(Directory.Exists(data));
+        Assert.Null(options!.PrepareDataDir());
         Assert.True(Directory.Exists(data));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(data));
+        Assert.Null(new StartupOptions().PrepareDataDir());
     }
 
     [Fact]
@@ -48,6 +65,7 @@ public class StartupOptionsTests
     [InlineData("--wow-dir", "--minimized")]               // an option where the folder should be
     [InlineData("--data-dir", "")]
     [InlineData("--data-dir", "--minimized")]              // and is not taken for a folder name
+    [InlineData("--data-dir", "C:\\a", "--data-dir", "C:\\b")]
     [InlineData("--wowdir", "C:\\x")]                      // a misspelt option is not ignored
     [InlineData("minimized")]
     [InlineData("--wow-dir", "C:\\a\0b")]
@@ -64,9 +82,8 @@ public class StartupOptionsTests
         using var t = new TempInstall();
         var file = Path.Combine(t.Root, "a-file");
         File.WriteAllText(file, "");
-        var (options, error) = StartupOptions.Parse(["--data-dir", Path.Combine(file, "under-a-file")]);
-        Assert.Null(options);
-        Assert.Contains("--data-dir", error);
+        var (options, _) = StartupOptions.Parse(["--data-dir", Path.Combine(file, "under-a-file")]);
+        Assert.Contains("--data-dir", options!.PrepareDataDir());
     }
 }
 
@@ -101,6 +118,21 @@ public class ResolvedInstallTests
         var r = ResolvedInstall.Resolve(null, saved: Path.Combine(t.Root, "_gone_"), detect: () => Detected);
         Assert.Null(r.Install);
         Assert.Contains("_gone_", r.Problem);
+    }
+
+    [Fact]
+    public void Settings_that_could_not_be_read_are_not_a_reason_to_detect()
+    {
+        // A settings file with a stray comma: the folder the player chose is in it, unread.
+        // Detection would pick the game in Program Files and the first pass would delete there.
+        using var t = new TempInstall();
+        var r = ResolvedInstall.Resolve(null, saved: null, detect: () => Detected, settingsProblem: "line 3: ','");
+        Assert.Null(r.Install);
+        Assert.Contains("settings", r.Problem);
+
+        // What was named on the command line is still what is used.
+        Assert.Equal(t.Install.FlavorDir,
+            ResolvedInstall.Resolve(t.Install.FlavorDir, null, () => Detected, "line 3: ','").Install!.FlavorDir);
     }
 
     [Fact]
@@ -204,6 +236,18 @@ public class PassTextTests
     }
 
     [Fact]
+    public void The_tray_says_in_a_word_what_the_app_is_doing()
+    {
+        using var t = new TempInstall();
+        var s = new ShellState(Install: t.Install, Paused: true, Converting: true, Stopping: true);
+        Assert.Equal("AltStable Companion - finishing", PassText.TrayTip(s));
+        Assert.Equal("AltStable Companion - converting", PassText.TrayTip(s with { Stopping = false }));
+        Assert.Equal("AltStable Companion - paused", PassText.TrayTip(s with { Stopping = false, Converting = false }));
+        Assert.Equal("AltStable Companion - watching", PassText.TrayTip(new ShellState(Install: t.Install)));
+        Assert.Equal("AltStable Companion - no WoW folder", PassText.TrayTip(new ShellState(Converting: true)));
+    }
+
+    [Fact]
     public void A_balloon_is_for_portraits_written_and_nothing_else()
     {
         Assert.Null(PassText.Balloon(Report(states: [CharacterState.Rejected, CharacterState.Failed, CharacterState.Ambiguous])));
@@ -256,6 +300,60 @@ public class ShellCoreTests
         var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
         Assert.Equal(2, report.Accounts);
         Assert.Equal(1, report.Refused);
+    }
+
+    [Fact]
+    public void The_options_change_and_the_pass_stays_the_same()
+    {
+        // "Keep screenshots" ticked between two passes: the second keeps them, and the pass
+        // still knows the pair it looked at before and would not use.
+        using var t = new TempInstall();
+        var same = TestData.Solid(400, 1200, 90, 90, 90);
+        var rejected = t.WriteShot(T0, same);
+        t.WriteShot(T0.AddSeconds(1), same);
+        const string a = "Player-1-AAAAAAAA", b = "Player-1-BBBBBBBB";
+        static string Two(string name, string guid, DateTime at) => TestData.SavedVariables(
+            [TestData.Record(name, guid, 1, at), TestData.Record(name, guid, 2, at.AddSeconds(1))]);
+        t.WriteStore("1#1", Two("Aaa", a, T0));
+        var pass = new ConvertPass(t.Install, new ConvertOptions());
+        Assert.Equal(CharacterState.Rejected, pass.Run().Characters.Single().State);
+
+        pass.Options = new ConvertOptions(KeepScreenshots: true);
+        var later = T0.AddMinutes(5);
+        var (black, white) = TestData.Pair(400, 1200, 150, 250, 100, 700);
+        var kept = t.WriteShot(later, black);
+        t.WriteShot(later.AddSeconds(1), white);
+        t.WriteStore("1#12", Two("Bbb", b, later));
+        // Unreadable now, its size and time unchanged: read again, it would not be "Rejected".
+        var stamp = File.GetLastWriteTimeUtc(rejected);
+        var bytes = File.ReadAllBytes(rejected);
+        bytes[2] = 99;
+        File.WriteAllBytes(rejected, bytes);
+        File.SetLastWriteTimeUtc(rejected, stamp);
+
+        var report = pass.Run();
+        Assert.Equal(["Bbb"], report.Written);
+        Assert.True(File.Exists(kept));
+        Assert.Equal(0, report.BytesFreed);
+        Assert.Equal("the two shots look identical (100% of the frame reads as opaque)",
+            report.Characters.Single(c => c.Guid == a).Note);
+    }
+
+    [Fact]
+    public void A_first_look_is_at_once_unless_paused()
+    {
+        using var t = new TempInstall();
+        using var ran = new ManualResetEventSlim();
+        using var w = new Watcher([(t.Install.Screenshots, "*.tga", false)], ran.Set,
+            debounce: TimeSpan.FromMinutes(10), poll: TimeSpan.FromHours(1));
+        w.TriggerNow();
+        Assert.True(ran.Wait(TimeSpan.FromSeconds(10)), "no pass ran");
+
+        ran.Reset();
+        using var paused = new Watcher([(t.Install.Screenshots, "*.tga", false)], ran.Set,
+            debounce: TimeSpan.FromMinutes(10), poll: TimeSpan.FromHours(1)) { Paused = true };
+        paused.TriggerNow();
+        Assert.False(ran.Wait(TimeSpan.FromMilliseconds(600)));
     }
 
     [Fact]
@@ -353,6 +451,42 @@ public class ShellCoreTests
         Assert.False(back.OwesRestartNotice(@"C:\WoW\_classic_beta_"));
         Assert.True(back.OwesRestartNotice(@"D:\WoW\_classic_beta_"));
         Assert.NotEqual(s, back);
+    }
+
+    [Fact]
+    public void Settings_that_cannot_be_read_say_so_and_a_first_start_does_not()
+    {
+        using var t = new TempInstall();
+        var dir = Path.Combine(t.Root, "appdata");
+        Assert.Equal(new Settings(), Settings.Load(dir, out var problem));
+        Assert.Null(problem);
+
+        new Settings { WowFlavorDir = "X" }.Save(dir);
+        Assert.Equal("X", Settings.Load(dir, out problem).WowFlavorDir);
+        Assert.Null(problem);
+
+        // Edited by hand, with a comma too many.
+        File.WriteAllText(Path.Combine(dir, "settings.json"), "{ \"WowFlavorDir\": \"X\", }");
+        Assert.Equal(new Settings(), Settings.Load(dir, out problem));
+        Assert.Contains("settings.json", problem);
+    }
+
+    [Theory]
+    [InlineData("""{ "RestartNoticeInstalls": null }""", 0)]
+    [InlineData("""{ "RestartNoticeInstalls": [null, "", "C:\\WoW\\_classic_beta_"] }""", 1)]
+    public void A_list_that_is_null_or_holds_one_is_no_reason_not_to_start(string json, int want)
+    {
+        using var t = new TempInstall();
+        var dir = Path.Combine(t.Root, "appdata");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "settings.json"), json);
+
+        var s = Settings.Load(dir, out var problem);
+        Assert.Null(problem);
+        Assert.Equal(want, s.RestartNoticeInstalls.Count);
+        Assert.False(s.OwesRestartNotice(@"D:\x"));
+        Assert.True(s.WithRestartNotice(@"D:\x", owed: true).OwesRestartNotice(@"D:\x"));
+        Assert.Equal(s, Settings.Load(dir));
     }
 
     [Fact]

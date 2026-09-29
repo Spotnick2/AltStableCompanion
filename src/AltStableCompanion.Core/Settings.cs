@@ -21,7 +21,12 @@ public sealed record Settings
     /// between. The notice shows once the addon's .toc exists. An install whose addon was
     /// already there when the app first met it is never added.
     /// </summary>
-    public IReadOnlyList<string> RestartNoticeInstalls { get; init; } = [];
+    public IReadOnlyList<string> RestartNoticeInstalls
+    {
+        get;
+        // A file can say null, or hold one: neither is a reason not to start.
+        init => field = [.. (value ?? []).Where(d => !string.IsNullOrWhiteSpace(d))];
+    } = [];
 
     public bool OwesRestartNotice(string flavorDir) =>
         RestartNoticeInstalls.Contains(flavorDir, StringComparer.OrdinalIgnoreCase);
@@ -50,17 +55,26 @@ public sealed record Settings
     public static string DefaultDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AltStableCompanion");
 
-    public static Settings Load(string dir)
+    public static Settings Load(string dir) => Load(dir, out _);
+
+    /// <summary>
+    /// The settings, and - when there IS a file and it could not be read - what was wrong with
+    /// it. The defaults that come back then are not what the player chose: whoever acts on
+    /// them has to know that. No file at all is a first start, and no problem.
+    /// </summary>
+    public static Settings Load(string dir, out string? problem)
     {
+        problem = null;
+        var path = Path.Combine(dir, "settings.json");
         try
         {
-            var path = Path.Combine(dir, "settings.json");
             return File.Exists(path)
                 ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(path), Json) ?? new Settings()
                 : new Settings();
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
+            problem = $"{path} could not be read: {ex.Message}";
             return new Settings();
         }
     }
