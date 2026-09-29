@@ -29,6 +29,10 @@ in the addon's repository.
 at all. It only touches screenshots it matched to a capture, the `AltStableCutouts`
 folder and its own settings in `%APPDATA%\AltStableCompanion`.
 
+One exception, which is .NET's and not the app's: a single-file executable unpacks the
+native libraries it carries (Skia, HarfBuzz, ANGLE) into `%TEMP%\.net\AltStableCompanion`
+the first time it starts.
+
 ## Command line
 
 | Option | What it does |

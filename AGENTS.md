@@ -40,7 +40,9 @@ added.
 
 The shell has no tests of its own. What it decides - the status line, the balloon, the
 command line, which install a run uses - lives in Core (`PassText`, `StartupOptions`,
-`ResolvedInstall`) and is tested there. What is left is drawing and Win32, checked by hand.
+`ResolvedInstall`) and is tested there. What is left is drawing, Win32 and `Controller`, which
+holds the locks and the order things happen in; they are checked by hand, and a rule in
+`Controller`'s header is a claim until somebody moves it into Core with a test.
 
 Running the app while developing: always with `--wow-dir` and `--data-dir` pointed at a copy.
 Without them it detects the real install and its first pass deletes the screenshots it
@@ -52,6 +54,8 @@ converts.
   auto-update. An interface with one implementation is speculation.
 - **No network, ever.** It is a promise in the README. The app touches only screenshots it
   matched to a capture, the `AltStableCutouts` folder and `%APPDATA%\AltStableCompanion`.
+  The published single-file exe also unpacks its own native libraries under `%TEMP%\.net`;
+  that is the .NET host, it is stated in the README, and nothing else may be added to it.
 - **Never delete what you did not match.** Screenshots belong to the player; only the two
   files a capture consumed may go, and only after its cutout is on disk.
 - **Hand-rolled images.** The TGA codec and the resampler are ours (no ImageSharp): small,
