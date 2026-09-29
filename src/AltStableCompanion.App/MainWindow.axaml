@@ -48,6 +48,7 @@
     <!-- What is going on -->
     <StackPanel Grid.Row="2" Spacing="4">
       <TextBlock Text="{Binding StatusLine}" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <TextBlock Classes="dim" Text="{Binding Activity}" IsVisible="{Binding HasActivity}" />
       <ItemsControl ItemsSource="{Binding Warnings}" IsVisible="{Binding HasWarnings}">
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="x:String">

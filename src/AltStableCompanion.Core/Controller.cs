@@ -34,8 +34,10 @@ public sealed record Snapshot(
 ///   What is owed to the player (the restart notice) must not depend on one write.</item>
 /// </list>
 /// </summary>
-public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect = null) : IDisposable
+public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
+    Func<DateTime>? clock = null) : IDisposable
 {
+    private readonly Func<DateTime> _clock = clock ?? (() => DateTime.Now);
     private const string UnreadableCopy = "settings.unreadable.json";
 
     private readonly Lock _passGate = new();                   // held for the length of a pass
@@ -233,6 +235,10 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             if (pass is not null) pass.Options = new ConvertOptions(KeepScreenshots: _current.KeepScreenshots);
             if (watcher is not null) watcher.Paused = _current.Shell.Paused;
             _watcher = watcher;
+            // Detect again, or Browse to the folder already in use, finds the same game: what
+            // was written there is still what was written there. Only another game starts empty.
+            var same = install is not null && _current.Shell.Install is { } was
+                && string.Equals(was.FlavorDir, install.FlavorDir, StringComparison.OrdinalIgnoreCase);
             _current = _current with
             {
                 RestartNotice = RestartNoticeDue(install),
@@ -242,6 +248,8 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                     InstallProblem = problem,
                     Report = null,
                     LastError = null,
+                    LastPass = same ? _current.Shell.LastPass : null,
+                    LastWritten = same ? _current.Shell.LastWritten : null,
                 },
             };
         }
@@ -296,6 +304,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                 _current = _current with { Shell = _current.Shell with { Converting = false } };
                 if (current)
                 {
+                    var note = PassNote.Of(report, _clock());
                     _current = _current with
                     {
                         RestartNotice = RestartNoticeDue(install),
@@ -303,6 +312,8 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                         {
                             Report = report ?? _current.Shell.Report,
                             LastError = error,
+                            LastPass = note,
+                            LastWritten = note.Written.Count > 0 ? note : _current.Shell.LastWritten,
                         },
                     };
                 }

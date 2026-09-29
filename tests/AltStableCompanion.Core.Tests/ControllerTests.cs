@@ -15,10 +15,11 @@ public class ControllerTests
 
     private static string Data(TempInstall t) => Path.Combine(t.Root, "appdata");
 
-    private static Controller Started(TempInstall t, string? wowDir = null, Func<WowInstall?>? detect = null)
+    private static Controller Started(TempInstall t, string? wowDir = null, Func<WowInstall?>? detect = null,
+        Func<DateTime>? clock = null)
     {
         var c = new Controller(new StartupOptions(WowDir: wowDir, DataDir: Data(t)),
-            detect ?? (() => throw new InvalidOperationException("detection was used")));
+            detect ?? (() => throw new InvalidOperationException("detection was used")), clock);
         c.Start();
         return c;
     }
@@ -304,6 +305,67 @@ public class ControllerTests
         if (report.Written.Count == 0) report = Pass(c);         // the watcher may have got there first
         Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0))));
         Assert.True(Settings.Load(Data(t)).KeepScreenshots);
+    }
+
+    [Fact]
+    public void Every_pass_leaves_its_note_and_the_last_portrait_stays()
+    {
+        // Paused throughout, so that the only passes are the ones asked for here: nothing
+        // races an assertion about what has NOT happened yet.
+        using var t = new TempInstall();
+        using var other = new TempInstall();
+        new Settings { WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        var ticks = 0;
+        DateTime Clock() => T0.AddMinutes(Interlocked.Increment(ref ticks));
+
+        using var c = Started(t, clock: Clock);
+        Assert.Null(c.Current.Shell.LastPass);
+        Assert.Null(c.Current.Shell.LastWritten);
+
+        Pass(c);
+        var first = c.Current.Shell;
+        Assert.Equal(["Aaa"], first.LastPass!.Written);
+        Assert.Same(first.LastPass, first.LastWritten);
+
+        // Convert now, with nothing to convert: it ran, and says when.
+        Pass(c);
+        var second = c.Current.Shell;
+        Assert.Empty(second.LastPass!.Written);
+        Assert.True(second.LastPass.At > first.LastPass.At);
+        Assert.Same(first.LastWritten, second.LastWritten);
+
+        // The same game again - Detect again finds it, Browse names it - keeps its notes.
+        Assert.True(c.Browse(t.Install.FlavorDir));
+        Assert.Same(second.LastPass, c.Current.Shell.LastPass);
+        Assert.Same(second.LastWritten, c.Current.Shell.LastWritten);
+
+        // Another game: what was checked and written there is not this one's.
+        Assert.True(c.Browse(other.Install.FlavorDir));
+        Assert.Null(c.Current.Shell.LastPass);
+        Assert.Null(c.Current.Shell.LastWritten);
+        Pass(c);
+        Assert.NotNull(c.Current.Shell.LastPass);
+        Assert.Null(c.Current.Shell.LastWritten);
+    }
+
+    [Fact]
+    public void A_capture_that_could_not_be_converted_is_in_the_note()
+    {
+        using var t = new TempInstall();
+        new Settings { WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
+        var same = TestData.Solid(400, 1200, 90, 90, 90);          // identical shots: rejected
+        t.WriteShot(T0, same);
+        t.WriteShot(T0.AddSeconds(1), same);
+        t.WriteStore("1#1", TestData.SavedVariables(
+            [TestData.Record("Aaa", "Player-1-AAAAAAAA", 1, T0), TestData.Record("Aaa", "Player-1-AAAAAAAA", 2, T0.AddSeconds(1))]));
+
+        using var c = Started(t);
+        Pass(c);
+        var note = c.Current.Shell.LastPass!;
+        Assert.Empty(note.Written);
+        Assert.Equal(1, note.Unconverted);
+        Assert.False(note.Failed);
     }
 
     [Fact]

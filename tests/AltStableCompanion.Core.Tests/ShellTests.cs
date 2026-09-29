@@ -183,8 +183,8 @@ public class PassTextTests
     {
         using var t = new TempInstall();
         var quiet = With(t, Report(states: CharacterState.Portrait));
-        Assert.Equal("Watching", PassText.StatusLine(quiet));
-        Assert.StartsWith("Watching - in game", PassText.StatusLine(With(t, Report())));
+        Assert.Equal("Watching for new captures", PassText.StatusLine(quiet));
+        Assert.StartsWith("Watching for captures - in game", PassText.StatusLine(With(t, Report())));
         Assert.Equal("Starting...", PassText.StatusLine(With(t)));
 
         // Each of these outranks everything after it.
@@ -208,6 +208,75 @@ public class PassTextTests
         Assert.StartsWith("No AltStable data yet", PassText.StatusLine(all));
         all = all with { Report = Report(stale: true) };
         Assert.StartsWith("Newer screenshots found", PassText.StatusLine(all));
+    }
+
+    private static readonly DateTime At = new(2026, 9, 29, 12, 31, 5);
+
+    private static string? Activity(PassNote? last, PassNote? written = null, DateTime? today = null) =>
+        PassText.Activity(new ShellState(LastPass: last, LastWritten: written), today ?? At);
+
+    [Fact]
+    public void A_pass_that_found_nothing_still_shows_that_it_ran()
+    {
+        Assert.Null(Activity(null));
+        Assert.Equal("Last check 12:31:05: nothing new.", Activity(new PassNote(At, [])));
+        Assert.Equal("Last check 12:31:05: wrote Name 1.", Activity(new PassNote(At, ["Name 1"])));
+        Assert.Equal("Last check 12:31:05: wrote 3 portraits.", Activity(new PassNote(At, ["a", "b", "c"])));
+        Assert.Equal("Last check 12:31:05: the pass failed.", Activity(new PassNote(At, [], Failed: true)));
+    }
+
+    [Fact]
+    public void Nothing_new_is_not_said_of_a_capture_that_could_not_be_converted()
+    {
+        Assert.Equal("Last check 12:31:05: nothing written; 1 capture could not be converted - see the list.",
+            Activity(new PassNote(At, [], Unconverted: 1)));
+        Assert.Equal("Last check 12:31:05: nothing written; 2 captures could not be converted - see the list.",
+            Activity(new PassNote(At, [], Unconverted: 2, Waiting: true)));
+        Assert.Equal("Last check 12:31:05: wrote Aaa; 1 capture could not be converted - see the list.",
+            Activity(new PassNote(At, ["Aaa"], Unconverted: 1)));
+        // Under "Newer screenshots found ...": nothing NEW would contradict the line above it.
+        Assert.Equal("Last check 12:31:05: nothing to convert yet.", Activity(new PassNote(At, [], Waiting: true)));
+    }
+
+    [Fact]
+    public void What_a_pass_did_is_counted_from_its_own_report()
+    {
+        static CharacterStatus Is(CharacterState s) => new("g", "n", At, s, null);
+        var report = new PassReport(
+            [.. Enum.GetValues<CharacterState>().Select(Is)], ["Aaa"], 0, (At, null), false, []);
+        Assert.Equal(new PassNote(At, ["Aaa"], Unconverted: 4, Waiting: true) with { Written = report.Written },
+            PassNote.Of(report, At));
+        // Portrait and Missing are not "looked at and could not be used".
+        Assert.Equal(0, PassNote.Of(report with { Characters = [Is(CharacterState.Portrait), Is(CharacterState.Missing)] }, At).Unconverted);
+        Assert.False(PassNote.Of(report with { Stale = null }, At).Waiting);
+
+        var failed = PassNote.Of(null, At);
+        Assert.True(failed.Failed);
+        Assert.Empty(failed.Written);
+    }
+
+    [Fact]
+    public void The_last_portrait_written_stays_in_view_when_later_passes_find_nothing()
+    {
+        var wrote = new PassNote(new DateTime(2026, 9, 29, 12, 13, 54), ["Karuzo Macphisto"]);
+        Assert.Equal("Last check 12:31:05: nothing new. Last written: Karuzo Macphisto, at 12:13:54.",
+            Activity(new PassNote(At, []), wrote));
+        // Also after a pass that failed: what the pass BEFORE it wrote decides nothing.
+        Assert.Equal("Last check 12:31:05: the pass failed. Last written: Karuzo Macphisto, at 12:13:54.",
+            Activity(new PassNote(At, [], Failed: true), wrote));
+        // The pass that writes says it once, not twice.
+        Assert.Equal("Last check 12:13:54: wrote Karuzo Macphisto.", Activity(wrote, wrote));
+    }
+
+    [Fact]
+    public void A_time_that_is_not_today_says_which_day()
+    {
+        var monday = new PassNote(new DateTime(2026, 9, 28, 23, 50, 0), ["Aaa"]);
+        var wednesday = new DateTime(2026, 9, 30, 9, 12, 5);
+        Assert.Equal("Last check 09:12:05: nothing new. Last written: Aaa, at 2026-09-28 23:50:00.",
+            Activity(new PassNote(wednesday, []), monday, today: wednesday));
+        // Paused since Monday: the check is old too.
+        Assert.Equal("Last check 2026-09-28 23:50:00: wrote Aaa.", Activity(monday, monday, today: wednesday));
     }
 
     [Fact]
