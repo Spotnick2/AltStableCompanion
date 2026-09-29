@@ -46,14 +46,18 @@ public sealed class CutoutFolder(string addonDir)
 
     /// <summary>
     /// Write the .toc when it differs - "once and left alone" meant a change here could never
-    /// reach an existing install. Returns true when the FOLDER was newly created: the player
+    /// reach an existing install. Returns true when the ADDON was newly created: the player
     /// then has to restart the game once, because /reload does not find new addons.
+    ///
+    /// New is judged by the .toc, as Update-Cutouts.ps1 judged it, not by the folder: a folder
+    /// without a .toc (a first run cut short, a .toc deleted by hand) is an addon the client
+    /// has not discovered either.
     /// </summary>
     public bool EnsureToc()
     {
-        var created = !Directory.Exists(AddonDir);
+        var created = !File.Exists(TocPath);
         Directory.CreateDirectory(CutoutsDir);
-        var current = File.Exists(TocPath) ? File.ReadAllText(TocPath) : null;
+        var current = created ? null : File.ReadAllText(TocPath);
         if (current is null || Normalise(current) != Normalise(Toc))
         {
             WriteAtomic(TocPath, Toc.ReplaceLineEndings("\r\n") + "\r\n");
@@ -80,7 +84,7 @@ public sealed class CutoutFolder(string addonDir)
         {
             return JsonSerializer.Deserialize<Sidecar>(File.ReadAllText(path), Json)?.ToMeta();
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             return null;
         }
@@ -89,19 +93,29 @@ public sealed class CutoutFolder(string addonDir)
     /// <summary>The GUID that owns a file base, per its sidecar - for choosing a namesake's file name.</summary>
     public string? OwnerOf(string fileBase) => ReadMeta(fileBase)?.Guid;
 
-    /// <summary>The file base already holding this character's portrait, if any.</summary>
+    /// <summary>
+    /// The file base holding this character's portrait, if any. When several files carry the
+    /// GUID - make-cutout.py named files by the CURRENT name, so a renamed character leaves its
+    /// old file behind - it is the one from the newest capture, then the first by name. The
+    /// manifest lists that file and no other, so what is written next is what is drawn.
+    /// </summary>
     public string? FileBaseOf(string guid)
     {
         if (!Directory.Exists(CutoutsDir)) return null;
-        foreach (var json in Directory.EnumerateFiles(CutoutsDir, "*.json"))
+        string? best = null;
+        long? bestEpoch = null;
+        foreach (var json in Directory.EnumerateFiles(CutoutsDir, "*.json").Order(StringComparer.Ordinal))
         {
             var fileBase = Path.GetFileNameWithoutExtension(json);
-            if (ReadMeta(fileBase)?.Guid == guid && File.Exists(Path.Combine(CutoutsDir, fileBase + ".tga")))
+            if (ReadMeta(fileBase) is not { } meta || meta.Guid != guid) continue;
+            if (!File.Exists(Path.Combine(CutoutsDir, fileBase + ".tga"))) continue;
+            if (best is null || (meta.Epoch ?? long.MinValue) > (bestEpoch ?? long.MinValue))
             {
-                return fileBase;
+                best = fileBase;
+                bestEpoch = meta.Epoch;
             }
         }
-        return null;
+        return best;
     }
 
     /// <summary>
@@ -109,8 +123,12 @@ public sealed class CutoutFolder(string addonDir)
     /// before sidecars existed - from the image itself, with no native size rather than an
     /// invented one. A native size only counts when the sidecar DECLARES its unit and it is not
     /// the full screen: one bogus height halves every other character in the scene.
+    ///
+    /// Left out, with a warning: a file whose name or GUID cannot be written into Lua as it is
+    /// (see <see cref="ManifestWriter"/>), and a second file carrying a GUID another file
+    /// already answers for - two entries with one key, and Lua keeps the last.
     /// </summary>
-    public IReadOnlyList<ManifestEntry> Inventory()
+    public IReadOnlyList<ManifestEntry> Inventory(Action<string>? warn = null)
     {
         var entries = new List<ManifestEntry>();
         if (!Directory.Exists(CutoutsDir)) return entries;
@@ -119,6 +137,18 @@ public sealed class CutoutFolder(string addonDir)
             var fileBase = Path.GetFileNameWithoutExtension(tga);
             var fileName = Path.GetFileName(tga);
             var meta = ReadMeta(fileBase);
+            // The key is the GUID, or the file's own name for a cutout that has none.
+            if (!ManifestWriter.IsSafeFileName(fileName) || !ManifestWriter.IsSafeKey(meta?.Guid ?? fileBase))
+            {
+                warn?.Invoke($"{fileName} is not listed: its name or GUID has characters a manifest cannot carry");
+                continue;
+            }
+            if (meta?.Guid is { } guid && FileBaseOf(guid) is { } chosen
+                && !string.Equals(chosen, fileBase, StringComparison.OrdinalIgnoreCase))
+            {
+                warn?.Invoke($"{fileName} is not listed: {chosen}.tga is the same character's newer portrait");
+                continue;
+            }
             if (meta is not null)
             {
                 var native = meta.NativeUnit == "screen" && meta.NativeH is < CutoutConverter.MaxScreenFraction;
@@ -141,8 +171,21 @@ public sealed class CutoutFolder(string addonDir)
         return entries;
     }
 
-    public void WriteManifest(DateTime now) =>
-        WriteAtomic(ManifestPath, ManifestWriter.Render(Inventory(), now));
+    /// <summary>
+    /// Rebuild the manifest from what is on disk, and write it when its entries changed. An
+    /// idle pass writes nothing: every write is a chance to meet the client reading the file
+    /// during a /reload. Returns whether it wrote.
+    /// </summary>
+    public bool WriteManifest(DateTime now, Action<string>? warn = null)
+    {
+        var lua = ManifestWriter.Render(Inventory(warn), now);
+        if (File.Exists(ManifestPath) && ManifestWriter.SameEntries(File.ReadAllText(ManifestPath), lua))
+        {
+            return false;
+        }
+        WriteAtomic(ManifestPath, lua);
+        return true;
+    }
 
     private static string Normalise(string s) => s.ReplaceLineEndings("\n").Trim();
 

@@ -69,6 +69,9 @@ public static class SavedVariablesReader
                 var shot = Num(e, "shot");
                 // A record the contract cannot pair is not a record.
                 if (guid is null || stamp is null || shot is null) continue;
+                // The GUID ends up in the manifest, which the client RUNS. Every real one is
+                // letters, digits and hyphens; anything else is not a GUID.
+                if (!ManifestWriter.IsSafeKey(guid)) continue;
                 if (!DateTime.TryParseExact(stamp, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture,
                         DateTimeStyles.None, out var when)) continue;
                 renders.Add(new RenderRecord(
@@ -99,7 +102,7 @@ public static class SavedVariablesReader
                     if (store is not null) stores.Add(store);
                     break;
                 }
-                catch (Exception ex) when (ex is IOException or SavedVariablesFormatException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SavedVariablesFormatException)
                 {
                     if (attempt >= 5)
                     {

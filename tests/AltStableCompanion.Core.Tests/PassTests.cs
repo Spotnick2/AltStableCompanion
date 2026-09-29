@@ -56,6 +56,80 @@ public class CutoutFolderTests
     }
 
     [Fact]
+    public void A_folder_without_a_toc_is_an_addon_the_client_has_not_seen()
+    {
+        // A first run cut short, or a .toc deleted by hand: the folder is there, the addon is not.
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        Directory.CreateDirectory(f.CutoutsDir);
+        Assert.True(f.EnsureToc());
+        Assert.False(f.EnsureToc());
+    }
+
+    [Fact]
+    public void A_character_with_two_files_is_listed_once_by_its_newest()
+    {
+        // make-cutout.py named files by the current name: a renamed character leaves two.
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        var meta = new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = "Player-1-AAAA" };
+        f.WriteCutout("kaleid", TestData.Solid(4, 4, 1, 1, 1), meta);
+        f.WriteCutout("kaleid-sumner", TestData.Solid(4, 4, 1, 1, 1), meta with { Epoch = 100 });
+        f.WriteCutout("zz-older", TestData.Solid(4, 4, 1, 1, 1), meta with { Epoch = 50 });
+
+        Assert.Equal("kaleid-sumner", f.FileBaseOf("Player-1-AAAA"));
+        var warnings = new List<string>();
+        var entry = Assert.Single(f.Inventory(warnings.Add));
+        Assert.Equal("kaleid-sumner.tga", entry.FileName);
+        Assert.Equal(2, warnings.Count);
+    }
+
+    [Fact]
+    public void A_name_that_would_break_the_manifest_is_left_out_of_it()
+    {
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        f.EnsureToc();
+        TgaCodec.Write(Path.Combine(f.CutoutsDir, "o'brien.tga"), TestData.Solid(4, 4, 1, 1, 1));
+        TgaCodec.Write(Path.Combine(f.CutoutsDir, "a]]b.tga"), TestData.Solid(4, 4, 1, 1, 1));
+        TgaCodec.Write(Path.Combine(f.CutoutsDir, "fine.tga"), TestData.Solid(4, 4, 1, 1, 1));
+        f.WriteCutout("tampered", TestData.Solid(4, 4, 1, 1, 1),
+            new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = "a'] = 1, evil = { ['b" });
+
+        var warnings = new List<string>();
+        Assert.Equal("fine.tga", Assert.Single(f.Inventory(warnings.Add)).FileName);
+        Assert.Equal(3, warnings.Count);
+
+        // And the writer holds the line by itself, whatever it is handed.
+        var lua = ManifestWriter.Render([
+            new ManifestEntry("o'brien", null, "o'brien.tga", 1, 1, 1, 1, null, null),
+            new ManifestEntry("g", "a'] = 1, evil = { ['b", "g.tga", 1, 1, 1, 1, null, null),
+            new ManifestEntry("ok", null, "a]]b.tga", 1, 1, 1, 1, null, null),
+            new ManifestEntry("fine", null, "fine.tga", 1, 1, 1, 1, null, null),
+        ], DateTime.Now);
+        Assert.DoesNotContain("brien", lua);
+        Assert.DoesNotContain("evil", lua);
+        Assert.DoesNotContain("]]b", lua);
+        Assert.Contains("['fine']", lua);
+    }
+
+    [Fact]
+    public void A_manifest_whose_entries_did_not_change_is_not_written_again()
+    {
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        f.EnsureToc();
+        f.WriteCutout("one", TestData.Solid(4, 4, 1, 1, 1), new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4 });
+        Assert.True(f.WriteManifest(new DateTime(2026, 9, 29, 1, 0, 0)));
+        Assert.False(f.WriteManifest(new DateTime(2026, 9, 29, 2, 0, 0)));
+        Assert.Contains("-- Generated 2026-09-29 01:00:00", File.ReadAllText(f.ManifestPath));
+
+        f.WriteCutout("two", TestData.Solid(4, 4, 1, 1, 1), new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4 });
+        Assert.True(f.WriteManifest(new DateTime(2026, 9, 29, 3, 0, 0)));
+        Assert.Contains("['two']", File.ReadAllText(f.ManifestPath));
+    }
+
+    [Fact]
     public void A_sidecar_the_python_converter_wrote_is_read()
     {
         using var t = new TempInstall();

@@ -61,6 +61,16 @@ public class SavedVariablesReaderTests
     }
 
     [Fact]
+    public void A_guid_that_could_not_be_written_into_the_manifest_is_not_a_record()
+    {
+        // The manifest is Lua the client runs; this "guid" would close its quote and add a key.
+        var evil = TestData.Record("Mallory", "a'] = 1, evil = { ['b", 1, T0);
+        var store = SavedVariablesReader.Parse(
+            TestData.SavedVariables([evil, TestData.Record("A", "Player-4618-006B8614", 1, T0)]), "x")!;
+        Assert.Equal("Player-4618-006B8614", store.Renders.Single().Guid);
+    }
+
+    [Fact]
     public void Every_account_is_found_and_only_its_account_wide_store()
     {
         using var t = new TempInstall();
@@ -126,6 +136,14 @@ public class SluggerTests
         Assert.Equal("twin-name-bbbbbb", Slugger.FileBase("Twin Name", "Player-2-BBBBBBBB", _ => "Player-1-AAAAAAAA"));
         // Uppercase hex survives: make-cutout.py strips [^A-Za-z0-9] and lowercases after.
         Assert.Equal("kaleid-sumner-6b8614", Slugger.FileBase("Kaleid Sumner", "Player-4618-006B8614", _ => "other"));
+    }
+
+    [Fact]
+    public void A_name_with_nothing_to_slug_is_filed_under_its_guid()
+    {
+        // Cyrillic: the slug is empty, and the file would have been ".tga".
+        Assert.Equal("", Slugger.Slug("Кириллица"));
+        Assert.Equal("player-4395-0a1b2c3d", Slugger.FileBase("Кириллица", "Player-4395-0A1B2C3D", _ => null));
     }
 }
 
