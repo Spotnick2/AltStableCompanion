@@ -21,6 +21,13 @@ public sealed record CutoutMeta
     public long? Epoch { get; init; }
 
     /// <summary>
+    /// The two screenshots it was made from, by file name. While they are on disk (the player
+    /// keeps screenshots, or one could not be deleted) they are THIS capture's, and no other
+    /// capture may be matched to them.
+    /// </summary>
+    public string[]? Shots { get; init; }
+
+    /// <summary>
     /// A standing character is much taller than it is wide. Nearly square means something else
     /// survived the matte - a tooltip above the stage is the one that has happened. Worked out
     /// from the native size the sidecar keeps, so EVERY pass can say it, not only the one that

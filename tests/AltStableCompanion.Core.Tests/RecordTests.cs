@@ -179,9 +179,24 @@ public class SluggerTests
     {
         Assert.Equal("twin-name", Slugger.FileBase("Twin Name", "Player-1-AAAAAAAA", _ => null));
         Assert.Equal("twin-name", Slugger.FileBase("Twin Name", "Player-1-AAAAAAAA", _ => "Player-1-AAAAAAAA"));
-        Assert.Equal("twin-name-bbbbbb", Slugger.FileBase("Twin Name", "Player-2-BBBBBBBB", _ => "Player-1-AAAAAAAA"));
+        Assert.Equal("twin-name-bbbbbb", Slugger.FileBase("Twin Name", "Player-2-BBBBBBBB",
+            file => file == "twin-name" ? "Player-1-AAAAAAAA" : null));
         // Uppercase hex survives: make-cutout.py strips [^A-Za-z0-9] and lowercases after.
-        Assert.Equal("kaleid-sumner-6b8614", Slugger.FileBase("Kaleid Sumner", "Player-4618-006B8614", _ => "other"));
+        Assert.Equal("kaleid-sumner-6b8614", Slugger.FileBase("Kaleid Sumner", "Player-4618-006B8614",
+            file => file == "kaleid-sumner" ? "other" : null));
+    }
+
+    [Fact]
+    public void A_third_namesake_ending_in_the_same_six_is_not_written_over_the_second()
+    {
+        static string? Owner(string file) => file switch
+        {
+            "twin" => "Player-1-AAAAAAAA",
+            "twin-bbbbbb" => "Player-2-00BBBBBB",
+            _ => null,
+        };
+        Assert.Equal("twin-bbbbbb", Slugger.FileBase("Twin", "Player-2-00BBBBBB", Owner));
+        Assert.Equal("twin-player-3-00bbbbbb", Slugger.FileBase("Twin", "Player-3-00BBBBBB", Owner));
     }
 
     [Fact]
@@ -290,6 +305,33 @@ public class CapturePairingTests
         var g2 = Cap(T0.AddSeconds(3), "g2");
         var result = CapturePairing.Assign([g1, g2], Files(T0, T0.AddSeconds(1)));
         Assert.All(result, a => Assert.Equal(MatchProblem.Ambiguous, a.Problem));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_file_that_ties_for_one_capture_is_not_given_to_another(bool reversed)
+    {
+        // Two accounts. A's black stamp is a second from BOTH :00 and :02, so A is ambiguous -
+        // and wants both. B must not be handed :02 because A's tie happened to list :00 first.
+        var a = new Capture("A", "gA", T0.AddSeconds(1), T0.AddSeconds(3), TestData.Epoch(T0), 2160, "a");
+        var b = new Capture("B", "gB", T0.AddSeconds(2), T0.AddSeconds(4), TestData.Epoch(T0) + 1, 2160, "b");
+        var at = new[] { T0, T0.AddSeconds(2), T0.AddSeconds(3), T0.AddSeconds(4) };
+        // Whatever order the folder is listed in.
+        var files = Files(reversed ? [.. at.Reverse()] : at);
+
+        var result = CapturePairing.Assign([a, b], files);
+        Assert.All(result, x => Assert.Equal(MatchProblem.Ambiguous, x.Problem));
+    }
+
+    [Fact]
+    public void A_file_that_is_somebody_s_already_is_not_matched_again()
+    {
+        // The pair a finished capture was made from, kept on disk. B's own shots are missing
+        // and these sit two seconds from its stamps, rightly spaced.
+        var kept = Files(T0.AddSeconds(2), T0.AddSeconds(3));
+        Assert.Equal(MatchProblem.None, CapturePairing.Assign([Cap(T0, "gB")], kept).Single().Problem);
+        Assert.Equal(MatchProblem.Ambiguous, CapturePairing.Assign([Cap(T0, "gB")], kept, reserved: kept.Keys).Single().Problem);
     }
 
     [Fact]

@@ -209,17 +209,18 @@ public sealed class CutoutFolder(string addonDir)
         [JsonPropertyName("nativePx")] public int[]? NativePx { get; set; }
         [JsonPropertyName("guid")] public string? Guid { get; set; }
         [JsonPropertyName("epoch")] public long? Epoch { get; set; }
+        [JsonPropertyName("shots")] public string[]? Shots { get; set; }
 
         public static Sidecar From(CutoutMeta m) => new()
         {
             W = m.W, H = m.H, TexW = m.TexW, TexH = m.TexH, NativeW = m.NativeW, NativeH = m.NativeH,
-            NativeUnit = m.NativeUnit, NativePx = m.NativePx, Guid = m.Guid, Epoch = m.Epoch,
+            NativeUnit = m.NativeUnit, NativePx = m.NativePx, Guid = m.Guid, Epoch = m.Epoch, Shots = m.Shots,
         };
 
         public CutoutMeta ToMeta() => new()
         {
             W = W, H = H, TexW = TexW, TexH = TexH, NativeW = NativeW, NativeH = NativeH,
-            NativeUnit = NativeUnit, NativePx = NativePx, Guid = Guid, Epoch = Epoch,
+            NativeUnit = NativeUnit, NativePx = NativePx, Guid = Guid, Epoch = Epoch, Shots = Shots,
         };
     }
 }

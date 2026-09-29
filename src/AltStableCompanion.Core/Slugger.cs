@@ -30,7 +30,12 @@ public static partial class Slugger
         // Lowercased FIRST: the GUID's hex is uppercase ("006B8614"), and the pattern only
         // keeps a-z0-9. make-cutout.py strips [^A-Za-z0-9] and lowercases after - same result.
         var alnum = NonAlnum().Replace(guid.ToLowerInvariant(), "");
-        return $"{slug}-{alnum[Math.Max(0, alnum.Length - 6)..].ToLowerInvariant()}";
+        var suffixed = $"{slug}-{alnum[Math.Max(0, alnum.Length - 6)..].ToLowerInvariant()}";
+        owner = ownerOf(suffixed);
+        if (owner is null || owner == guid) return suffixed;
+        // Six characters are not the GUID: a third namesake can end in the same six, and would
+        // be written over the second. The whole GUID cannot be anyone else's.
+        return $"{slug}-{Slug(guid)}";
     }
 
     [GeneratedRegex("[^a-z0-9]+")]

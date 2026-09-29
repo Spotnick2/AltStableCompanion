@@ -107,47 +107,58 @@ public static partial class CapturePairing
     ///   stamp is read when the shot is asked for and the file is named when it is written, so
     ///   a second can tick in between for one shot and not for the other;</item>
     /// <item>a file wanted by two captures in the pass is ambiguous for every capture that
-    ///   wants it, whatever else is wrong with the other one.</item>
+    ///   wants it, whatever else is wrong with the other one - and a capture WANTS every file
+    ///   that ties for nearest, not only the one that happened to be listed first;</item>
+    /// <item>a file in <paramref name="reserved"/> is somebody's already: the screenshots a
+    ///   finished capture was made from, when they were kept. A capture whose own shots are
+    ///   missing must not borrow them.</item>
     /// </list>
     /// An ambiguous capture is left pending and nothing of it is deleted.
     /// </summary>
-    public static IReadOnlyList<Assignment> Assign(IEnumerable<Capture> captures, IReadOnlyDictionary<string, DateTime> times)
+    public static IReadOnlyList<Assignment> Assign(IEnumerable<Capture> captures,
+        IReadOnlyDictionary<string, DateTime> times, IEnumerable<string>? reserved = null)
     {
-        var proposed = new List<Assignment>();
+        var proposed = new List<(Assignment Assignment, IReadOnlyList<string> Wants)>();
         foreach (var cap in captures)
         {
             if (cap.Collided)
             {
-                proposed.Add(new Assignment(cap, null, null, MatchProblem.Collided));
+                proposed.Add((new Assignment(cap, null, null, MatchProblem.Collided), []));
                 continue;
             }
-            var (black, blackTie) = Nearest(cap.First, times, exclude: null);
-            var (white, whiteTie) = Nearest(cap.Second, times, exclude: black);
+            var blacks = Nearest(cap.First, times, exclude: null);
+            // With one black candidate the white one is whatever else is nearest; with several,
+            // nothing can be ruled out.
+            var whites = Nearest(cap.Second, times, exclude: blacks.Count == 1 ? blacks[0] : null);
+            var black = blacks.FirstOrDefault();
+            var white = whites.FirstOrDefault();
+            IReadOnlyList<string> wants = [.. blacks, .. whites];
             if (black is null || white is null)
             {
-                proposed.Add(new Assignment(cap, black, white, MatchProblem.Missing));
+                proposed.Add((new Assignment(cap, black, white, MatchProblem.Missing), wants));
                 continue;
             }
             var expected = cap.Second - cap.First;
             var actual = times[white] - times[black];
             var spacedRight = Math.Abs((actual - expected).TotalSeconds) <= SpacingSlack.TotalSeconds;
-            proposed.Add(blackTie || whiteTie || !spacedRight
+            proposed.Add((blacks.Count > 1 || whites.Count > 1 || !spacedRight
                 ? new Assignment(cap, black, white, MatchProblem.Ambiguous)
-                : new Assignment(cap, black, white, MatchProblem.None));
+                : new Assignment(cap, black, white, MatchProblem.None), wants));
         }
 
         // A file two captures both want belongs to neither, this pass. EVERY proposal counts,
         // not only the clean ones: a capture that is itself ambiguous or half missing still
         // names the files it would have taken, and the contract leaves those alone.
-        var wanted = proposed
-            .SelectMany(a => new[] { a.Black, a.White }.OfType<string>())
+        var taken = proposed
+            .SelectMany(p => p.Wants.Distinct(StringComparer.OrdinalIgnoreCase))
             .GroupBy(p => p, StringComparer.OrdinalIgnoreCase)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
+            .Concat(reserved ?? [])
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return [.. proposed.Select(a => a.Problem == MatchProblem.None && (wanted.Contains(a.Black!) || wanted.Contains(a.White!))
-            ? a with { Problem = MatchProblem.Ambiguous }
-            : a)];
+        return [.. proposed.Select(p => p.Assignment.Problem == MatchProblem.None && p.Wants.Any(taken.Contains)
+            ? p.Assignment with { Problem = MatchProblem.Ambiguous }
+            : p.Assignment)];
     }
 
     /// <summary>
@@ -171,28 +182,25 @@ public static partial class CapturePairing
             : null;
     }
 
-    private static (string? Path, bool Tie) Nearest(DateTime want, IReadOnlyDictionary<string, DateTime> times, string? exclude)
+    // The file nearest to a stamp, within tolerance - or the files, when several are equally
+    // near. All of them: which one a dictionary lists first is no reason to prefer it.
+    private static IReadOnlyList<string> Nearest(DateTime want, IReadOnlyDictionary<string, DateTime> times, string? exclude)
     {
-        string? best = null;
+        var best = new List<string>();
         double bestGap = double.MaxValue;
-        var tie = false;
         foreach (var (path, when) in times)
         {
             if (exclude is not null && string.Equals(path, exclude, StringComparison.OrdinalIgnoreCase)) continue;
             var gap = Math.Abs((when - want).TotalSeconds);
-            if (gap > Tolerance.TotalSeconds) continue;
+            if (gap > Tolerance.TotalSeconds || gap > bestGap) continue;
             if (gap < bestGap)
             {
-                best = path;
+                best.Clear();
                 bestGap = gap;
-                tie = false;
             }
-            else if (gap == bestGap)
-            {
-                tie = true;
-            }
+            best.Add(path);
         }
-        return (best, tie);
+        return best;
     }
 
     [GeneratedRegex(@"^WoWScrnShot_(\d{6})_(\d{6})\.tga$", RegexOptions.IgnoreCase)]

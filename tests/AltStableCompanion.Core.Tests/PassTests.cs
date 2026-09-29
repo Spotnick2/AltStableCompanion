@@ -251,6 +251,67 @@ public class ConvertPassTests
     }
 
     [Fact]
+    public void Three_namesakes_whose_guids_end_alike_keep_three_portraits()
+    {
+        using var t = new TempInstall();
+        var who = new[] { "Player-1-AAAAAAAA", "Player-2-00BBBBBB", "Player-3-00BBBBBB" };
+        for (var i = 0; i < who.Length; i++) Capture(t, "1#12", "Twin", who[i], T0.AddMinutes(i));
+        t.WriteStore("1#12", Records([.. who.Select((g, i) => ("Twin", g, T0.AddMinutes(i)))]));
+
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+
+        Assert.Equal(3, report.Written.Count);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Assert.Equal(who, folder.Inventory().Select(e => e.Guid).Order());
+        Assert.Equal(["twin", "twin-bbbbbb", "twin-player-3-00bbbbbb"],
+            Directory.EnumerateFiles(folder.CutoutsDir, "*.tga").Select(Path.GetFileNameWithoutExtension).Order());
+    }
+
+    [Fact]
+    public void A_kept_pair_is_not_lent_to_a_capture_whose_own_shots_are_missing()
+    {
+        // A is converted and its screenshots kept. Then another account's records turn up: B,
+        // two seconds EARLIER, its own screenshots never written. A's pair is two seconds from
+        // B's stamps and rightly spaced - and is A's.
+        using var t = new TempInstall();
+        const string a = "Player-1-AAAAAAAA", b = "Player-2-BBBBBBBB";
+        var atA = T0.AddSeconds(2);
+        Capture(t, "1#1", "Aaa", a, atA);
+        t.WriteStore("1#1", Records(("Aaa", a, atA)));
+        new ConvertPass(t.Install, new ConvertOptions(KeepScreenshots: true)).Run();
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Assert.Equal([TestData.ShotName(atA), TestData.ShotName(atA.AddSeconds(1))], folder.ReadMeta("aaa")!.Shots!);
+
+        t.WriteStore("1#12", Records(("Bbb", b, T0)));
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+
+        Assert.Empty(report.Written);
+        Assert.Equal(CharacterState.Ambiguous, report.Characters.Single(c => c.Guid == b).State);
+        Assert.Null(folder.FileBaseOf(b));
+        Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(atA))));
+        Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(atA.AddSeconds(1)))));
+    }
+
+    [Fact]
+    public void A_screenshot_one_capture_may_still_want_is_not_deleted_by_another()
+    {
+        using var t = new TempInstall();
+        var (black, white) = TestData.Pair(400, 1200, 150, 250, 100, 700);
+        foreach (var s in new[] { 0, 3 }) t.WriteShot(T0.AddSeconds(s), black);
+        foreach (var s in new[] { 2, 4 }) t.WriteShot(T0.AddSeconds(s), s == 2 ? black : white);
+        static string Two(string name, string guid, DateTime first, DateTime second) => TestData.SavedVariables(
+            [TestData.Record(name, guid, 1, first), TestData.Record(name, guid, 2, second)]);
+        t.WriteStore("1#1", Two("Aaa", "Player-1-AAAAAAAA", T0.AddSeconds(1), T0.AddSeconds(3)));
+        t.WriteStore("1#12", Two("Bbb", "Player-2-BBBBBBBB", T0.AddSeconds(2), T0.AddSeconds(4)));
+
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+
+        Assert.Empty(report.Written);
+        Assert.All(report.Characters, c => Assert.Equal(CharacterState.Ambiguous, c.State));
+        Assert.Equal(4, Directory.EnumerateFiles(t.Install.Screenshots, "*.tga").Count());
+    }
+
+    [Fact]
     public void A_rejected_pair_stays_on_disk_and_is_not_decoded_again()
     {
         using var t = new TempInstall();
