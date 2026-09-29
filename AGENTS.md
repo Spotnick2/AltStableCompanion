@@ -25,6 +25,7 @@ AltStableCompanion.slnx
 src/AltStableCompanion.Core/        no UI: install, records, pairing, matte, TGA, manifest, watcher, controller
 src/AltStableCompanion.App/         Avalonia tray shell: window, Win32 tray icon, single instance
 tests/AltStableCompanion.Core.Tests xunit
+Tools/deploy.ps1                    publish the exe to a folder it can be run from
 ```
 
 ## Build & test
@@ -33,6 +34,13 @@ tests/AltStableCompanion.Core.Tests xunit
 dotnet build -warnaserror
 dotnet test
 ```
+
+```
+pwsh Tools/deploy.ps1               # -Shortcut for the Start menu, -Destination for another folder
+```
+
+puts one self-contained `AltStableCompanion.exe` in `%LOCALAPPDATA%\Programs\AltStableCompanion`.
+It refuses while the app is running, and it does not start the app.
 
 Warnings are errors (`Directory.Build.props`). Tests generate their own images and
 SavedVariables files in temp folders — there are no binary fixtures, and none should be
