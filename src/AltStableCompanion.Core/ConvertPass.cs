@@ -26,7 +26,11 @@ public sealed record PassReport(
     long BytesFreed,
     (DateTime NewestShot, DateTime? NewestRecord)? Stale,
     bool FolderCreated,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    /// <summary>How many accounts have an AltStable.lua at all.</summary>
+    int Accounts = 0,
+    /// <summary>How many of their stores are a version this app does not read.</summary>
+    int Refused = 0);
 
 /// <summary>
 /// One full, idempotent pass: read every store, pair the newest capture of each character with
@@ -41,10 +45,20 @@ public sealed record PassReport(
 ///   until either file changes;</item>
 /// <item>one capture that fails does not take the others, or the manifest, with it.</item>
 /// </list>
-/// Keep one instance for the app's lifetime: the memory of unusable pairs lives on it.
+/// Keep one instance for the app's lifetime: the memory of unusable pairs lives on it. What
+/// the player changes meanwhile is <see cref="Options"/>, not the instance.
 /// </summary>
 public sealed class ConvertPass(WowInstall install, ConvertOptions options, Action<string>? log = null)
 {
+    private volatile ConvertOptions _options = options;
+
+    /// <summary>Read once, when a pass starts: a pass ends under the options it began with.</summary>
+    public ConvertOptions Options
+    {
+        get => _options;
+        set => _options = value;
+    }
+
     private const string SquareNote =
         "nearly square - something other than the character may have been on screen; re-capture";
 
@@ -66,7 +80,19 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             if (_logged.Add(message)) log?.Invoke(message);
         }
 
-        var stores = SavedVariablesReader.ReadAll(install.AccountsDir, Warn);
+        var options = _options;
+        // Listed once, here, before anything is written: the count in the report is of these.
+        IReadOnlyList<string> accounts;
+        try
+        {
+            accounts = [.. SavedVariablesReader.FindStores(install.AccountsDir)];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Warn($"could not list the accounts: {ex.Message}");
+            accounts = [];
+        }
+        var stores = SavedVariablesReader.ReadAll(accounts, Warn);
         foreach (var refused in stores.Where(s => s.Refused is not null))
         {
             Warn($"{refused.Path}: {refused.Refused}");
@@ -231,7 +257,9 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
 
         return new PassReport(
             [.. statuses.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)],
-            written, freed, stale, folderCreated, warnings);
+            written, freed, stale, folderCreated, warnings,
+            Accounts: accounts.Count,
+            Refused: stores.Count(s => s.Refused is not null));
     }
 
     // The capture's identity in a sidecar: the shot-1 epoch, or its local stamp for a record

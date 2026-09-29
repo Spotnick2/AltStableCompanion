@@ -29,6 +29,25 @@ in the addon's repository.
 at all. It only touches screenshots it matched to a capture, the `AltStableCutouts`
 folder and its own settings in `%APPDATA%\AltStableCompanion`.
 
+One exception, which is .NET's and not the app's: a single-file executable unpacks the
+native libraries it carries (Skia, HarfBuzz, ANGLE) into `%TEMP%\.net\AltStableCompanion`
+the first time it starts.
+
+## Command line
+
+| Option | What it does |
+|---|---|
+| `--minimized` | Start in the tray, without the window. |
+| `--wow-dir <folder>` | Use this flavour folder (such as `...\World of Warcraft\_classic_beta_`) for this run, and no other. Browse and Detect again are switched off. |
+| `--data-dir <folder>` | Keep the settings and the log in this folder, not in `%APPDATA%\AltStableCompanion`. |
+
+A command line that is wrong - an option it does not know, a `--wow-dir` that is not a
+flavour folder, a `--data-dir` it cannot write to - is an error: the app says so and stops.
+It never carries on with a guess, because the guess would be the game it detects, and a
+pass deletes the screenshots it converts.
+
+Only one instance runs at a time. Starting it again brings the running one's window forward.
+
 ## Licence
 
 MIT - see [LICENSE](LICENSE).

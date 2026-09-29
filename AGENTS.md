@@ -22,8 +22,8 @@ identity, epoch ordering) the contract says so.
 
 ```
 AltStableCompanion.slnx
-src/AltStableCompanion.Core/        no UI: install, records, pairing, matte, TGA, manifest, watcher
-src/AltStableCompanion.App/         Avalonia tray shell (milestone 2)
+src/AltStableCompanion.Core/        no UI: install, records, pairing, matte, TGA, manifest, watcher, controller
+src/AltStableCompanion.App/         Avalonia tray shell: window, Win32 tray icon, single instance
 tests/AltStableCompanion.Core.Tests xunit
 ```
 
@@ -38,12 +38,24 @@ Warnings are errors (`Directory.Build.props`). Tests generate their own images a
 SavedVariables files in temp folders — there are no binary fixtures, and none should be
 added.
 
+The shell has no tests of its own. What it decides - the status line, the balloon, the
+command line, which install a run uses - lives in Core (`PassText`, `StartupOptions`,
+`ResolvedInstall`) and is tested there, and so does `Controller`, which holds the locks and the
+order things happen in: its tests run it for real, on temporary installs. What is left in the
+shell is drawing and Win32, checked by hand.
+
+Running the app while developing: always with `--wow-dir` and `--data-dir` pointed at a copy.
+Without them it detects the real install and its first pass deletes the screenshots it
+converts.
+
 ## Conventions
 
 - **Right-size for a single maintainer.** No DI container, no plugin system, no i18n, no
   auto-update. An interface with one implementation is speculation.
 - **No network, ever.** It is a promise in the README. The app touches only screenshots it
   matched to a capture, the `AltStableCutouts` folder and `%APPDATA%\AltStableCompanion`.
+  The published single-file exe also unpacks its own native libraries under `%TEMP%\.net`;
+  that is the .NET host, it is stated in the README, and nothing else may be added to it.
 - **Never delete what you did not match.** Screenshots belong to the player; only the two
   files a capture consumed may go, and only after its cutout is on disk.
 - **Hand-rolled images.** The TGA codec and the resampler are ours (no ImageSharp): small,

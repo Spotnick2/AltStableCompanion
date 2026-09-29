@@ -89,10 +89,14 @@ public static class SavedVariablesReader
     /// Every store under <paramref name="accountsDir"/>. A file WoW is writing right now is
     /// retried a few times, then skipped for this pass - the next pass picks it up.
     /// </summary>
-    public static IReadOnlyList<PortraitStore> ReadAll(string accountsDir, Action<string>? log = null)
+    public static IReadOnlyList<PortraitStore> ReadAll(string accountsDir, Action<string>? log = null) =>
+        ReadAll(FindStores(accountsDir), log);
+
+    /// <summary>The same, for files already found.</summary>
+    public static IReadOnlyList<PortraitStore> ReadAll(IEnumerable<string> paths, Action<string>? log = null)
     {
         var stores = new List<PortraitStore>();
-        foreach (var path in FindStores(accountsDir))
+        foreach (var path in paths)
         {
             for (var attempt = 1; ; attempt++)
             {

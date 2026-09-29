@@ -1,0 +1,102 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="using:AltStableCompanion.App"
+        x:Class="AltStableCompanion.App.MainWindow"
+        x:DataType="app:MainViewModel"
+        Title="AltStable Companion"
+        Icon="/Assets/tray.ico"
+        Width="440" Height="600" MinWidth="380" MinHeight="420"
+        WindowStartupLocation="CenterScreen">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.warn">
+      <Setter Property="Foreground" Value="#D9822B" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="16" RowSpacing="12">
+
+    <!-- Which game -->
+    <StackPanel Grid.Row="0" Spacing="4">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+        <TextBox Grid.Column="0" Text="{Binding InstallPath, Mode=OneWay}" IsReadOnly="True"
+                 PlaceholderText="World of Warcraft folder" />
+        <Button Grid.Column="1" Content="Browse..." Click="OnBrowse" IsEnabled="{Binding CanChangeInstall}" />
+        <Button Grid.Column="2" Content="Detect again" Command="{Binding DetectAgain}" />
+      </Grid>
+      <TextBlock Classes="dim" Text="{Binding InstallDetail}" />
+      <TextBlock Classes="warn" Text="{Binding FlavorWarning}" IsVisible="{Binding HasFlavorWarning}" />
+      <TextBlock Classes="warn" Text="{Binding BrowseProblem}" IsVisible="{Binding HasBrowseProblem}" />
+    </StackPanel>
+
+    <!-- Restart the game once -->
+    <Border Grid.Row="1" IsVisible="{Binding RestartNotice}" Padding="12" CornerRadius="6"
+            BorderThickness="1" BorderBrush="#D9822B" Background="#22D9822B">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+        <TextBlock Grid.Column="0" Text="{Binding RestartNoticeText}" TextWrapping="Wrap" />
+        <Button Grid.Column="1" Content="Dismiss" VerticalAlignment="Top" Command="{Binding DismissRestartNotice}" />
+      </Grid>
+    </Border>
+
+    <!-- What is going on -->
+    <StackPanel Grid.Row="2" Spacing="4">
+      <TextBlock Text="{Binding StatusLine}" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <ItemsControl ItemsSource="{Binding Warnings}" IsVisible="{Binding HasWarnings}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="x:String">
+            <TextBlock Classes="warn" Text="{Binding}" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
+    <!-- Who has a portrait -->
+    <Border Grid.Row="3" BorderThickness="1" CornerRadius="6"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <Panel>
+        <TextBlock Classes="dim" IsVisible="{Binding !HasCharacters}" Margin="12"
+                   Text="No captures yet. In game: /alts portrait, then Reload." />
+        <ScrollViewer IsVisible="{Binding HasCharacters}">
+          <ItemsControl ItemsSource="{Binding Characters}" Margin="12,6">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="app:CharacterRow">
+                <StackPanel Margin="0,6" Spacing="2">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding State}" FontWeight="SemiBold" />
+                  </Grid>
+                  <TextBlock Classes="dim" Text="{Binding Captured, StringFormat='captured {0}'}" />
+                  <TextBlock Classes="warn" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Panel>
+    </Border>
+
+    <!-- A row that takes another button (issue #2: "Save diagnostics...") -->
+    <WrapPanel Grid.Row="4" Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
+      <Button Content="Convert now" Command="{Binding ConvertNow}" />
+      <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}" />
+      <Button Content="Open log" Command="{Binding OpenLog}" />
+    </WrapPanel>
+
+    <CheckBox Grid.Row="5" IsChecked="{Binding KeepScreenshots}"
+              Content="Keep screenshots (otherwise the two a portrait used are deleted)" />
+
+    <!-- The three reloads a newcomer takes for one -->
+    <StackPanel Grid.Row="6" Spacing="2">
+      <TextBlock Classes="dim" Text="After a capture: Reload in game, so the game saves what it captured." />
+      <TextBlock Classes="dim" Text="After the FIRST portrait: quit the game completely and start it again, once." />
+      <TextBlock Classes="dim" Text="After any later portrait: Reload in game to see it." />
+    </StackPanel>
+  </Grid>
+</Window>

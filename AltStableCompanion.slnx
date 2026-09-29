@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/AltStableCompanion.App/AltStableCompanion.App.csproj" />
     <Project Path="src/AltStableCompanion.Core/AltStableCompanion.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
