@@ -23,7 +23,7 @@ identity, epoch ordering) the contract says so.
 ```
 AltStableCompanion.slnx
 src/AltStableCompanion.Core/        no UI: install, records, pairing, matte, TGA, manifest, watcher
-src/AltStableCompanion.App/         Avalonia tray shell (milestone 2)
+src/AltStableCompanion.App/         Avalonia tray shell: window, Win32 tray icon, single instance
 tests/AltStableCompanion.Core.Tests xunit
 ```
 
@@ -37,6 +37,14 @@ dotnet test
 Warnings are errors (`Directory.Build.props`). Tests generate their own images and
 SavedVariables files in temp folders — there are no binary fixtures, and none should be
 added.
+
+The shell has no tests of its own. What it decides - the status line, the balloon, the
+command line, which install a run uses - lives in Core (`PassText`, `StartupOptions`,
+`ResolvedInstall`) and is tested there. What is left is drawing and Win32, checked by hand.
+
+Running the app while developing: always with `--wow-dir` and `--data-dir` pointed at a copy.
+Without them it detects the real install and its first pass deletes the screenshots it
+converts.
 
 ## Conventions
 
