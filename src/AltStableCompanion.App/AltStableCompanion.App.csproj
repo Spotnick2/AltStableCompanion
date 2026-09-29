@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The tray shell: a window, a tray icon, and the wiring to Core. Windows only - the
+       Core/App split is the seam for another platform's shell. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>AltStableCompanion</AssemblyName>
+    <RootNamespace>AltStableCompanion.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\tray.ico</ApplicationIcon>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <!-- dotnet publish -c Release -r win-x64 gives one exe that needs nothing installed. Not
+       trimmed: Avalonia and System.Text.Json both reflect. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ApplicationIcon puts the icon in the exe for Explorer; this is the copy the tray icon
+         and the window read. -->
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AltStableCompanion.Core\AltStableCompanion.Core.csproj" />
+  </ItemGroup>
+
+</Project>
