@@ -87,10 +87,16 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
         // A cutout make-cutout.py wrote carries the guid and no epoch: whose it is, not which
         // capture it came from.
         var undated = new HashSet<string>();
-        // The screenshots a finished capture was made from, where they are still on disk. They
-        // stay that capture's: a capture that is skipped here still has a say in who may take
-        // which file.
-        var reserved = new List<string>();
+        // The screenshots the cutouts on disk were made from, where they are still there (the
+        // player keeps screenshots, or one could not be deleted). They stay that cutout's -
+        // also when its character has a NEWER capture waiting, which is when the cutout no
+        // longer matches any capture this pass looks at.
+        List<string> reserved =
+        [
+            .. folder.RecordedShots()
+                .Select(name => Path.Combine(install.Screenshots, name))
+                .Where(times.ContainsKey),
+        ];
         foreach (var cap in newest)
         {
             var existing = folder.FileBaseOf(cap.Guid);
@@ -98,9 +104,6 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             if (meta?.Epoch == EpochOf(cap))
             {
                 statuses.Add(Status(cap, CharacterState.Portrait, meta.NearlySquare ? SquareNote : null));
-                reserved.AddRange((meta.Shots ?? [])
-                    .Select(name => Path.Combine(install.Screenshots, Path.GetFileName(name)))
-                    .Where(times.ContainsKey));
                 continue;
             }
             if (meta is { Epoch: null }) undated.Add(cap.Guid);

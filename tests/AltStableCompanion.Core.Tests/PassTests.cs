@@ -293,6 +293,47 @@ public class ConvertPassTests
     }
 
     [Fact]
+    public void A_kept_pair_stays_its_cutout_s_when_its_character_has_captured_again()
+    {
+        // A is converted and its screenshots kept. A captures AGAIN, and that capture's
+        // screenshots never reach disk: the cutout on disk is no longer of A's newest capture.
+        // Then B's records turn up, two seconds before A's first pair, B's own shots missing.
+        using var t = new TempInstall();
+        const string a = "Player-1-AAAAAAAA", b = "Player-2-BBBBBBBB";
+        var first = T0.AddSeconds(2);
+        var again = T0.AddMinutes(1);
+        Capture(t, "1#1", "Aaa", a, first);
+        t.WriteStore("1#1", Records(("Aaa", a, first)));
+        new ConvertPass(t.Install, new ConvertOptions(KeepScreenshots: true)).Run();
+
+        t.WriteStore("1#1", Records(("Aaa", a, first), ("Aaa", a, again)));
+        t.WriteStore("1#12", Records(("Bbb", b, T0)));
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+
+        Assert.Empty(report.Written);
+        Assert.Equal(CharacterState.Missing, report.Characters.Single(c => c.Guid == a).State);
+        Assert.Equal(CharacterState.Ambiguous, report.Characters.Single(c => c.Guid == b).State);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Assert.Null(folder.FileBaseOf(b));
+        Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(first))));
+        Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(first.AddSeconds(1)))));
+    }
+
+    [Fact]
+    public void A_cutout_that_is_gone_has_no_claim_and_a_sidecar_cannot_name_a_path()
+    {
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        var meta = new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = "Player-1-AAAAAAAA", Epoch = 1 };
+        f.WriteCutout("here", TestData.Solid(4, 4, 1, 1, 1), meta with { Shots = ["a.tga", @"..\..\elsewhere\b.tga", ""] });
+        f.WriteCutout("gone", TestData.Solid(4, 4, 1, 1, 1), meta with { Shots = ["c.tga"] });
+        File.Delete(Path.Combine(f.CutoutsDir, "gone.tga"));
+        f.WriteCutout("no-shots", TestData.Solid(4, 4, 1, 1, 1), meta);
+
+        Assert.Equal(["a.tga", "b.tga"], f.RecordedShots());
+    }
+
+    [Fact]
     public void A_screenshot_one_capture_may_still_want_is_not_deleted_by_another()
     {
         using var t = new TempInstall();

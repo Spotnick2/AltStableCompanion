@@ -119,6 +119,27 @@ public sealed class CutoutFolder(string addonDir)
     }
 
     /// <summary>
+    /// The screenshots the cutouts on disk were made from, by file name: every sidecar's, not
+    /// only the ones some capture in the records still points at. A cutout keeps its claim to
+    /// its sources for as long as it exists - whatever its character has captured since.
+    /// </summary>
+    public IReadOnlyList<string> RecordedShots()
+    {
+        var names = new List<string>();
+        if (!Directory.Exists(CutoutsDir)) return names;
+        foreach (var json in Directory.EnumerateFiles(CutoutsDir, "*.json").Order(StringComparer.Ordinal))
+        {
+            var fileBase = Path.GetFileNameWithoutExtension(json);
+            if (!File.Exists(Path.Combine(CutoutsDir, fileBase + ".tga"))) continue;
+            // A name, never a path: the sidecar is a file anyone can edit.
+            names.AddRange((ReadMeta(fileBase)?.Shots ?? [])
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => Path.GetFileName(n)));
+        }
+        return names;
+    }
+
+    /// <summary>
     /// One entry per TGA on disk, sorted by file name: from its sidecar, or - for a cutout made
     /// before sidecars existed - from the image itself, with no native size rather than an
     /// invented one. A native size only counts when the sidecar DECLARES its unit and it is not
