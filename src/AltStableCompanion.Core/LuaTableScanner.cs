@@ -17,6 +17,11 @@ public sealed class SavedVariablesFormatException(string message) : Exception(me
 ///
 /// Tables come back as <see cref="Dictionary{TKey, TValue}"/> keyed by string (string keys)
 /// or long (numeric keys and positions); scalars as string, double, bool or null.
+///
+/// A VALUE it does not know (nan, -nan(ind), a hex number, whatever a later client writes) reads
+/// as null and a KEY it does not know drops its field; the rest of the table is still read.
+/// One odd number must not hide every capture of an account. Only a file that ENDS inside a
+/// table is an error: that one is being written, and is worth reading again.
 /// </summary>
 public static class LuaTableScanner
 {
@@ -47,14 +52,28 @@ public static class LuaTableScanner
             if (c == '{') return ParseTable();
             if (c == '"' || c == '\'') return ParseString();
             if (c == '-' || c == '.' || char.IsDigit(c)) return ParseNumber();
-            var word = ParseWord();
-            return word switch
+            var from = _pos;
+            if (!(char.IsLetter(c) || c == '_')) return SkipUnknown(from);
+            return ParseWord() switch
             {
                 "nil" => null,
                 "true" => true,
                 "false" => false,
-                _ => throw new SavedVariablesFormatException($"unexpected '{word}' at {_pos}"),
+                "inf" => double.PositiveInfinity,
+                "nan" => double.NaN,
+                _ => SkipUnknown(from),
             };
+        }
+
+        // Not a value this reader knows: step over it, to the separator or bracket that ends
+        // it, and read it as nil. Running out of file on the way is still a file cut short; and
+        // a value that is no characters at all is a stray bracket, which nothing can step over.
+        private object? SkipUnknown(int from)
+        {
+            while (_pos < text.Length && text[_pos] is not (',' or ';' or '}' or ']' or '\n')) _pos++;
+            if (_pos >= text.Length) throw Eof();
+            if (_pos == from) throw new SavedVariablesFormatException($"unexpected '{text[_pos]}' at {_pos}");
+            return null;
         }
 
         private Dictionary<object, object?> ParseTable()
@@ -77,12 +96,20 @@ public static class LuaTableScanner
                     Expect(']');
                     SkipTrivia();
                     Expect('=');
-                    key = k switch
+                    switch (k)
                     {
-                        string s => s,
-                        double d when d == Math.Floor(d) => (long)d,
-                        _ => throw new SavedVariablesFormatException($"unsupported key at {_pos}"),
-                    };
+                        case string s:
+                            key = s;
+                            break;
+                        case double d when d == Math.Floor(d) && Math.Abs(d) < long.MaxValue:
+                            key = (long)d;
+                            break;
+                        default:
+                            // [1.5], [true]: nothing here is looked up by such a key.
+                            ParseValue();
+                            SkipSeparator();
+                            continue;
+                    }
                 }
                 else
                 {
@@ -118,61 +145,84 @@ public static class LuaTableScanner
             if (_pos < text.Length && (text[_pos] == ',' || text[_pos] == ';')) _pos++;
         }
 
+        // A Lua string is BYTES, and a \ddd escape is one of them: "Zo\195\171" is "Zoe" with a
+        // diaeresis, in UTF-8. So the string is collected as bytes and decoded once, at the end.
         private string ParseString()
         {
             var quote = text[_pos++];
-            var sb = new StringBuilder();
+            var bytes = new List<byte>();
+            var plain = _pos;                                   // start of text not yet copied
+            void Flush(int end)
+            {
+                if (end > plain) bytes.AddRange(Encoding.UTF8.GetBytes(text[plain..end]));
+            }
+
             while (true)
             {
                 if (_pos >= text.Length) throw Eof();
-                var c = text[_pos++];
-                if (c == quote) return sb.ToString();
-                if (c != '\\') { sb.Append(c); continue; }
+                var c = text[_pos];
+                if (c == quote)
+                {
+                    Flush(_pos++);
+                    return Encoding.UTF8.GetString([.. bytes]);
+                }
+                if (c != '\\') { _pos++; continue; }
+
+                Flush(_pos++);
                 if (_pos >= text.Length) throw Eof();
                 var e = text[_pos++];
-                switch (e)
+                if (e is >= '0' and <= '9')
                 {
-                    case 'n': sb.Append('\n'); break;
-                    case 't': sb.Append('\t'); break;
-                    case 'r': sb.Append('\r'); break;
-                    case '\n': sb.Append('\n'); break;
-                    default:
-                        if (char.IsDigit(e))
-                        {
-                            var start = _pos - 1;
-                            while (_pos < text.Length && _pos - start < 3 && char.IsDigit(text[_pos])) _pos++;
-                            sb.Append((char)int.Parse(text[start.._pos], CultureInfo.InvariantCulture));
-                        }
-                        else
-                        {
-                            sb.Append(e);
-                        }
-                        break;
+                    var start = _pos - 1;
+                    while (_pos < text.Length && _pos - start < 3 && text[_pos] is >= '0' and <= '9') _pos++;
+                    bytes.Add((byte)int.Parse(text[start.._pos], CultureInfo.InvariantCulture));
                 }
+                else
+                {
+                    bytes.AddRange(Encoding.UTF8.GetBytes(e switch
+                    {
+                        'n' => "\n",
+                        't' => "\t",
+                        'r' => "\r",
+                        'a' => "\a",
+                        'b' => "\b",
+                        'f' => "\f",
+                        'v' => "\v",
+                        _ => e.ToString(),                      // \" \' \\ and a line break
+                    }));
+                }
+                plain = _pos;
             }
         }
 
-        private double ParseNumber()
+        private object? ParseNumber()
         {
             var start = _pos;
             if (text[_pos] == '-') _pos++;
-            while (_pos < text.Length && (char.IsLetterOrDigit(text[_pos]) || text[_pos] is '.' or '+' or '-'))
+            while (_pos < text.Length && (char.IsLetterOrDigit(text[_pos]) || text[_pos] is '.' or '+' or '-' or '#'))
             {
                 // Stop a trailing minus from eating the start of a "--" comment.
                 if (text[_pos] == '-' && !(text[_pos - 1] is 'e' or 'E')) break;
                 _pos++;
             }
             var s = text[start.._pos];
+            // -nan(ind), 1.#QNAN(...): the token goes on past what a number can hold.
+            if (_pos < text.Length && text[_pos] == '(') return SkipUnknown(start);
             if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d)) return d;
-            if (s is "inf" or "1.#INF") return double.PositiveInfinity;
-            throw new SavedVariablesFormatException($"bad number '{s}' at {start}");
+            var (sign, digits) = s.StartsWith('-') ? (-1.0, s[1..]) : (1.0, s);
+            if (digits is "inf" or "1.#INF") return sign * double.PositiveInfinity;
+            if (digits.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                && long.TryParse(digits[2..], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var hex))
+            {
+                return sign * hex;
+            }
+            return SkipUnknown(start);
         }
 
         private string ParseWord()
         {
             var start = _pos;
             while (_pos < text.Length && (char.IsLetterOrDigit(text[_pos]) || text[_pos] == '_')) _pos++;
-            if (_pos == start) throw new SavedVariablesFormatException($"unexpected '{text[_pos]}' at {_pos}");
             return text[start.._pos];
         }
 

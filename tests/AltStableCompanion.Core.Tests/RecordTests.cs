@@ -116,6 +116,52 @@ public class LuaTableScannerTests
         Assert.Null(LuaTableScanner.ReadGlobal("-- X = { } in a comment\nY = 1\n", "X", out var found));
         Assert.False(found);
     }
+
+    [Fact]
+    public void A_value_it_does_not_know_reads_as_nil_and_hides_nothing_else()
+    {
+        var v = (Dictionary<object, object?>)LuaTableScanner.ReadGlobal("""
+            X = {
+            ["a"] = nan,
+            ["b"] = -nan(ind),
+            ["c"] = inf,
+            ["d"] = -inf,
+            ["e"] = 0x10,
+            ["f"] = 1.#INF,
+            ["g"] = somethingNew(1),
+            [1.5] = "dropped",
+            [true] = "dropped",
+            ["kept"] = "yes", -- [9]
+            }
+            """, "X", out _)!;
+        Assert.True(double.IsNaN((double)v["a"]!));
+        Assert.Null(v["b"]);
+        Assert.Equal(double.PositiveInfinity, v["c"]);
+        Assert.Equal(double.NegativeInfinity, v["d"]);
+        Assert.Equal(16.0, v["e"]);
+        Assert.Equal(double.PositiveInfinity, v["f"]);
+        Assert.Null(v["g"]);
+        Assert.Equal("yes", v["kept"]);
+        Assert.Equal(8, v.Count);                                 // the two odd keys are gone
+    }
+
+    [Fact]
+    public void A_stray_bracket_is_an_error_not_an_endless_loop() =>
+        Assert.Throws<SavedVariablesFormatException>(() => LuaTableScanner.ReadGlobal("X = {\n]\n}\n", "X", out _));
+
+    [Fact]
+    public void A_file_that_ends_inside_a_value_it_does_not_know_is_still_cut_short() =>
+        Assert.Throws<SavedVariablesFormatException>(() => LuaTableScanner.ReadGlobal("X = {\n[\"a\"] = somethi", "X", out _));
+
+    [Fact]
+    public void A_string_is_bytes_and_decimal_escapes_are_bytes_of_it()
+    {
+        var v = (Dictionary<object, object?>)LuaTableScanner.ReadGlobal(
+            "X = {\n[\"escaped\"] = \"Zo\\195\\171\",\n[\"raw\"] = \"Zoë 😀\",\n[\"bell\"] = \"a\\a\\98\",\n}\n", "X", out _)!;
+        Assert.Equal("Zoë", v["escaped"]);
+        Assert.Equal("Zoë 😀", v["raw"]);
+        Assert.Equal("a\ab", v["bell"]);
+    }
 }
 
 public class SluggerTests
