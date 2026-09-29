@@ -75,7 +75,7 @@ public class ControllerTests
     public void A_saved_folder_is_watched_and_its_capture_converted()
     {
         using var t = new TempInstall();
-        new Settings { WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
         Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
 
         using var c = Started(t);
@@ -135,6 +135,7 @@ public class ControllerTests
         {
             Assert.True(c.Browse(t.Install.FlavorDir));
             Assert.Null(c.Current.SettingsProblem);
+            c.StartWatching(keepScreenshots: false);
             FirstPass(c);
         }
         Assert.False(Settings.Load(Data(t)).InstallUnknown);
@@ -156,6 +157,7 @@ public class ControllerTests
             c.DetectAgain();
             Assert.Equal(t.Install.FlavorDir, c.Current.Shell.Install!.FlavorDir);
             Assert.Null(c.Current.SettingsProblem);
+            c.StartWatching(keepScreenshots: true);
             FirstPass(c);
         }
         Assert.False(Settings.Load(Data(t)).InstallUnknown);
@@ -169,6 +171,7 @@ public class ControllerTests
         var before = File.ReadAllText(Path.Combine(Data(t), "settings.json"));
         using (var c = Started(t, wowDir: t.Install.FlavorDir))
         {
+            c.StartWatching(keepScreenshots: true);
             FirstPass(c);
             Assert.True(c.Current.Pinned);
             Assert.True(c.Current.KeepScreenshots);
@@ -191,7 +194,7 @@ public class ControllerTests
     public void A_restart_notice_that_could_not_be_written_is_written_later()
     {
         using var t = new TempInstall();
-        new Settings { WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
         var file = Path.Combine(Data(t), "settings.json");
         File.SetAttributes(file, FileAttributes.ReadOnly);
         try
@@ -236,7 +239,7 @@ public class ControllerTests
     {
         using var t = new TempInstall();
         new CutoutFolder(t.Install.CutoutAddonDir).EnsureToc();
-        new Settings { WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
         Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
         using var c = Started(t);
         FirstPass(c);
@@ -256,7 +259,7 @@ public class ControllerTests
         var cut = Path.Combine(a.Install.Screenshots, TestData.ShotName(T0));
         File.WriteAllBytes(cut, File.ReadAllBytes(cut)[..200]);
         Capture(b, "1#1", "Bbb", "Player-2-BBBBBBBB", T0);
-        new Settings { WowFlavorDir = a.Install.FlavorDir }.Save(Data(a));
+        new Settings { Started = true, WowFlavorDir = a.Install.FlavorDir }.Save(Data(a));
 
         using var c = Started(a);
         Until(() => c.Current.Shell.Converting, "A's pass starting");
@@ -279,7 +282,7 @@ public class ControllerTests
     public void Pausing_is_remembered_and_stops_the_first_look()
     {
         using var t = new TempInstall();
-        new Settings { WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
         Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
         using var c = Started(t);
         Assert.True(c.Current.Shell.Paused);
@@ -295,7 +298,7 @@ public class ControllerTests
     public void Keep_screenshots_is_for_the_next_pass_and_is_remembered()
     {
         using var t = new TempInstall();
-        new Settings { WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
         using var c = Started(t);
         FirstPass(c);
 
@@ -314,7 +317,7 @@ public class ControllerTests
         // races an assertion about what has NOT happened yet.
         using var t = new TempInstall();
         using var other = new TempInstall();
-        new Settings { WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
         Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
         var ticks = 0;
         DateTime Clock() => T0.AddMinutes(Interlocked.Increment(ref ticks));
@@ -353,7 +356,7 @@ public class ControllerTests
     public void A_capture_that_could_not_be_converted_is_in_the_note()
     {
         using var t = new TempInstall();
-        new Settings { WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
         var same = TestData.Solid(400, 1200, 90, 90, 90);          // identical shots: rejected
         t.WriteShot(T0, same);
         t.WriteShot(T0.AddSeconds(1), same);
@@ -369,10 +372,89 @@ public class ControllerTests
     }
 
     [Fact]
+    public void On_the_first_start_nothing_is_converted_until_the_player_says_so()
+    {
+        // No settings: nobody has started the app here. A capture is waiting, and converting
+        // it deletes its screenshots.
+        using var t = new TempInstall();
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        var black = Path.Combine(t.Install.Screenshots, TestData.ShotName(T0));
+
+        using (var c = Started(t, detect: () => t.Install))
+        {
+            Assert.True(c.Current.Shell.FirstStart);
+            // Neither the first look, nor a file turning up, nor the button converts anything.
+            c.ConvertNow();
+            t.WriteShot(T0.AddMinutes(9), TestData.Solid(4, 4, 1, 1, 1));
+            Thread.Sleep(700);
+            Assert.Null(c.Current.Shell.LastPass);
+            Assert.True(File.Exists(black));
+            Assert.False(File.Exists(Path.Combine(Data(t), "settings.json")));
+
+            // The box ticked on the card is what the first pass goes by.
+            c.StartWatching(keepScreenshots: true);
+            Assert.False(c.Current.Shell.FirstStart);
+            FirstPass(c);
+            Assert.Equal(["Aaa"], c.Current.Shell.LastWritten!.Written);
+            Assert.True(File.Exists(black));
+        }
+
+        var saved = Settings.Load(Data(t));
+        Assert.True(saved.Started);
+        Assert.True(saved.KeepScreenshots);
+        using (var c = Started(t, detect: () => t.Install))
+        {
+            Assert.False(c.Current.Shell.FirstStart);
+            FirstPass(c);
+        }
+    }
+
+    [Fact]
+    public void Pausing_before_the_first_start_does_not_make_it_a_second_one()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        using (var c = Started(t, detect: () => t.Install))
+        {
+            c.SetPaused(true);                                      // from the tray menu: it saves
+            c.SetPaused(false);
+        }
+        using (var c = Started(t, detect: () => t.Install))
+        {
+            Assert.True(c.Current.Shell.FirstStart);
+            Thread.Sleep(500);
+            Assert.Null(c.Current.Shell.LastPass);
+        }
+        Assert.True(File.Exists(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0))));
+    }
+
+    [Fact]
+    public void What_was_written_is_news_until_it_has_been_read()
+    {
+        using var t = new TempInstall();
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        using var c = Started(t);
+
+        Pass(c);
+        Assert.False(c.Current.Shell.UpdateSeen);
+        c.AcknowledgeUpdate();
+        Assert.True(c.Current.Shell.UpdateSeen);
+
+        // A pass that writes nothing leaves it read; one that writes makes it news again.
+        Pass(c);
+        Assert.True(c.Current.Shell.UpdateSeen);
+        Capture(t, "1#12", "Bbb", "Player-2-BBBBBBBB", T0.AddMinutes(3));
+        Pass(c);
+        Assert.Equal(["Bbb"], c.Current.Shell.LastWritten!.Written);
+        Assert.False(c.Current.Shell.UpdateSeen);
+    }
+
+    [Fact]
     public void A_folder_that_is_not_wow_changes_nothing()
     {
         using var t = new TempInstall();
-        new Settings { WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
         using var c = Started(t);
         Assert.False(c.Browse(t.Install.Screenshots));
         Assert.Equal(t.Install.FlavorDir, c.Current.Shell.Install!.FlavorDir);
@@ -386,7 +468,7 @@ public class ControllerTests
         Capture(t, "1#1", "Slow", "Player-1-AAAAAAAA", T0);
         var cut = Path.Combine(t.Install.Screenshots, TestData.ShotName(T0));
         File.WriteAllBytes(cut, File.ReadAllBytes(cut)[..200]);
-        new Settings { WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir }.Save(Data(t));
 
         using var c = Started(t);
         Until(() => c.Current.Shell.Converting, "the pass starting");

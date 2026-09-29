@@ -130,6 +130,21 @@ public class CutoutFolderTests
     }
 
     [Fact]
+    public void A_file_the_manifest_will_not_list_holds_nobody_s_portrait()
+    {
+        // Newer, and under a name that cannot go into the manifest. It used to win: the capture
+        // read as converted while the game was given nothing to draw.
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        var meta = new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = "Player-1-AAAA" };
+        f.WriteCutout("kaleid", TestData.Solid(4, 4, 1, 1, 1), meta with { Epoch = 50 });
+        f.WriteCutout("kaleid's new", TestData.Solid(4, 4, 1, 1, 1), meta with { Epoch = 100 });
+
+        Assert.Equal("kaleid", f.FileBaseOf("Player-1-AAAA"));
+        Assert.Equal("kaleid.tga", Assert.Single(f.Inventory()).FileName);
+    }
+
+    [Fact]
     public void A_sidecar_the_python_converter_wrote_is_read()
     {
         using var t = new TempInstall();
@@ -413,9 +428,15 @@ public class ConvertPassTests
             new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = Guid1 });
         t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
 
-        var status = new ConvertPass(t.Install, new ConvertOptions()).Run().Characters.Single();
+        var log = new List<string>();
+        var pass = new ConvertPass(t.Install, new ConvertOptions(), log.Add);
+        var status = pass.Run().Characters.Single();
         Assert.Equal(CharacterState.Portrait, status.State);
-        Assert.Contains("earlier converter", status.Note);
+        // Which capture it came from is not known - and that is for the log, not for the player.
+        Assert.True(status.Undated);
+        Assert.Null(status.Note);
+        pass.Run();
+        Assert.Single(log, l => l.Contains("earlier converter"));
     }
 
     [Fact]
@@ -562,6 +583,56 @@ public class ConvertPassTests
         Assert.Single(pass.Run().Warnings);
         Assert.Single(pass.Run().Warnings);
         Assert.Single(log);
+    }
+
+    [Fact]
+    public void The_report_lists_every_portrait_and_every_capture_once()
+    {
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        f.EnsureToc();
+        // Two portraits from before captures were recorded, one of them of a character who
+        // has captured since (its screenshots are gone); a capture that converts; one that does not.
+        TgaCodec.Write(Path.Combine(f.CutoutsDir, "karuzo-elegia.tga"), TestData.Solid(4, 4, 1, 1, 1));
+        TgaCodec.Write(Path.Combine(f.CutoutsDir, "old-friend.tga"), TestData.Solid(4, 4, 1, 1, 1));
+        Capture(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        var same = TestData.Solid(400, 1200, 90, 90, 90);
+        t.WriteShot(T0.AddMinutes(5), same);
+        t.WriteShot(T0.AddMinutes(5).AddSeconds(1), same);
+        t.WriteStore("1#1", Records(
+            ("Kaleid Sumner", Guid1, T0), ("Old Friend", "Player-1-BBBBBBBB", T0.AddMinutes(-30)),
+            ("Twice Shot", "Player-1-CCCCCCCC", T0.AddMinutes(5))));
+
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+
+        Assert.True(report.ManifestWritten);
+        var rows = report.Portraits!;
+        Assert.Equal(["Kaleid Sumner", "Karuzo Elegia", "Old Friend", "Twice Shot"], rows.Select(r => r.Name));
+        Assert.Equal([PortraitSource.ByGuid, PortraitSource.File, PortraitSource.ByName, PortraitSource.None], rows.Select(r => r.Source));
+        Assert.Equal([CaptureOutcome.Converted, CaptureOutcome.None, CaptureOutcome.NoScreenshots, CaptureOutcome.Unusable], rows.Select(r => r.Outcome));
+        Assert.Equal([false, false, false, true], rows.Select(r => r.NeedsAttention));
+        Assert.All(rows.Where(r => r.Ready), r => Assert.NotNull(r.FileModified));
+        Assert.Equal("3 portraits · 1 needs attention", PassText.Count(rows));
+    }
+
+    [Fact]
+    public void A_manifest_that_could_not_be_written_is_said_in_the_report()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        t.WriteStore("1#1", Records(("Kaleid Sumner", Guid1, T0)));
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        f.EnsureToc();
+        // Where the manifest has to go there is a FOLDER of that name.
+        Directory.CreateDirectory(f.ManifestPath);
+
+        var report = new ConvertPass(t.Install, new ConvertOptions()).Run();
+
+        Assert.Equal(["Kaleid Sumner"], report.Written);
+        Assert.False(report.ManifestWritten);
+        Assert.Contains(report.Warnings, w => w.Contains("could not write the manifest"));
+        // What is on disk is still listed: the files are there, the game has not been told.
+        Assert.Equal("kaleid-sumner.tga", report.Portraits!.Single().FileName);
     }
 
     [Fact]

@@ -15,6 +15,13 @@ public sealed record Settings
     public bool Paused { get; init; }
 
     /// <summary>
+    /// The player has been told what happens to their screenshots and has said "Start
+    /// watching". Until then nothing is converted. Written down here, and not read off whether
+    /// a settings file exists: pausing from the tray writes one too.
+    /// </summary>
+    public bool Started { get; init; }
+
+    /// <summary>
     /// Which folder the player chose is not known: the settings could not be read at some
     /// start, and they have not chosen since. While this is set nothing is detected for them -
     /// it is cleared by Browse and by Detect again, and by nothing else.
@@ -53,11 +60,12 @@ public sealed record Settings
         && WowFlavorDir == other.WowFlavorDir
         && KeepScreenshots == other.KeepScreenshots
         && Paused == other.Paused
+        && Started == other.Started
         && InstallUnknown == other.InstallUnknown
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
-        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, InstallUnknown, RestartNoticeInstalls.Count);
+        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, InstallUnknown, RestartNoticeInstalls.Count);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

@@ -18,7 +18,12 @@ public enum CharacterState
     Failed,
 }
 
-public sealed record CharacterStatus(string Guid, string Name, DateTime LastCaptured, CharacterState State, string? Note);
+/// <param name="Undated">Its portrait is from a converter that did not record which capture
+///   it used: the portrait is there, and whether it is of THIS capture nobody knows.</param>
+/// <param name="NearlySquare">The portrait is nearly as wide as it is tall: something other
+///   than the character may be in it.</param>
+public sealed record CharacterStatus(string Guid, string Name, DateTime LastCaptured, CharacterState State,
+    string? Note, bool Undated = false, bool NearlySquare = false);
 
 public sealed record PassReport(
     IReadOnlyList<CharacterStatus> Characters,
@@ -30,7 +35,14 @@ public sealed record PassReport(
     /// <summary>How many accounts have an AltStable.lua at all.</summary>
     int Accounts = 0,
     /// <summary>How many of their stores are a version this app does not read.</summary>
-    int Refused = 0);
+    int Refused = 0,
+    /// <summary>The window's list: every portrait in the manifest, every character with a capture.</summary>
+    IReadOnlyList<PortraitRow>? Portraits = null,
+    /// <summary>
+    /// The manifest on disk lists what <see cref="Portraits"/> was built from. False when it
+    /// could not be written: the portraits are files, and the game has not been told.
+    /// </summary>
+    bool ManifestWritten = true);
 
 /// <summary>
 /// One full, idempotent pass: read every store, pair the newest capture of each character with
@@ -129,7 +141,8 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             var meta = existing is null ? null : folder.ReadMeta(existing);
             if (meta?.Epoch == EpochOf(cap))
             {
-                statuses.Add(Status(cap, CharacterState.Portrait, meta.NearlySquare ? SquareNote : null));
+                statuses.Add(Status(cap, CharacterState.Portrait, meta.NearlySquare ? SquareNote : null)
+                    with { NearlySquare = meta.NearlySquare });
                 continue;
             }
             if (meta is { Epoch: null }) undated.Add(cap.Guid);
@@ -150,9 +163,13 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                         continue;
                     case MatchProblem.Missing when undated.Contains(cap.Guid):
                         // The portrait is there and drawn; the converter that made it consumed
-                        // the screenshots and did not say which capture they were.
-                        statuses.Add(Status(cap, CharacterState.Portrait,
-                            "made by an earlier converter, which did not record its capture"));
+                        // the screenshots and did not say which capture they were. That is for
+                        // the log: there is nothing in it for the player to do.
+                        if (_logged.Add("undated " + cap.Guid))
+                        {
+                            log?.Invoke($"{cap.Name}: its portrait was made by an earlier converter, which did not record its capture");
+                        }
+                        statuses.Add(Status(cap, CharacterState.Portrait, null) with { Undated = true });
                         continue;
                     case MatchProblem.Missing:
                         statuses.Add(Status(cap, CharacterState.Missing, "no screenshots for this capture on disk"));
@@ -212,7 +229,8 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                 folder.WriteCutout(fileBase, cutout.Canvas, cutout.Meta);
                 written.Add(cap.Name);
                 log?.Invoke($"wrote {fileBase}.tga for {cap.Name}");
-                statuses.Add(Status(cap, CharacterState.Portrait, cutout.NearlySquare ? SquareNote : null));
+                statuses.Add(Status(cap, CharacterState.Portrait, cutout.NearlySquare ? SquareNote : null)
+                    with { NearlySquare = cutout.NearlySquare });
 
                 // Only now, and only these two: a failed convert leaves its source to retry, and a
                 // file this capture did not consume is not ours to delete.
@@ -242,24 +260,34 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             }
         }
 
+        // The folder is listed once: what the manifest is written from is what the window shows.
+        IReadOnlyList<ManifestEntry> entries = [];
+        IReadOnlyDictionary<string, DateTime> fileTimes = new Dictionary<string, DateTime>();
+        var manifestWritten = true;
         try
         {
             if (folder.Exists)
             {
                 if (folder.EnsureToc()) folderCreated = true;
-                folder.WriteManifest(DateTime.Now, Warn);
+                entries = folder.Inventory(Warn);
+                fileTimes = folder.FileTimes(entries);
+                folder.WriteManifest(entries, DateTime.Now);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            manifestWritten = false;
             Warn($"could not write the manifest: {ex.Message}");
         }
 
+        IReadOnlyList<CharacterStatus> characters =
+            [.. statuses.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)];
         return new PassReport(
-            [.. statuses.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)],
-            written, freed, stale, folderCreated, warnings,
+            characters, written, freed, stale, folderCreated, warnings,
             Accounts: accounts.Count,
-            Refused: stores.Count(s => s.Refused is not null));
+            Refused: stores.Count(s => s.Refused is not null),
+            Portraits: Collection.Build(entries, characters, fileTimes),
+            ManifestWritten: manifestWritten);
     }
 
     // The capture's identity in a sidecar: the shot-1 epoch, or its local stamp for a record

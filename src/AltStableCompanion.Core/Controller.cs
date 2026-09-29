@@ -32,6 +32,9 @@ public sealed record Snapshot(
 ///   them meanwhile, and screenshots are kept.</item>
 /// <item>Settings that could not be WRITTEN are written again, at every pass, until they are.
 ///   What is owed to the player (the restart notice) must not depend on one write.</item>
+/// <item>On the very first start NOTHING is converted until the player says so. A pass deletes
+///   the screenshots it used and keeps the options it began with: an explanation that is
+///   shown while the first pass runs comes too late for that pass.</item>
 /// </list>
 /// </summary>
 public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
@@ -97,7 +100,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                 Pinned = resolved.Pinned,
                 KeepScreenshots = _settings.KeepScreenshots,
                 SettingsProblem = Problem(),
-                Shell = new ShellState(Paused: _settings.Paused),
+                Shell = new ShellState(Paused: _settings.Paused, FirstStart: !_settings.Started),
             };
         }
         if (!Use(resolved.Install, resolved.Problem))
@@ -128,10 +131,39 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
         }
     }
 
+    /// <summary>
+    /// The first start is over: the player has read what happens to their screenshots and
+    /// chosen. The settings are written now, so the next start is not a first one.
+    /// </summary>
+    public void StartWatching(bool keepScreenshots)
+    {
+        Watcher? watcher;
+        lock (_gate)
+        {
+            if (!_current.Shell.FirstStart) return;
+            _current = _current with
+            {
+                KeepScreenshots = keepScreenshots,
+                Shell = _current.Shell with { FirstStart = false },
+            };
+            if (_pass is not null) _pass.Options = new ConvertOptions(KeepScreenshots: keepScreenshots);
+            watcher = _watcher;
+        }
+        Save(s => s with { KeepScreenshots = keepScreenshots, Started = true });
+        watcher?.TriggerNow();
+    }
+
+    /// <summary>"Got it": the player has read that portraits were written.</summary>
+    public void AcknowledgeUpdate()
+    {
+        lock (_gate) _current = _current with { Shell = _current.Shell with { UpdateSeen = true } };
+        Changed?.Invoke();
+    }
+
     public void ConvertNow()
     {
         Watcher? watcher;
-        lock (_gate) watcher = _stopping ? null : _watcher;
+        lock (_gate) watcher = _stopping || _current.Shell.FirstStart ? null : _watcher;
         if (watcher is null) return;
         // The pass that runs next is one the player asked for, paused or not.
         Interlocked.Exchange(ref _asked, 1);
@@ -250,6 +282,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                     LastError = null,
                     LastPass = same ? _current.Shell.LastPass : null,
                     LastWritten = same ? _current.Shell.LastWritten : null,
+                    UpdateSeen = same && _current.Shell.UpdateSeen,
                 },
             };
         }
@@ -275,6 +308,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                 // Asked here, with the gate in hand: this pass may have waited for another,
                 // and the player may have paused while it did.
                 var asked = Interlocked.Exchange(ref _asked, 0) == 1;
+                if (_current.Shell.FirstStart) return;
                 if (_current.Shell.Paused && !asked) return;
                 pass = _pass;
                 install = _current.Shell.Install;
@@ -314,6 +348,8 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                             LastError = error,
                             LastPass = note,
                             LastWritten = note.Written.Count > 0 ? note : _current.Shell.LastWritten,
+                            // Something new was written: it has not been read yet.
+                            UpdateSeen = note.Written.Count == 0 && _current.Shell.UpdateSeen,
                         },
                     };
                 }

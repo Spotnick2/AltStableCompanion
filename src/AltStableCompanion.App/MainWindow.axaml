@@ -5,77 +5,232 @@
         x:DataType="app:MainViewModel"
         Title="AltStable Companion"
         Icon="/Assets/tray.ico"
-        Width="440" Height="600" MinWidth="380" MinHeight="420"
+        Width="540" Height="720" MinWidth="440" MinHeight="480"
+        Background="{DynamicResource BodyBrush}"
         WindowStartupLocation="CenterScreen">
 
+  <!-- Every colour is a resource with a name that says what it is FOR. The glass themes are a
+       second set under the same names; nothing below has a colour of its own. -->
+  <Window.Resources>
+    <SolidColorBrush x:Key="BodyBrush" Color="#0E1420" />
+    <SolidColorBrush x:Key="PaneBrush" Color="#151D2B" />
+    <SolidColorBrush x:Key="DataBrush" Color="#0B1018" />
+    <SolidColorBrush x:Key="RimBrush" Color="#2B3850" />
+    <SolidColorBrush x:Key="TextBrush" Color="#E8EEF7" />
+    <SolidColorBrush x:Key="DimBrush" Color="#9AA8BD" />
+    <SolidColorBrush x:Key="LinkBrush" Color="#5AA9FF" />
+    <SolidColorBrush x:Key="GoodBrush" Color="#4ADE80" />
+    <SolidColorBrush x:Key="GoodPaneBrush" Color="#10301F" />
+    <SolidColorBrush x:Key="InfoBrush" Color="#5AA9FF" />
+    <SolidColorBrush x:Key="InfoPaneBrush" Color="#11233A" />
+    <SolidColorBrush x:Key="AttentionBrush" Color="#F0A23A" />
+    <SolidColorBrush x:Key="AttentionPaneBrush" Color="#33240E" />
+    <SolidColorBrush x:Key="ProblemBrush" Color="#F26D6D" />
+    <SolidColorBrush x:Key="ProblemPaneBrush" Color="#351616" />
+  </Window.Resources>
+
   <Window.Styles>
-    <Style Selector="TextBlock.dim">
-      <Setter Property="Opacity" Value="0.7" />
-      <Setter Property="FontSize" Value="12" />
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
-    <Style Selector="TextBlock.warn">
-      <Setter Property="Foreground" Value="#D9822B" />
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource DimBrush}" />
       <Setter Property="FontSize" Value="12" />
-      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.warn">
+      <Setter Property="Foreground" Value="{DynamicResource AttentionBrush}" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="TextBlock.title">
+      <Setter Property="FontSize" Value="19" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Border.pane">
+      <Setter Property="Background" Value="{DynamicResource PaneBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource RimBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="14,10" />
+    </Style>
+    <Style Selector="Border.data">
+      <Setter Property="Background" Value="{DynamicResource DataBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource RimBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+
+    <!-- The headline wears the colour of what it says. -->
+    <Style Selector="Border.headline">
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="Background" Value="{DynamicResource PaneBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource RimBrush}" />
+    </Style>
+    <Style Selector="Border.headline.good">
+      <Setter Property="Background" Value="{DynamicResource GoodPaneBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource GoodBrush}" />
+    </Style>
+    <Style Selector="Border.headline.info">
+      <Setter Property="Background" Value="{DynamicResource InfoPaneBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource InfoBrush}" />
+    </Style>
+    <Style Selector="Border.headline.attention">
+      <Setter Property="Background" Value="{DynamicResource AttentionPaneBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AttentionBrush}" />
+    </Style>
+    <Style Selector="Border.headline.problem">
+      <Setter Property="Background" Value="{DynamicResource ProblemPaneBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource ProblemBrush}" />
+    </Style>
+    <Style Selector="Border.headline.good TextBlock.title">
+      <Setter Property="Foreground" Value="{DynamicResource GoodBrush}" />
+    </Style>
+    <Style Selector="Border.headline.attention TextBlock.title">
+      <Setter Property="Foreground" Value="{DynamicResource AttentionBrush}" />
+    </Style>
+    <Style Selector="Border.headline.problem TextBlock.title">
+      <Setter Property="Foreground" Value="{DynamicResource ProblemBrush}" />
+    </Style>
+
+    <Style Selector="Button.link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="6,4" />
+      <Setter Property="Foreground" Value="{DynamicResource LinkBrush}" />
+    </Style>
+    <Style Selector="Ellipse.dot">
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Height" Value="9" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
   </Window.Styles>
 
-  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="16" RowSpacing="12">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="14" RowSpacing="10">
+   <StackPanel Grid.Row="0" Spacing="10">
 
-    <!-- Which game -->
-    <StackPanel Grid.Row="0" Spacing="4">
-      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
-        <TextBox Grid.Column="0" Text="{Binding InstallPath, Mode=OneWay}" IsReadOnly="True"
-                 PlaceholderText="World of Warcraft folder" />
-        <Button Grid.Column="1" Content="Browse..." Click="OnBrowse" IsEnabled="{Binding CanChangeInstall}" />
-        <Button Grid.Column="2" Content="Detect again" Command="{Binding DetectAgain}" />
+    <!-- Which game, is the addon in it, how many accounts -->
+    <Border Classes="pane">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="14">
+        <TextBlock Grid.Column="0" Text="{Binding Game}" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <Border Grid.Column="1" Width="1" Background="{DynamicResource RimBrush}" />
+        <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center">
+          <StackPanel Orientation="Horizontal" Spacing="7">
+            <Ellipse Classes="dot" Fill="{DynamicResource GoodBrush}" IsVisible="{Binding AddonDetected}" />
+            <Ellipse Classes="dot" Fill="{DynamicResource ProblemBrush}" IsVisible="{Binding AddonMissing}" />
+            <TextBlock Text="{Binding Addon}" />
+          </StackPanel>
+          <TextBlock Classes="dim" Text="{Binding Accounts}" Margin="16,0,0,0" />
+        </StackPanel>
+        <Button Grid.Column="3" Classes="link" Content="Settings" Command="{Binding ToggleSettings}" VerticalAlignment="Center" />
       </Grid>
-      <TextBlock Classes="dim" Text="{Binding InstallDetail}" />
-      <TextBlock Classes="warn" Text="{Binding FlavorWarning}" IsVisible="{Binding HasFlavorWarning}" />
-      <TextBlock Classes="warn" Text="{Binding BrowseProblem}" IsVisible="{Binding HasBrowseProblem}" />
-    </StackPanel>
+    </Border>
 
-    <!-- Restart the game once -->
-    <Border Grid.Row="1" IsVisible="{Binding RestartNotice}" Padding="12" CornerRadius="6"
-            BorderThickness="1" BorderBrush="#D9822B" Background="#22D9822B">
+    <!-- Settings: closed until asked for -->
+    <Border Classes="pane" IsVisible="{Binding ShowSettings}">
+      <StackPanel Spacing="8">
+        <TextBlock Classes="dim" Text="World of Warcraft folder" />
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+          <TextBox Grid.Column="0" Text="{Binding InstallPath, Mode=OneWay}" IsReadOnly="True"
+                   PlaceholderText="not set" />
+          <Button Grid.Column="1" Content="Browse..." Click="OnBrowse" IsEnabled="{Binding CanChangeInstall}" />
+          <Button Grid.Column="2" Content="Detect again" Command="{Binding DetectAgain}" />
+        </Grid>
+        <TextBlock Classes="dim" Text="{Binding InstallNote}" IsVisible="{Binding HasInstallNote}" />
+        <TextBlock Classes="warn" Text="{Binding BrowseProblem}" IsVisible="{Binding HasBrowseProblem}" />
+        <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep the screenshots a portrait was made from" />
+        <TextBlock Classes="dim" Margin="28,-6,0,0"
+                   Text="Otherwise those two files are deleted once the portrait is written. No other screenshot is ever touched." />
+        <CheckBox IsChecked="{Binding Paused}" Content="Pause watching" />
+      </StackPanel>
+    </Border>
+
+    <TextBlock Classes="warn" Text="{Binding FlavorWarning}" IsVisible="{Binding HasFlavorWarning}" />
+
+    <!-- How things stand, and the one next step -->
+    <Border Classes="headline"
+            Classes.good="{Binding IsGood}" Classes.info="{Binding IsInfo}"
+            Classes.attention="{Binding IsAttention}" Classes.problem="{Binding IsProblem}">
+      <StackPanel Spacing="4">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <TextBlock Grid.Column="0" Classes="title" Text="{Binding Title}" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
+            <Button Content="Got it" Command="{Binding GotIt}" IsVisible="{Binding Dismissable}" />
+            <!-- Paused is said whatever the headline is: a player who follows the next step
+                 and then waits for a portrait has to know nothing is being watched. -->
+            <Border IsVisible="{Binding Paused}" Background="{DynamicResource AttentionPaneBrush}"
+                    BorderBrush="{DynamicResource AttentionBrush}" BorderThickness="1" CornerRadius="6" Padding="8,2">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="Paused" VerticalAlignment="Center" Foreground="{DynamicResource AttentionBrush}" />
+                <Button Classes="link" Content="Resume" Command="{Binding Resume}" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Grid>
+        <TextBlock Text="{Binding Next}" IsVisible="{Binding HasNext}" />
+
+        <!-- The first start: nothing is converted until this is read and answered. -->
+        <StackPanel Spacing="8" IsVisible="{Binding FirstStart}" Margin="0,4,0,0">
+          <TextBlock Text="{Binding FirstStartText}" />
+          <CheckBox IsChecked="{Binding FirstStartKeep}" Content="Keep those screenshots" />
+          <Button Content="Start watching" Command="{Binding StartWatching}" HorizontalAlignment="Right" />
+        </StackPanel>
+
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <TextBlock Grid.Column="0" Classes="dim" Text="{Binding Activity}" IsVisible="{Binding HasActivity}" />
+          <Button Grid.Column="1" Classes="link" Content="{Binding Problems}" IsVisible="{Binding HasProblems}"
+                  Command="{Binding ToggleHelp}" Foreground="{DynamicResource AttentionBrush}" />
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- A new addon folder: the game has to be restarted once -->
+    <Border IsVisible="{Binding RestartNotice}" Padding="14,10" CornerRadius="8"
+            BorderThickness="1" BorderBrush="{DynamicResource AttentionBrush}"
+            Background="{DynamicResource AttentionPaneBrush}">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-        <TextBlock Grid.Column="0" Text="{Binding RestartNoticeText}" TextWrapping="Wrap" />
+        <TextBlock Grid.Column="0" Text="{Binding RestartNoticeText}" />
         <Button Grid.Column="1" Content="Dismiss" VerticalAlignment="Top" Command="{Binding DismissRestartNotice}" />
       </Grid>
     </Border>
 
-    <!-- What is going on -->
-    <StackPanel Grid.Row="2" Spacing="4">
-      <TextBlock Text="{Binding StatusLine}" FontWeight="SemiBold" TextWrapping="Wrap" />
-      <TextBlock Classes="dim" Text="{Binding Activity}" IsVisible="{Binding HasActivity}" />
-      <ItemsControl ItemsSource="{Binding Warnings}" IsVisible="{Binding HasWarnings}">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="x:String">
-            <TextBlock Classes="warn" Text="{Binding}" />
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-    </StackPanel>
+    <!-- The collection -->
+    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" IsVisible="{Binding Started}">
+      <TextBlock Grid.Column="0" Classes="heading" Text="Your portraits" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="1" Classes="dim" Text="{Binding Count}" VerticalAlignment="Center" />
+      <Button Grid.Column="2" Content="Check for new captures" Command="{Binding Check}" />
+    </Grid>
+   </StackPanel>
 
-    <!-- Who has a portrait -->
-    <Border Grid.Row="3" BorderThickness="1" CornerRadius="6"
-            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+    <Border Grid.Row="1" Classes="data" IsVisible="{Binding Started}" ClipToBounds="True">
       <Panel>
-        <TextBlock Classes="dim" IsVisible="{Binding !HasCharacters}" Margin="12"
-                   Text="No captures yet. In game: /alts portrait, then Reload." />
-        <ScrollViewer IsVisible="{Binding HasCharacters}">
-          <ItemsControl ItemsSource="{Binding Characters}" Margin="12,6">
+        <TextBlock Classes="dim" IsVisible="{Binding !HasPortraits}" Margin="14"
+                   Text="Nothing here yet." />
+        <ScrollViewer IsVisible="{Binding HasPortraits}">
+          <ItemsControl ItemsSource="{Binding Portraits}">
             <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="app:CharacterRow">
-                <StackPanel Margin="0,6" Spacing="2">
-                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                    <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                    <TextBlock Grid.Column="1" Text="{Binding State}" FontWeight="SemiBold" />
+              <DataTemplate x:DataType="app:PortraitLine">
+                <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,9">
+                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                      <Ellipse Classes="dot" Fill="{DynamicResource GoodBrush}" IsVisible="{Binding Ready}" />
+                      <Ellipse Classes="dot" Fill="{DynamicResource AttentionBrush}" IsVisible="{Binding !Ready}" />
+                      <TextBlock Text="{Binding State}" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="dim" Text="{Binding Detail}"
+                               IsVisible="{Binding Quiet}" />
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="warn" Text="{Binding Detail}"
+                               IsVisible="{Binding Attention}" />
                   </Grid>
-                  <TextBlock Classes="dim" Text="{Binding Captured, StringFormat='captured {0}'}" />
-                  <TextBlock Classes="warn" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
-                </StackPanel>
+                </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
@@ -83,21 +238,42 @@
       </Panel>
     </Border>
 
-    <!-- A row that takes another button (issue #2: "Save diagnostics...") -->
-    <WrapPanel Grid.Row="4" Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
-      <Button Content="Convert now" Command="{Binding ConvertNow}" />
-      <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}" />
-      <Button Content="Open log" Command="{Binding OpenLog}" />
-    </WrapPanel>
+    <!-- Help: how it works, where the files are, what was left out and why -->
+   <StackPanel Grid.Row="2" Spacing="10">
+    <Border Classes="pane" IsVisible="{Binding ShowHelp}">
+      <StackPanel Spacing="8">
+        <TextBlock Text="How it works" FontWeight="SemiBold" />
+        <ItemsControl ItemsSource="{Binding HowItWorks}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="dim" Text="{Binding}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <!-- A row that takes another button (issue #2: "Save diagnostics...") -->
+        <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
+          <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}" />
+          <Button Content="Open log" Command="{Binding OpenLog}" />
+        </WrapPanel>
+        <StackPanel Spacing="3" IsVisible="{Binding HasWarnings}">
+          <TextBlock Text="Warnings" FontWeight="SemiBold" />
+          <ItemsControl ItemsSource="{Binding Warnings}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Classes="warn" Text="{Binding}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </StackPanel>
+    </Border>
 
-    <CheckBox Grid.Row="5" IsChecked="{Binding KeepScreenshots}"
-              Content="Keep screenshots (otherwise the two a portrait used are deleted)" />
-
-    <!-- The three reloads a newcomer takes for one -->
-    <StackPanel Grid.Row="6" Spacing="2">
-      <TextBlock Classes="dim" Text="After a capture: Reload in game, so the game saves what it captured." />
-      <TextBlock Classes="dim" Text="After the FIRST portrait: quit the game completely and start it again, once." />
-      <TextBlock Classes="dim" Text="After any later portrait: Reload in game to see it." />
-    </StackPanel>
+    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+      <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" />
+      <TextBlock Grid.Column="1" Classes="dim" VerticalAlignment="Center"
+                 Text="Runs in the background: closing this window leaves it in the tray." />
+      <Button Grid.Column="2" Classes="link" Content="Help" Command="{Binding ToggleHelp}" />
+    </Grid>
+   </StackPanel>
   </Grid>
 </Window>

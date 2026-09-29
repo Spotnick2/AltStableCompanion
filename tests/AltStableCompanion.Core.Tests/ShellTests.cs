@@ -178,36 +178,94 @@ public class PassTextTests
         return t.Install;
     }
 
+    private static PortraitRow Ready(string name = "Aaa") =>
+        new(name, "Player-1-" + name, name.ToLowerInvariant() + ".tga", PortraitSource.ByGuid, T0, T0, CaptureOutcome.Converted, null);
+
+    private static PortraitRow Rejected(string name = "Bad") =>
+        new(name, "Player-1-" + name, null, PortraitSource.None, null, T0, CaptureOutcome.Unusable, "identical shots");
+
+    private static Headline Head(ShellState s) => PassText.Headline(s);
+
     [Fact]
-    public void The_status_line_says_the_most_useful_thing_first()
+    public void The_headline_is_the_first_thing_that_applies()
     {
         using var t = new TempInstall();
-        var quiet = With(t, Report(states: CharacterState.Portrait));
-        Assert.Equal("Watching for new captures", PassText.StatusLine(quiet));
-        Assert.StartsWith("Watching for captures - in game", PassText.StatusLine(With(t, Report())));
-        Assert.Equal("Starting...", PassText.StatusLine(With(t)));
-
-        // Each of these outranks everything after it.
-        var all = quiet with
+        var wrote = new PassNote(T0, ["Aaa"]);
+        // Everything at once. Each line below takes away what outranked the rest.
+        var all = With(t, Report(stale: true, refused: 1, accounts: 0) with
         {
-            Report = Report(stale: true, refused: 1, accounts: 0),
-            Paused = true, Converting = true, Stopping = true, LastError = "boom",
+            Portraits = [Ready(), Rejected()], ManifestWritten = false,
+        }, addon: false) with
+        {
+            Paused = true, Converting = true, Stopping = true, LastError = "boom", FirstStart = true,
+            LastWritten = wrote,
         };
-        Assert.StartsWith("Finishing", PassText.StatusLine(all));
+
+        Assert.Equal("Finishing...", Head(all).Title);
         all = all with { Stopping = false };
-        Assert.Equal("Converting - watching is paused", PassText.StatusLine(all));
-        Assert.Equal("Converting...", PassText.StatusLine(all with { Paused = false }));
+        Assert.Equal("Ready to start", Head(all).Title);
+        all = all with { FirstStart = false };
+        // A check in hand outranks the failure of the one before it.
+        Assert.Equal(new Headline("Checking...", "The check before this one failed.", HeadlineKind.Busy), Head(all));
+        Assert.Null(Head(all with { LastError = null }).Next);
         all = all with { Converting = false };
-        Assert.StartsWith("The last pass failed", PassText.StatusLine(all));
+        Assert.Equal("The last check failed", Head(all).Title);
+        Assert.Contains("last check that worked", Head(all).Next);
+        Assert.DoesNotContain("last check that worked", Head(all with { Report = null }).Next);
         all = all with { LastError = null };
-        Assert.Contains("update the companion", PassText.StatusLine(all));
-        all = all with { Report = Report(stale: true, accounts: 0) };
-        Assert.Equal("Paused", PassText.StatusLine(all));
-        Assert.StartsWith("Paused - nothing", PassText.StatusLine(all with { Report = null }));
-        all = all with { Paused = false };
-        Assert.StartsWith("No AltStable data yet", PassText.StatusLine(all));
-        all = all with { Report = Report(stale: true) };
-        Assert.StartsWith("Newer screenshots found", PassText.StatusLine(all));
+        Assert.Equal("Portraits written, but not listed", Head(all).Title);
+        all = all with { Report = all.Report! with { ManifestWritten = true } };
+        Assert.Equal("AltStable is not installed in this game", Head(all).Title);
+        all = all with { Install = Installed(t, addon: true) };
+        Assert.Equal("This app is too old for your AltStable", Head(all).Title);
+        all = all with { Report = all.Report! with { Refused = 0 } };
+        Assert.Equal(new Headline("Portrait written: Aaa", "If WoW is open, /reload to load it.", HeadlineKind.Info, Dismissable: true), Head(all));
+        all = all with { UpdateSeen = true };
+        Assert.Equal(new Headline("1 character needs attention", "See the list.", HeadlineKind.Attention), Head(all));
+        all = all with { Report = all.Report! with { Portraits = [Ready()] } };
+        Assert.Equal("No AltStable data yet", Head(all).Title);
+        all = all with { Report = all.Report! with { Accounts = 1 } };
+        Assert.Equal("A capture may be waiting", Head(all).Title);
+        all = all with { Report = all.Report! with { Stale = null } };
+        Assert.Equal("All captures are converted", Head(all).Title);
+        Assert.Equal(HeadlineKind.Good, Head(all).Kind);
+    }
+
+    [Fact]
+    public void What_was_written_is_said_with_its_count()
+    {
+        using var t = new TempInstall();
+        var s = With(t, Report() with { Portraits = [Ready()] }) with { LastWritten = new PassNote(T0, ["a", "b", "c"]) };
+        Assert.Equal(new Headline("3 portraits written", "If WoW is open, /reload to load them.", HeadlineKind.Info, Dismissable: true), Head(s));
+        // It is advice, and only advice: the app has not seen what the game loaded.
+        Assert.StartsWith("If WoW is open", Head(s).Next);
+    }
+
+    [Fact]
+    public void Nothing_is_called_up_to_date_and_a_pause_is_never_promised_away()
+    {
+        using var t = new TempInstall();
+        var s = With(t, Report() with { Portraits = [Ready()] });
+        Assert.Equal("New captures are processed automatically while this app runs.", Head(s).Next);
+        Assert.Contains("paused", Head(s with { Paused = true }).Next);
+        Assert.DoesNotContain("automatically", Head(s with { Paused = true }).Next);
+        Assert.DoesNotContain("up to date", Head(s).Title);
+    }
+
+    [Fact]
+    public void Before_the_first_check_the_headline_says_so()
+    {
+        using var t = new TempInstall();
+        Assert.Equal(new Headline("Not checked yet", null, HeadlineKind.Busy), Head(With(t)));
+        Assert.Contains("paused", Head(With(t) with { Paused = true }).Next);
+    }
+
+    [Fact]
+    public void With_nothing_at_all_the_next_step_is_the_first_capture()
+    {
+        using var t = new TempInstall();
+        Assert.Equal(new Headline("No portraits yet", "In WoW: /alts portrait, then /reload.", HeadlineKind.Info),
+            Head(With(t, Report() with { Portraits = [] })));
     }
 
     private static readonly DateTime At = new(2026, 9, 29, 12, 31, 5);
@@ -280,28 +338,72 @@ public class PassTextTests
     }
 
     [Fact]
-    public void Without_an_install_the_line_says_why_and_what_to_do()
+    public void Without_an_install_the_headline_says_why_and_where_to_choose_one()
     {
-        Assert.Equal("Couldn't find the WoW folder - Browse...", PassText.StatusLine(new ShellState()));
-        Assert.Equal("It is gone: X - Browse...", PassText.StatusLine(new ShellState(InstallProblem: "It is gone: X", Converting: true)));
-    }
-
-    [Fact]
-    public void An_install_without_the_addon_says_so()
-    {
-        using var t = new TempInstall();
-        Assert.Equal("AltStable is not installed in this flavour",
-            PassText.StatusLine(With(t, Report(states: CharacterState.Portrait), addon: false)));
+        Assert.Equal(new Headline("World of Warcraft folder not set", "Couldn't find the WoW folder. Choose it in Settings.", HeadlineKind.Problem),
+            Head(new ShellState()));
+        Assert.Equal("It is gone: X. Choose it in Settings.",
+            Head(new ShellState(InstallProblem: "It is gone: X", Converting: true, FirstStart: true)).Next);
     }
 
     [Fact]
     public void The_reload_hint_is_a_hint()
     {
         // Any screenshot newer than the records raises it, a hand-taken one included: it must
-        // not claim that a capture is waiting.
+        // not tell everybody to reload.
         using var t = new TempInstall();
-        var line = PassText.StatusLine(With(t, Report(stale: true)));
-        Assert.Contains("If you just captured", line);
+        var head = Head(With(t, Report(stale: true) with { Portraits = [Ready()] }));
+        Assert.StartsWith("If you just captured", head.Next);
+        Assert.Contains("may be", head.Title);
+    }
+
+    [Fact]
+    public void The_count_is_of_portraits_and_what_needs_attention_is_said_beside_it()
+    {
+        Assert.Equal("0 portraits", PassText.Count([]));
+        Assert.Equal("1 portrait", PassText.Count([Ready()]));
+        Assert.Equal("2 portraits", PassText.Count([Ready("A"), Ready("B")]));
+        // A capture with no portrait is not a portrait.
+        Assert.Equal("1 portrait · 1 needs attention", PassText.Count([Ready(), Rejected()]));
+        Assert.Equal("0 portraits · 2 need attention", PassText.Count([Rejected("A"), Rejected("B")]));
+    }
+
+    [Fact]
+    public void A_row_says_the_portrait_s_time_and_the_capture_s_time_apart()
+    {
+        var today = new DateTime(2026, 9, 29, 18, 0, 0);
+        var captured = new DateTime(2026, 9, 29, 12, 13, 0);
+        var older = new DateTime(2026, 9, 28, 9, 5, 0);
+        var old = new DateTime(2026, 9, 26, 1, 50, 0);
+        PortraitRow Row(PortraitSource source, CaptureOutcome outcome, string? note = null, DateTime? modified = null) =>
+            new("Aaa", "Player-1-AAAA", source == PortraitSource.None ? null : "aaa.tga", source,
+                source == PortraitSource.None ? null : modified ?? captured, captured, outcome, note);
+
+        Assert.Equal("Ready", PassText.RowState(Row(PortraitSource.ByGuid, CaptureOutcome.Converted)));
+        Assert.Equal("No portrait", PassText.RowState(Row(PortraitSource.None, CaptureOutcome.Unusable)));
+
+        Assert.Equal("latest capture today 12:13 · converted",
+            PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.Converted), today));
+        // An older portrait, a newer capture that was rejected: two facts, two times.
+        Assert.Equal("latest capture today 12:13 · identical shots · file modified yesterday 09:05",
+            PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.Unusable, "identical shots", older), today));
+        Assert.Equal("latest capture today 12:13 · not converted: its screenshots are gone · file modified 2026-09-26",
+            PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.NoScreenshots, "no screenshots for this capture on disk", old), today));
+        Assert.Equal("latest capture today 12:13 · no screenshots for this capture on disk - capture again if they are gone",
+            PassText.RowDetail(Row(PortraitSource.None, CaptureOutcome.NoScreenshots, "no screenshots for this capture on disk"), today));
+        Assert.Equal("latest capture today 12:13 · portrait from an earlier converter · file modified 2026-09-26",
+            PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.Unknown, null, old), today));
+        Assert.Equal("latest capture today 12:13 · not converted: its screenshots are gone · portrait found by name (aaa.tga) · file modified 2026-09-26",
+            PassText.RowDetail(Row(PortraitSource.ByName, CaptureOutcome.NoScreenshots, null, old), today));
+
+        // A file nobody's capture resolved to: its name, and when it was written.
+        Assert.Equal("karuzo-elegia.tga · file modified 2026-09-26", PassText.RowDetail(
+            new PortraitRow("Karuzo Elegia", null, "karuzo-elegia.tga", PortraitSource.File, old, null, CaptureOutcome.None, null), today));
+
+        Assert.EndsWith("· nearly square: something else may be in it - capture again",
+            PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.Converted) with { NearlySquare = true }, today));
+        Assert.EndsWith("· Player-1-AAAA",
+            PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.Converted) with { ShowGuid = true }, today));
     }
 
     [Fact]
@@ -331,14 +433,6 @@ public class PassTextTests
     }
 
     [Fact]
-    public void Every_state_has_its_own_label()
-    {
-        var labels = Enum.GetValues<CharacterState>().Select(PassText.StateLabel).ToList();
-        Assert.Equal(labels.Count, labels.Distinct().Count());
-        Assert.DoesNotContain(labels, string.IsNullOrWhiteSpace);
-    }
-
-    [Fact]
     public void Only_forever_is_the_flavour_the_cutouts_are_written_for()
     {
         Assert.Null(PassText.FlavorWarning(new WowInstall(@"C:\WoW\_classic_beta_")));
@@ -346,13 +440,15 @@ public class PassTextTests
     }
 
     [Fact]
-    public void The_install_line_counts_the_accounts_once_a_pass_has_looked()
+    public void The_install_line_names_the_game_the_addon_and_the_accounts()
     {
         using var t = new TempInstall();
+        Assert.Equal(("World of Warcraft Forever", "AltStable not installed", null), PassText.InstallSummary(t.Install, null));
         var install = Installed(t, addon: true);
-        Assert.Equal("AltStable: installed", PassText.InstallDetail(install, null));
-        Assert.Equal("AltStable: installed - 1 account", PassText.InstallDetail(install, Report(accounts: 1)));
-        Assert.Equal("AltStable: installed - 2 accounts", PassText.InstallDetail(install, Report(accounts: 2)));
+        Assert.Equal(("World of Warcraft Forever", "AltStable detected", null), PassText.InstallSummary(install, null));
+        Assert.Equal("1 account", PassText.InstallSummary(install, Report(accounts: 1)).Accounts);
+        Assert.Equal("2 accounts", PassText.InstallSummary(install, Report(accounts: 2)).Accounts);
+        Assert.Equal("World of Warcraft (_retail_)", PassText.InstallSummary(new WowInstall(@"C:\WoW\_retail_"), null).Game);
     }
 }
 
