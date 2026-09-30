@@ -81,6 +81,7 @@ internal sealed partial class MainWindow : Window
     {
         base.OnOpened(e);
         Wear();
+        if (!_docked) DockByTray();
     }
 
     protected override void OnClosed(EventArgs e)
@@ -156,6 +157,28 @@ internal sealed partial class MainWindow : Window
         Icon.Save(bytes);
         bytes.Position = 0;
         return new Avalonia.Media.Imaging.Bitmap(bytes);
+    }
+
+    // A tray app's window opens where the tray is: the bottom-right corner of the primary
+    // screen's working area, which stops at the taskbar wherever that is. Done once the
+    // window is open, because only then is the frame's size known (a position set before
+    // lands the frame's excess over the client to the right and below - measured). After
+    // that the window keeps wherever the player put it: close-to-tray hides it, and Show
+    // brings it back there.
+    private bool _docked;
+
+    private void DockByTray()
+    {
+        _docked = true;
+        if (Screens.Primary is not { } screen || FrameSize is not { } frame) return;
+        var area = screen.WorkingArea;
+        var scale = screen.Scaling;
+        const int margin = 12;
+        var w = (int)Math.Round(frame.Width * scale);
+        var h = (int)Math.Round(frame.Height * scale);
+        Position = new PixelPoint(
+            Math.Max(area.X, area.Right - w - (int)Math.Round(margin * scale)),
+            Math.Max(area.Y, area.Bottom - h - (int)Math.Round(margin * scale)));
     }
 
     // The maximise button says what it will do next.
