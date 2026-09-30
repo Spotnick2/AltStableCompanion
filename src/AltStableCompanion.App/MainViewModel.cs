@@ -41,6 +41,7 @@ internal sealed class MainViewModel : ObservableObject
     private bool _restartNotice;
     private bool _firstStart;
     private bool _showSettings;
+    private string _skin = Skins.Clear;
     private bool _showHelp;
     private IReadOnlyList<PortraitLine> _portraits = [];
     private IReadOnlyList<string> _warnings = [];
@@ -183,6 +184,17 @@ internal sealed class MainViewModel : ObservableObject
         set { if (Set(ref _paused, value)) _controller.SetPaused(value); }
     }
 
+    /// <summary>One of <see cref="Skins"/>. The window listens for it.</summary>
+    public string Skin
+    {
+        get => _skin;
+        private set { if (Set(ref _skin, value)) { Raise(nameof(IsClear)); Raise(nameof(IsSmoked)); Raise(nameof(IsFlat)); } }
+    }
+
+    public bool IsClear { get => _skin == Skins.Clear; set { if (value) _controller.SetSkin(Skins.Clear); } }
+    public bool IsSmoked { get => _skin == Skins.Smoked; set { if (value) _controller.SetSkin(Skins.Smoked); } }
+    public bool IsFlat { get => _skin == Skins.Flat; set { if (value) _controller.SetSkin(Skins.Flat); } }
+
     // ---- help
     public bool ShowHelp { get => _showHelp; set => Set(ref _showHelp, value); }
 
@@ -247,6 +259,7 @@ internal sealed class MainViewModel : ObservableObject
         // Through the fields: this is the controller telling the window, not the player.
         Set(ref _keepScreenshots, now.KeepScreenshots, nameof(KeepScreenshots));
         Set(ref _paused, shell.Paused, nameof(Paused));
+        Skin = now.Skin;
 
         var rows = shell.Report?.Portraits ?? [];
         Count = PassText.Count(rows);

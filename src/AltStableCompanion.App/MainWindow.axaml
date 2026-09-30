@@ -1,12 +1,15 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="using:AltStableCompanion.App"
+        xmlns:chrome="using:Avalonia.Controls.Chrome"
         x:Class="AltStableCompanion.App.MainWindow"
         x:DataType="app:MainViewModel"
         Title="AltStable Companion"
         Icon="/Assets/tray.ico"
         Width="540" Height="720" MinWidth="440" MinHeight="480"
         Background="{DynamicResource BodyBrush}"
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorations="BorderOnly"
         WindowStartupLocation="CenterScreen">
 
   <!-- Every colour is a resource with a name that says what it is FOR. The glass themes are a
@@ -105,6 +108,25 @@
       <Setter Property="Padding" Value="6,4" />
       <Setter Property="Foreground" Value="{DynamicResource LinkBrush}" />
     </Style>
+    <!-- The title strip's buttons: flat, and lit when the pointer is on them. -->
+    <Style Selector="Button.caption">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Width" Value="46" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.caption:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#33FFFFFF" />
+    </Style>
+    <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#E0C42B1C" />
+    </Style>
     <Style Selector="Ellipse.dot">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
@@ -112,8 +134,30 @@
     </Style>
   </Window.Styles>
 
-  <Grid RowDefinitions="Auto,*,Auto" Margin="14" RowSpacing="10">
-   <StackPanel Grid.Row="0" Spacing="10">
+  <!-- The client area reaches the top edge, so the glass does. The title strip is drawn here,
+       with the roles that make it a title bar: drag, double-click to maximise, and Windows'
+       own snap layouts on the maximise button. -->
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,14" RowSpacing="10">
+
+    <Grid Grid.Row="0" Height="34" ColumnDefinitions="Auto,*,Auto,Auto,Auto"
+          chrome:WindowDecorationProperties.ElementRole="TitleBar" Background="Transparent">
+      <Image Grid.Column="0" Source="/Assets/tray.ico" Width="18" Height="18" Margin="12,0,8,0" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="1" Text="AltStable Companion" VerticalAlignment="Center" FontSize="13" />
+      <Button Grid.Column="2" Classes="caption" Click="OnMinimize" ToolTip.Tip="Minimise"
+              chrome:WindowDecorationProperties.ElementRole="MinimizeButton">
+        <Path Data="M0,0 L10,0" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" />
+      </Button>
+      <Button Grid.Column="3" Classes="caption" Click="OnMaximize" ToolTip.Tip="Maximise"
+              chrome:WindowDecorationProperties.ElementRole="MaximizeButton">
+        <Path Data="M0.5,0.5 L9.5,0.5 L9.5,9.5 L0.5,9.5 Z" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" />
+      </Button>
+      <Button Grid.Column="4" Classes="caption close" Click="OnClose" ToolTip.Tip="Close (the app stays in the tray)"
+              chrome:WindowDecorationProperties.ElementRole="CloseButton">
+        <Path Data="M0,0 L10,10 M10,0 L0,10" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" />
+      </Button>
+    </Grid>
+
+   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0">
 
     <!-- Which game, is the addon in it, how many accounts -->
     <Border Classes="pane">
@@ -148,6 +192,12 @@
         <TextBlock Classes="dim" Margin="28,-6,0,0"
                    Text="Otherwise those two files are deleted once the portrait is written. No other screenshot is ever touched." />
         <CheckBox IsChecked="{Binding Paused}" Content="Pause watching" />
+        <TextBlock Classes="dim" Text="Look" />
+        <StackPanel Orientation="Horizontal" Spacing="14">
+          <RadioButton GroupName="skin" Content="Clear glass" IsChecked="{Binding IsClear}" />
+          <RadioButton GroupName="skin" Content="Smoked glass" IsChecked="{Binding IsSmoked}" />
+          <RadioButton GroupName="skin" Content="Flat" IsChecked="{Binding IsFlat}" />
+        </StackPanel>
       </StackPanel>
     </Border>
 
@@ -201,14 +251,16 @@
     </Border>
 
     <!-- The collection -->
-    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" IsVisible="{Binding Started}">
-      <TextBlock Grid.Column="0" Classes="heading" Text="Your portraits" VerticalAlignment="Center" />
-      <TextBlock Grid.Column="1" Classes="dim" Text="{Binding Count}" VerticalAlignment="Center" />
-      <Button Grid.Column="2" Content="Check for new captures" Command="{Binding Check}" />
-    </Grid>
+    <Border Classes="pane" Padding="14,6" IsVisible="{Binding Started}">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+        <TextBlock Grid.Column="0" Classes="heading" Text="Your portraits" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Classes="dim" Text="{Binding Count}" VerticalAlignment="Center" />
+        <Button Grid.Column="2" Content="Check for new captures" Command="{Binding Check}" />
+      </Grid>
+    </Border>
    </StackPanel>
 
-    <Border Grid.Row="1" Classes="data" IsVisible="{Binding Started}" ClipToBounds="True">
+    <Border Grid.Row="2" Classes="data" IsVisible="{Binding Started}" ClipToBounds="True" Margin="14,0">
       <Panel>
         <TextBlock Classes="dim" IsVisible="{Binding !HasPortraits}" Margin="14"
                    Text="Nothing here yet." />
@@ -239,7 +291,7 @@
     </Border>
 
     <!-- Help: how it works, where the files are, what was left out and why -->
-   <StackPanel Grid.Row="2" Spacing="10">
+   <StackPanel Grid.Row="3" Spacing="10" Margin="14,0">
     <Border Classes="pane" IsVisible="{Binding ShowHelp}">
      <ScrollViewer MaxHeight="260">
       <StackPanel Spacing="8">
@@ -270,12 +322,14 @@
      </ScrollViewer>
     </Border>
 
-    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-      <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" />
-      <TextBlock Grid.Column="1" Classes="dim" VerticalAlignment="Center"
-                 Text="Runs in the background: closing this window leaves it in the tray." />
-      <Button Grid.Column="2" Classes="link" Content="Help" Command="{Binding ToggleHelp}" />
-    </Grid>
+    <Border Classes="pane" Padding="14,4">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+        <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" />
+        <TextBlock Grid.Column="1" Classes="dim" VerticalAlignment="Center"
+                   Text="Runs in the background: closing this window leaves it in the tray." />
+        <Button Grid.Column="2" Classes="link" Content="Help" Command="{Binding ToggleHelp}" />
+      </Grid>
+    </Border>
    </StackPanel>
   </Grid>
 </Window>

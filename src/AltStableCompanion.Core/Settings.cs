@@ -22,6 +22,16 @@ public sealed record Settings
     public bool Started { get; init; }
 
     /// <summary>
+    /// What the window is made of: one of the addon's skins, so that the two match. A name that
+    /// is not one of them - a file from a later version, a hand edit - reads as the default.
+    /// </summary>
+    public string Skin
+    {
+        get;
+        init => field = Skins.Normalize(value);
+    } = Skins.Clear;
+
+    /// <summary>
     /// Which folder the player chose is not known: the settings could not be read at some
     /// start, and they have not chosen since. While this is set nothing is detected for them -
     /// it is cleared by Browse and by Detect again, and by nothing else.
@@ -61,11 +71,12 @@ public sealed record Settings
         && KeepScreenshots == other.KeepScreenshots
         && Paused == other.Paused
         && Started == other.Started
+        && Skin == other.Skin
         && InstallUnknown == other.InstallUnknown
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
-        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, InstallUnknown, RestartNoticeInstalls.Count);
+        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, RestartNoticeInstalls.Count);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -103,6 +114,24 @@ public sealed record Settings
         File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(this, Json));
         File.Move(path + ".tmp", path, overwrite: true);
     }
+}
+
+/// <summary>
+/// The addon's skins (Skin.lua): what the window is made of. The looks themselves - the
+/// colours, the blur - are the shell's; this is only which one was chosen.
+/// </summary>
+public static class Skins
+{
+    public const string Clear = "clear";
+    public const string Smoked = "smoked";
+    public const string Flat = "flat";
+
+    public static readonly IReadOnlyList<string> All = [Clear, Smoked, Flat];
+
+    public static string Normalize(string? name) =>
+        name is not null && All.FirstOrDefault(s => string.Equals(s, name.Trim(), StringComparison.OrdinalIgnoreCase)) is { } known
+            ? known
+            : Clear;
 }
 
 /// <summary>A plain text log beside the settings, rolled over at 1 MB. No logging library.</summary>
