@@ -79,6 +79,14 @@ public static class PassText
     /// <summary>On a row whose picture could not be read this time. The portrait itself is not in question.</summary>
     public const string PreviewUnavailable = "preview unavailable: the file could not be read just now";
 
+    /// <summary>The list, narrowed to the rows whose name has the text; all of them for none.</summary>
+    public static IReadOnlyList<PortraitRow> Matching(IReadOnlyList<PortraitRow> rows, string? text)
+    {
+        var wanted = text?.Trim();
+        if (string.IsNullOrEmpty(wanted)) return rows;
+        return [.. rows.Where(r => r.Name.Contains(wanted, StringComparison.OrdinalIgnoreCase))];
+    }
+
     /// <summary>Always in view once watching has started: the one thing the player does.</summary>
     public const string AddHint = "To add one: in WoW, /alts portrait, then /reload.";
 
@@ -225,7 +233,7 @@ public static class PassText
     {
         if (row.NeedsAttention || row.Outcome == CaptureOutcome.Writing || row.ShowGuid) return null;
         if (row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured) return "Captured " + When(captured, today);
-        if (row.FileModified is { } modified) return "File modified " + When(modified, today);
+        if (row.FileModified is { } modified) return "Updated " + When(modified, today);
         return "";
     }
 
