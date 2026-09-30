@@ -220,6 +220,8 @@ public class PassTextTests
         Assert.Equal("This app is too old for your AltStable", Head(all).Title);
         all = all with { Report = all.Report! with { Refused = 0 } };
         Assert.Equal(new Headline("Portrait written: Aaa", "If WoW is open, /reload to load it.", HeadlineKind.Info, Dismissable: true), Head(all));
+        // A new addon folder: a reload will not find it, and the headline must not say so.
+        Assert.Equal("Restart WoW once to see it: see below.", PassText.Headline(all, restartNotice: true).Next);
         all = all with { UpdateSeen = true };
         Assert.Equal(new Headline("1 character needs attention", "See the list.", HeadlineKind.Attention), Head(all));
         all = all with { Report = all.Report! with { Portraits = [Ready()] } };
@@ -277,23 +279,23 @@ public class PassTextTests
     public void A_pass_that_found_nothing_still_shows_that_it_ran()
     {
         Assert.Null(Activity(null));
-        Assert.Equal("Last check 12:31:05: nothing new.", Activity(new PassNote(At, [])));
-        Assert.Equal("Last check 12:31:05: wrote Name 1.", Activity(new PassNote(At, ["Name 1"])));
-        Assert.Equal("Last check 12:31:05: wrote 3 portraits.", Activity(new PassNote(At, ["a", "b", "c"])));
-        Assert.Equal("Last check 12:31:05: the pass failed.", Activity(new PassNote(At, [], Failed: true)));
+        Assert.Equal("Last check today 12:31:05: nothing new.", Activity(new PassNote(At, [])));
+        Assert.Equal("Last check today 12:31:05: wrote Name 1.", Activity(new PassNote(At, ["Name 1"])));
+        Assert.Equal("Last check today 12:31:05: wrote 3 portraits.", Activity(new PassNote(At, ["a", "b", "c"])));
+        Assert.Equal("Last check today 12:31:05: the pass failed.", Activity(new PassNote(At, [], Failed: true)));
     }
 
     [Fact]
     public void Nothing_new_is_not_said_of_a_capture_that_could_not_be_converted()
     {
-        Assert.Equal("Last check 12:31:05: nothing written; 1 capture could not be converted - see the list.",
+        Assert.Equal("Last check today 12:31:05: nothing written; 1 capture could not be converted - see the list.",
             Activity(new PassNote(At, [], Unconverted: 1)));
-        Assert.Equal("Last check 12:31:05: nothing written; 2 captures could not be converted - see the list.",
+        Assert.Equal("Last check today 12:31:05: nothing written; 2 captures could not be converted - see the list.",
             Activity(new PassNote(At, [], Unconverted: 2, Waiting: true)));
-        Assert.Equal("Last check 12:31:05: wrote Aaa; 1 capture could not be converted - see the list.",
+        Assert.Equal("Last check today 12:31:05: wrote Aaa; 1 capture could not be converted - see the list.",
             Activity(new PassNote(At, ["Aaa"], Unconverted: 1)));
         // Under "Newer screenshots found ...": nothing NEW would contradict the line above it.
-        Assert.Equal("Last check 12:31:05: nothing to convert yet.", Activity(new PassNote(At, [], Waiting: true)));
+        Assert.Equal("Last check today 12:31:05: nothing to convert yet.", Activity(new PassNote(At, [], Waiting: true)));
     }
 
     [Fact]
@@ -317,13 +319,13 @@ public class PassTextTests
     public void The_last_portrait_written_stays_in_view_when_later_passes_find_nothing()
     {
         var wrote = new PassNote(new DateTime(2026, 9, 29, 12, 13, 54), ["Karuzo Macphisto"]);
-        Assert.Equal("Last check 12:31:05: nothing new. Last written: Karuzo Macphisto, at 12:13:54.",
+        Assert.Equal("Last check today 12:31:05: nothing new. Last written: Karuzo Macphisto, today 12:13:54.",
             Activity(new PassNote(At, []), wrote));
         // Also after a pass that failed: what the pass BEFORE it wrote decides nothing.
-        Assert.Equal("Last check 12:31:05: the pass failed. Last written: Karuzo Macphisto, at 12:13:54.",
+        Assert.Equal("Last check today 12:31:05: the pass failed. Last written: Karuzo Macphisto, today 12:13:54.",
             Activity(new PassNote(At, [], Failed: true), wrote));
         // The pass that writes says it once, not twice.
-        Assert.Equal("Last check 12:13:54: wrote Karuzo Macphisto.", Activity(wrote, wrote));
+        Assert.Equal("Last check today 12:13:54: wrote Karuzo Macphisto.", Activity(wrote, wrote));
     }
 
     [Fact]
@@ -331,10 +333,11 @@ public class PassTextTests
     {
         var monday = new PassNote(new DateTime(2026, 9, 28, 23, 50, 0), ["Aaa"]);
         var wednesday = new DateTime(2026, 9, 30, 9, 12, 5);
-        Assert.Equal("Last check 09:12:05: nothing new. Last written: Aaa, at 2026-09-28 23:50:00.",
+        Assert.Equal("Last check today 09:12:05: nothing new. Last written: Aaa, 2026-09-28 23:50:00.",
             Activity(new PassNote(wednesday, []), monday, today: wednesday));
-        // Paused since Monday: the check is old too.
+        // Paused since Monday: the check is old too. And yesterday is called by name.
         Assert.Equal("Last check 2026-09-28 23:50:00: wrote Aaa.", Activity(monday, monday, today: wednesday));
+        Assert.Equal("Last check yesterday 23:50:00: wrote Aaa.", Activity(monday, monday, today: wednesday.AddDays(-1)));
     }
 
     [Fact]
@@ -366,6 +369,8 @@ public class PassTextTests
         // A capture with no portrait is not a portrait.
         Assert.Equal("1 portrait · 1 needs attention", PassText.Count([Ready(), Rejected()]));
         Assert.Equal("0 portraits · 2 need attention", PassText.Count([Rejected("A"), Rejected("B")]));
+        // Two namesakes on one legacy file: one portrait on disk.
+        Assert.Equal("1 portrait", PassText.Count([Ready("A") with { FileName = "twin.tga" }, Ready("B") with { FileName = "twin.tga" }]));
     }
 
     [Fact]
@@ -387,17 +392,19 @@ public class PassTextTests
         // An older portrait, a newer capture that was rejected: two facts, two times.
         Assert.Equal("latest capture today 12:13 · identical shots · file modified yesterday 09:05",
             PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.Unusable, "identical shots", older), today));
-        Assert.Equal("latest capture today 12:13 · not converted: its screenshots are gone · file modified 2026-09-26",
+        Assert.Equal("latest capture today 12:13 · not converted: its screenshots are gone · file modified 2026-09-26 01:50",
             PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.NoScreenshots, "no screenshots for this capture on disk", old), today));
         Assert.Equal("latest capture today 12:13 · no screenshots for this capture on disk - capture again if they are gone",
             PassText.RowDetail(Row(PortraitSource.None, CaptureOutcome.NoScreenshots, "no screenshots for this capture on disk"), today));
-        Assert.Equal("latest capture today 12:13 · portrait from an earlier converter · file modified 2026-09-26",
+        Assert.Equal("latest capture today 12:13 · a screenshot is in use - next pass",
+            PassText.RowDetail(Row(PortraitSource.None, CaptureOutcome.Writing, "a screenshot is in use - next pass"), today));
+        Assert.Equal("latest capture today 12:13 · portrait from an earlier converter · file modified 2026-09-26 01:50",
             PassText.RowDetail(Row(PortraitSource.ByGuid, CaptureOutcome.Unknown, null, old), today));
-        Assert.Equal("latest capture today 12:13 · not converted: its screenshots are gone · portrait found by name (aaa.tga) · file modified 2026-09-26",
+        Assert.Equal("latest capture today 12:13 · not converted: its screenshots are gone · portrait found by name (aaa.tga) · file modified 2026-09-26 01:50",
             PassText.RowDetail(Row(PortraitSource.ByName, CaptureOutcome.NoScreenshots, null, old), today));
 
         // A file nobody's capture resolved to: its name, and when it was written.
-        Assert.Equal("karuzo-elegia.tga · file modified 2026-09-26", PassText.RowDetail(
+        Assert.Equal("karuzo-elegia.tga · file modified 2026-09-26 01:50", PassText.RowDetail(
             new PortraitRow("Karuzo Elegia", null, "karuzo-elegia.tga", PortraitSource.File, old, null, CaptureOutcome.None, null), today));
 
         Assert.EndsWith("· nearly square: something else may be in it - capture again",
@@ -416,6 +423,7 @@ public class PassTextTests
         Assert.Equal("AltStable Companion - paused", PassText.TrayTip(s with { Stopping = false, Converting = false }));
         Assert.Equal("AltStable Companion - watching", PassText.TrayTip(new ShellState(Install: t.Install)));
         Assert.Equal("AltStable Companion - no WoW folder", PassText.TrayTip(new ShellState(Converting: true)));
+        Assert.Equal("AltStable Companion - not started: open the window", PassText.TrayTip(new ShellState(Install: t.Install, FirstStart: true)));
     }
 
     [Fact]

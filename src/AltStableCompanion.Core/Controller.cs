@@ -89,6 +89,13 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             _unreadOnDisk = true;
             _log.Write(unread);
         }
+        // Settings from before "Started" existed: whoever chose a folder, or is owed a restart
+        // notice, has used the app. Their captures must not stop converting until they find
+        // a card in a window they may never open.
+        if (!_settings.Started && (_settings.WowFlavorDir is not null || _settings.RestartNoticeInstalls.Count > 0))
+        {
+            _settings = _settings with { Started = true };
+        }
         var resolved = ResolvedInstall.Resolve(options.WowDir, _settings.WowFlavorDir, detect,
             settingsProblem: _settings.InstallUnknown ? "unknown" : null);
         _log.Write($"started - install: {resolved.Install?.FlavorDir ?? "none"}"
@@ -135,22 +142,19 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
     /// The first start is over: the player has read what happens to their screenshots and
     /// chosen. The settings are written now, so the next start is not a first one.
     /// </summary>
-    public void StartWatching(bool keepScreenshots)
+    public void StartWatching()
     {
         Watcher? watcher;
         lock (_gate)
         {
             if (!_current.Shell.FirstStart) return;
-            _current = _current with
-            {
-                KeepScreenshots = keepScreenshots,
-                Shell = _current.Shell with { FirstStart = false },
-            };
-            if (_pass is not null) _pass.Options = new ConvertOptions(KeepScreenshots: keepScreenshots);
+            _current = _current with { Shell = _current.Shell with { FirstStart = false } };
             watcher = _watcher;
         }
-        Save(s => s with { KeepScreenshots = keepScreenshots, Started = true });
-        watcher?.TriggerNow();
+        Save(s => s with { Started = true });
+        // The player pressed the button: the first look happens, paused or not.
+        Interlocked.Exchange(ref _asked, 1);
+        watcher?.RunNow();
     }
 
     /// <summary>"Got it": the player has read that portraits were written.</summary>

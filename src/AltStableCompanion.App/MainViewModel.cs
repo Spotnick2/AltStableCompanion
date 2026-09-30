@@ -36,12 +36,10 @@ internal sealed class MainViewModel : ObservableObject
     private string _count = "";
     private string? _problems;
     private bool _canChangeInstall = true;
-    private bool _canCheck;
     private bool _keepScreenshots;
     private bool _paused;
     private bool _restartNotice;
     private bool _firstStart;
-    private bool _firstStartKeep;
     private bool _showSettings;
     private bool _showHelp;
     private IReadOnlyList<PortraitLine> _portraits = [];
@@ -61,7 +59,7 @@ internal sealed class MainViewModel : ObservableObject
         DismissRestartNotice = new Command(controller.DismissRestartNotice);
         GotIt = new Command(controller.AcknowledgeUpdate);
         Resume = new Command(() => controller.SetPaused(false));
-        StartWatching = new Command(() => controller.StartWatching(FirstStartKeep));
+        StartWatching = new Command(controller.StartWatching);
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
         ToggleHelp = new Command(() => ShowHelp = !ShowHelp);
         Refresh();
@@ -141,12 +139,8 @@ internal sealed class MainViewModel : ObservableObject
 
     public bool Started => !_firstStart;
 
-    /// <summary>The box on the first-start card. Only the player changes it.</summary>
-    public bool FirstStartKeep { get => _firstStartKeep; set => Set(ref _firstStartKeep, value); }
-
     // ---- the list
     public string Count { get => _count; private set => Set(ref _count, value); }
-    public bool CanCheck { get => _canCheck; private set => Set(ref _canCheck, value); }
 
     public IReadOnlyList<PortraitLine> Portraits
     {
@@ -233,7 +227,7 @@ internal sealed class MainViewModel : ObservableObject
         InstallNote = now.Pinned ? "Set by --wow-dir for this run." : null;
         CanChangeInstall = !now.Pinned && !shell.Stopping;
 
-        var headline = PassText.Headline(shell);
+        var headline = PassText.Headline(shell, now.RestartNotice);
         if (headline != _headline)
         {
             _headline = headline;
@@ -271,8 +265,7 @@ internal sealed class MainViewModel : ObservableObject
         };
 
         var usable = shell.Install is not null && !shell.Stopping;
-        CanCheck = usable && !shell.FirstStart;
-        Check.Enabled = CanCheck;
+        Check.Enabled = usable && !shell.FirstStart;
         OpenCutouts.Enabled = usable;
         DetectAgain.Enabled = CanChangeInstall;
     }

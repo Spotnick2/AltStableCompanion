@@ -22,8 +22,10 @@ public enum CharacterState
 ///   it used: the portrait is there, and whether it is of THIS capture nobody knows.</param>
 /// <param name="NearlySquare">The portrait is nearly as wide as it is tall: something other
 ///   than the character may be in it.</param>
+/// <param name="Transient">A <see cref="CharacterState.Missing"/> that is expected to pass: a
+///   screenshot that is in use or still being written, not one that is gone.</param>
 public sealed record CharacterStatus(string Guid, string Name, DateTime LastCaptured, CharacterState State,
-    string? Note, bool Undated = false, bool NearlySquare = false);
+    string? Note, bool Undated = false, bool NearlySquare = false, bool Transient = false);
 
 public sealed record PassReport(
     IReadOnlyList<CharacterStatus> Characters,
@@ -71,10 +73,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
         set => _options = value;
     }
 
-    private const string SquareNote =
-        "nearly square - something other than the character may have been on screen; re-capture";
-
-    private readonly Dictionary<string, (CharacterState State, string Note)> _unusable = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (CharacterState State, string Note, bool Transient)> _unusable = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _logged = [];
 
     /// <summary>
@@ -123,8 +122,8 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
         // Done already: this character's cutout is on disk and was made from THIS capture.
         var todo = new List<Capture>();
         // A cutout make-cutout.py wrote carries the guid and no epoch: whose it is, not which
-        // capture it came from.
-        var undated = new HashSet<string>();
+        // capture it came from. What it does say - the shape - is kept for its row.
+        var undated = new Dictionary<string, CutoutMeta>();
         // The screenshots the cutouts on disk were made from, where they are still there (the
         // player keeps screenshots, or one could not be deleted). They stay that cutout's -
         // also when its character has a NEWER capture waiting, which is when the cutout no
@@ -141,11 +140,10 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             var meta = existing is null ? null : folder.ReadMeta(existing);
             if (meta?.Epoch == EpochOf(cap))
             {
-                statuses.Add(Status(cap, CharacterState.Portrait, meta.NearlySquare ? SquareNote : null)
-                    with { NearlySquare = meta.NearlySquare });
+                statuses.Add(Status(cap, CharacterState.Portrait, null) with { NearlySquare = meta.NearlySquare });
                 continue;
             }
-            if (meta is { Epoch: null }) undated.Add(cap.Guid);
+            if (meta is { Epoch: null }) undated[cap.Guid] = meta;
             todo.Add(cap);
         }
 
@@ -161,7 +159,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                         statuses.Add(Status(cap, CharacterState.Collided,
                             $"both shots landed in the same second ({cap.First:HH:mm:ss}) - capture again"));
                         continue;
-                    case MatchProblem.Missing when undated.Contains(cap.Guid):
+                    case MatchProblem.Missing when undated.TryGetValue(cap.Guid, out var old):
                         // The portrait is there and drawn; the converter that made it consumed
                         // the screenshots and did not say which capture they were. That is for
                         // the log: there is nothing in it for the player to do.
@@ -169,7 +167,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                         {
                             log?.Invoke($"{cap.Name}: its portrait was made by an earlier converter, which did not record its capture");
                         }
-                        statuses.Add(Status(cap, CharacterState.Portrait, null) with { Undated = true });
+                        statuses.Add(Status(cap, CharacterState.Portrait, null) with { Undated = true, NearlySquare = old.NearlySquare });
                         continue;
                     case MatchProblem.Missing:
                         statuses.Add(Status(cap, CharacterState.Missing, "no screenshots for this capture on disk"));
@@ -185,7 +183,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                 var fingerprint = Fingerprint(black, white);
                 if (_unusable.TryGetValue(fingerprint, out var known))
                 {
-                    statuses.Add(Status(cap, known.State, known.Note));
+                    statuses.Add(Status(cap, known.State, known.Note) with { Transient = known.Transient });
                     continue;
                 }
 
@@ -199,7 +197,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                 }
                 catch (NotAPairException ex)
                 {
-                    statuses.Add(Status(cap, Remember(fingerprint, CharacterState.Rejected, ex.Message)));
+                    statuses.Add(Status(cap, Remember(fingerprint, CharacterState.Rejected, ex.Message, false)));
                     continue;
                 }
                 catch (TgaFormatException ex) when (ex.Truncated)
@@ -207,20 +205,20 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                     // Still being written, or cut short for good. Either way there is nothing
                     // to read again until the file changes - and a file being written does.
                     statuses.Add(Status(cap, Remember(fingerprint, CharacterState.Missing,
-                        "a screenshot ends early - read again when it changes")));
+                        "a screenshot ends early - read again when it changes", true)));
                     continue;
                 }
                 catch (TgaFormatException ex)
                 {
                     statuses.Add(Status(cap, Remember(fingerprint, CharacterState.Rejected,
-                        $"a screenshot cannot be read: {ex.Message}")));
+                        $"a screenshot cannot be read: {ex.Message}", false)));
                     continue;
                 }
                 catch (IOException)
                 {
                     // In use by something else. Its size and time will not change when that
                     // ends, so this one is NOT remembered.
-                    statuses.Add(Status(cap, CharacterState.Missing, "a screenshot is in use - next pass"));
+                    statuses.Add(Status(cap, CharacterState.Missing, "a screenshot is in use - next pass") with { Transient = true });
                     continue;
                 }
 
@@ -229,8 +227,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                 folder.WriteCutout(fileBase, cutout.Canvas, cutout.Meta);
                 written.Add(cap.Name);
                 log?.Invoke($"wrote {fileBase}.tga for {cap.Name}");
-                statuses.Add(Status(cap, CharacterState.Portrait, cutout.NearlySquare ? SquareNote : null)
-                    with { NearlySquare = cutout.NearlySquare });
+                statuses.Add(Status(cap, CharacterState.Portrait, null) with { NearlySquare = cutout.NearlySquare });
 
                 // Only now, and only these two: a failed convert leaves its source to retry, and a
                 // file this capture did not consume is not ours to delete.
@@ -297,11 +294,12 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
     private static CharacterStatus Status(Capture cap, CharacterState state, string? note) =>
         new(cap.Guid, cap.Name, cap.First, state, note);
 
-    private static CharacterStatus Status(Capture cap, (CharacterState State, string Note) what) =>
-        Status(cap, what.State, what.Note);
+    private static CharacterStatus Status(Capture cap, (CharacterState State, string Note, bool Transient) what) =>
+        Status(cap, what.State, what.Note) with { Transient = what.Transient };
 
-    private (CharacterState State, string Note) Remember(string fingerprint, CharacterState state, string note) =>
-        _unusable[fingerprint] = (state, note);
+    private (CharacterState State, string Note, bool Transient) Remember(string fingerprint, CharacterState state,
+        string note, bool transient) =>
+        _unusable[fingerprint] = (state, note, transient);
 
     private static string Fingerprint(string black, string white)
     {

@@ -92,7 +92,14 @@ public static class PassText
     /// player may have to do in the game is advice ("if WoW is open ..."), never a debt the
     /// app claims to have measured.
     /// </summary>
-    public static Headline Headline(ShellState s)
+    public static Headline Headline(ShellState s) => Headline(s, restartNotice: false);
+
+    /// <summary>
+    /// The same, knowing whether the restart notice is owed: the one step that beats "/reload",
+    /// because a reload does not find a new addon folder and the player would follow the
+    /// headline, reload, and see nothing.
+    /// </summary>
+    public static Headline Headline(ShellState s, bool restartNotice)
     {
         if (s.Stopping) return new("Finishing...", null, HeadlineKind.Busy);
         if (s.Install is null)
@@ -136,7 +143,9 @@ public static class PassText
         if (s.LastWritten is { Written.Count: > 0 } wrote && !s.UpdateSeen)
         {
             return new(wrote.Written.Count == 1 ? $"Portrait written: {Names(wrote.Written)}" : $"{Names(wrote.Written)} written",
-                "If WoW is open, /reload to load " + (wrote.Written.Count == 1 ? "it." : "them."),
+                restartNotice
+                    ? "Restart WoW once to see " + (wrote.Written.Count == 1 ? "it" : "them") + ": see below."
+                    : "If WoW is open, /reload to load " + (wrote.Written.Count == 1 ? "it." : "them."),
                 HeadlineKind.Info, Dismissable: true);
         }
         var rows = report.Portraits ?? [];
@@ -166,10 +175,13 @@ public static class PassText
             : "New captures are processed automatically while this app runs.", HeadlineKind.Good);
     }
 
-    /// <summary>"20 portraits · 1 needs attention". A capture with no portrait is not a portrait.</summary>
+    /// <summary>
+    /// "20 portraits · 1 needs attention". A capture with no portrait is not a portrait, and a
+    /// file two characters share is one portrait, not two.
+    /// </summary>
     public static string Count(IReadOnlyList<PortraitRow> rows)
     {
-        var ready = rows.Count(r => r.Ready);
+        var ready = rows.Where(r => r.Ready).Select(r => r.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         var attention = rows.Count(r => r.NeedsAttention);
         var line = ready == 1 ? "1 portrait" : $"{ready} portraits";
         return attention == 0 ? line : $"{line} · {attention} " + (attention == 1 ? "needs attention" : "need attention");
@@ -198,6 +210,7 @@ public static class PassText
                 CaptureOutcome.Unknown => "portrait from an earlier converter",
                 CaptureOutcome.NoScreenshots when row.Ready => "not converted: its screenshots are gone",
                 CaptureOutcome.NoScreenshots => (row.Note ?? "no screenshots") + " - capture again if they are gone",
+                CaptureOutcome.Writing => row.Note ?? "a screenshot is still being written",
                 _ => row.Note ?? "not converted",
             });
             if (row.Source == PortraitSource.ByName) parts.Add($"portrait found by name ({row.FileName})");
@@ -214,13 +227,8 @@ public static class PassText
         return string.Join(" · ", parts.Where(p => p.Length > 0));
     }
 
-    private static string When(DateTime t, DateTime today)
-    {
-        var time = t.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-        if (t.Date == today.Date) return "today " + time;
-        if (t.Date == today.Date.AddDays(-1)) return "yesterday " + time;
-        return t.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-    }
+    // "today 12:13", "yesterday 09:05", else the date: for a row, where the minute is enough.
+    private static string When(DateTime t, DateTime today) => Stamp(t, today, "HH:mm");
 
     /// <summary>
     /// What the last pass did, and when - so that a pass which found nothing still shows that
@@ -250,7 +258,7 @@ public static class PassText
         var line = $"Last check {Time(pass.At, today)}: {what}.";
         if (pass.Written.Count == 0 && s.LastWritten is { Written.Count: > 0 } last)
         {
-            line += $" Last written: {Names(last.Written)}, at {Time(last.At, today)}.";
+            line += $" Last written: {Names(last.Written)}, {Time(last.At, today)}.";
         }
         return line;
     }
@@ -258,8 +266,17 @@ public static class PassText
     private static string Names(IReadOnlyList<string> names) =>
         names.Count == 1 ? names[0] : $"{names.Count} portraits";
 
-    private static string Time(DateTime t, DateTime today) => t.ToString(
-        t.Date == today.Date ? "HH:mm:ss" : "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+    // The same to the second, for the check line.
+    private static string Time(DateTime t, DateTime today) => Stamp(t, today, "HH:mm:ss");
+
+    // One rule for both: today and yesterday by name, any other day by its date.
+    private static string Stamp(DateTime t, DateTime today, string clock)
+    {
+        var time = t.ToString(clock, System.Globalization.CultureInfo.InvariantCulture);
+        if (t.Date == today.Date) return "today " + time;
+        if (t.Date == today.Date.AddDays(-1)) return "yesterday " + time;
+        return t.ToString("yyyy-MM-dd ", System.Globalization.CultureInfo.InvariantCulture) + time;
+    }
 
     /// <summary>The tray icon's tooltip: the app's name and, in a word, what it is doing.</summary>
     public static string TrayTip(ShellState s)
@@ -268,6 +285,7 @@ public static class PassText
         {
             { Stopping: true } => "finishing",
             { Install: null } => "no WoW folder",
+            { FirstStart: true } => "not started: open the window",
             { Converting: true } => "converting",
             { Paused: true } => "paused",
             _ => "watching",

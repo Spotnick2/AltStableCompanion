@@ -435,8 +435,36 @@ public class ConvertPassTests
         // Which capture it came from is not known - and that is for the log, not for the player.
         Assert.True(status.Undated);
         Assert.Null(status.Note);
+        Assert.False(status.NearlySquare);
         pass.Run();
         Assert.Single(log, l => l.Contains("earlier converter"));
+
+        // What its sidecar does say - the shape - is not lost with the date.
+        f.WriteCutout("kaleid-sumner", TestData.Solid(4, 4, 1, 1, 1),
+            new CutoutMeta { W = 4, H = 4, TexW = 4, TexH = 4, Guid = Guid1, NativePx = [90, 100] });
+        Assert.True(new ConvertPass(t.Install, new ConvertOptions()).Run().Characters.Single().NearlySquare);
+    }
+
+    [Fact]
+    public void A_screenshot_in_use_is_missing_for_now_not_gone()
+    {
+        using var t = new TempInstall();
+        var (b, w) = TestData.Pair(400, 1200, 100, 300, 70, 100);
+        t.WriteShot(T0, b);
+        t.WriteShot(T0.AddSeconds(1), w);
+        t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
+        var pass = new ConvertPass(t.Install, new ConvertOptions());
+
+        using (File.Open(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0)), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var held = pass.Run().Characters.Single();
+            Assert.Equal(CharacterState.Missing, held.State);
+            Assert.True(held.Transient);
+        }
+        Assert.Single(pass.Run().Written);
+        var gone = pass.Run().Characters.Single();
+        Assert.Equal(CharacterState.Portrait, gone.State);
+        Assert.False(gone.Transient);
     }
 
     [Fact]
@@ -465,10 +493,10 @@ public class ConvertPassTests
         t.WriteStore("1#12", Records(("Kaleid Sumner", Guid1, T0)));
         var pass = new ConvertPass(t.Install, new ConvertOptions());
 
-        Assert.Contains("nearly square", pass.Run().Characters.Single().Note);
+        Assert.True(pass.Run().Characters.Single().NearlySquare);
         var again = pass.Run();
         Assert.Empty(again.Written);
-        Assert.Contains("nearly square", again.Characters.Single().Note);
+        Assert.True(again.Characters.Single().NearlySquare);
     }
 
     [Fact]

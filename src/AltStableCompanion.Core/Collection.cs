@@ -27,8 +27,10 @@ public enum CaptureOutcome
     Converted,
     /// <summary>The portrait is from a converter that did not record which capture it used.</summary>
     Unknown,
-    /// <summary>Its screenshots are not on disk (consumed, deleted, another machine, or in use).</summary>
+    /// <summary>Its screenshots are not on disk (consumed, deleted, another machine).</summary>
     NoScreenshots,
+    /// <summary>A screenshot is in use or still being written; the next pass looks again.</summary>
+    Writing,
     /// <summary>Looked at and not used: collided, rejected, ambiguous.</summary>
     Unusable,
     /// <summary>Converting it failed: a file that could not be written.</summary>
@@ -139,7 +141,7 @@ public static class Collection
     private static CaptureOutcome OutcomeOf(CharacterStatus c) => c.State switch
     {
         CharacterState.Portrait => c.Undated ? CaptureOutcome.Unknown : CaptureOutcome.Converted,
-        CharacterState.Missing => CaptureOutcome.NoScreenshots,
+        CharacterState.Missing => c.Transient ? CaptureOutcome.Writing : CaptureOutcome.NoScreenshots,
         CharacterState.Failed => CaptureOutcome.Failed,
         _ => CaptureOutcome.Unusable,
     };

@@ -178,7 +178,7 @@
         <!-- The first start: nothing is converted until this is read and answered. -->
         <StackPanel Spacing="8" IsVisible="{Binding FirstStart}" Margin="0,4,0,0">
           <TextBlock Text="{Binding FirstStartText}" />
-          <CheckBox IsChecked="{Binding FirstStartKeep}" Content="Keep those screenshots" />
+          <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep those screenshots" />
           <Button Content="Start watching" Command="{Binding StartWatching}" HorizontalAlignment="Right" />
         </StackPanel>
 
@@ -241,6 +241,7 @@
     <!-- Help: how it works, where the files are, what was left out and why -->
    <StackPanel Grid.Row="2" Spacing="10">
     <Border Classes="pane" IsVisible="{Binding ShowHelp}">
+     <ScrollViewer MaxHeight="260">
       <StackPanel Spacing="8">
         <TextBlock Text="How it works" FontWeight="SemiBold" />
         <ItemsControl ItemsSource="{Binding HowItWorks}">
@@ -266,6 +267,7 @@
           </ItemsControl>
         </StackPanel>
       </StackPanel>
+     </ScrollViewer>
     </Border>
 
     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">

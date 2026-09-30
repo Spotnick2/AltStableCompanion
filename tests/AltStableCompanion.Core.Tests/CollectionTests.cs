@@ -123,6 +123,16 @@ public class CollectionTests
     }
 
     [Fact]
+    public void A_screenshot_still_being_written_is_not_one_that_is_gone()
+    {
+        var rows = Build([],
+            Captured("Aaa", "g1", CharacterState.Missing, "a screenshot is in use - next pass") with { Transient = true },
+            Captured("Bbb", "g2", CharacterState.Missing, "no screenshots for this capture on disk"));
+        Assert.Equal([CaptureOutcome.Writing, CaptureOutcome.NoScreenshots], rows.Select(r => r.Outcome));
+        Assert.Equal([false, true], rows.Select(r => r.NeedsAttention));
+    }
+
+    [Fact]
     public void An_older_portrait_with_a_newer_capture_that_failed_is_ready_and_needs_the_player()
     {
         var row = Build([ByGuid("g1", "aaa.tga")], Captured("Aaa", "g1", CharacterState.Rejected, "identical shots")).Single();
@@ -141,5 +151,9 @@ public class CollectionTests
         var square = Build([ByGuid("g1", "aaa.tga")], Captured("Aaa", "g1") with { NearlySquare = true }).Single();
         Assert.True(square.NearlySquare);
         Assert.True(square.NeedsAttention);
+
+        var both = Build([ByGuid("g1", "aaa.tga")], Captured("Aaa", "g1") with { Undated = true, NearlySquare = true }).Single();
+        Assert.Equal(CaptureOutcome.Unknown, both.Outcome);
+        Assert.True(both.NeedsAttention);
     }
 }

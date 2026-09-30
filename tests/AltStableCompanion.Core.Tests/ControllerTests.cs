@@ -135,7 +135,7 @@ public class ControllerTests
         {
             Assert.True(c.Browse(t.Install.FlavorDir));
             Assert.Null(c.Current.SettingsProblem);
-            c.StartWatching(keepScreenshots: false);
+            c.StartWatching();
             FirstPass(c);
         }
         Assert.False(Settings.Load(Data(t)).InstallUnknown);
@@ -157,7 +157,7 @@ public class ControllerTests
             c.DetectAgain();
             Assert.Equal(t.Install.FlavorDir, c.Current.Shell.Install!.FlavorDir);
             Assert.Null(c.Current.SettingsProblem);
-            c.StartWatching(keepScreenshots: true);
+            c.StartWatching();
             FirstPass(c);
         }
         Assert.False(Settings.Load(Data(t)).InstallUnknown);
@@ -171,7 +171,7 @@ public class ControllerTests
         var before = File.ReadAllText(Path.Combine(Data(t), "settings.json"));
         using (var c = Started(t, wowDir: t.Install.FlavorDir))
         {
-            c.StartWatching(keepScreenshots: true);
+            c.StartWatching();
             FirstPass(c);
             Assert.True(c.Current.Pinned);
             Assert.True(c.Current.KeepScreenshots);
@@ -391,8 +391,9 @@ public class ControllerTests
             Assert.True(File.Exists(black));
             Assert.False(File.Exists(Path.Combine(Data(t), "settings.json")));
 
-            // The box ticked on the card is what the first pass goes by.
-            c.StartWatching(keepScreenshots: true);
+            // The box on the card is the Keep setting itself: what the first pass goes by.
+            c.SetKeepScreenshots(true);
+            c.StartWatching();
             Assert.False(c.Current.Shell.FirstStart);
             FirstPass(c);
             Assert.Equal(["Aaa"], c.Current.Shell.LastWritten!.Written);
@@ -407,6 +408,35 @@ public class ControllerTests
             Assert.False(c.Current.Shell.FirstStart);
             FirstPass(c);
         }
+    }
+
+    [Fact]
+    public void Start_watching_while_paused_still_looks_once()
+    {
+        using var t = new TempInstall();
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        using var c = Started(t, detect: () => t.Install);
+        c.SetPaused(true);
+        c.SetKeepScreenshots(true);
+        c.StartWatching();
+        FirstPass(c);
+        Assert.Equal(["Aaa"], c.Current.Shell.LastWritten!.Written);
+        Assert.True(c.Current.Shell.Paused);
+    }
+
+    [Fact]
+    public void Settings_from_before_started_existed_are_not_a_first_start()
+    {
+        // A folder was chosen: somebody used this app here. Their captures keep converting.
+        using var t = new TempInstall();
+        Directory.CreateDirectory(Data(t));
+        File.WriteAllText(Path.Combine(Data(t), "settings.json"),
+            "{ \"WowFlavorDir\": " + System.Text.Json.JsonSerializer.Serialize(t.Install.FlavorDir) + " }");
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        using var c = Started(t);
+        Assert.False(c.Current.Shell.FirstStart);
+        FirstPass(c);
+        Assert.Equal(["Aaa"], c.Current.Shell.LastWritten!.Written);
     }
 
     [Fact]
