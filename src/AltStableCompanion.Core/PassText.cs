@@ -99,7 +99,8 @@ public static class PassText
             + $"the character's race, gender and class, plus any instructions your Codex CLI is configured with, to {signedIn}. "
             + "One automatic attempt for each new combination of capture, style and model; an attempt uses Codex usage whether or not a "
             + "picture comes back, and a picture that was refused or failed is not tried again for that combination. Turning this off "
-            + "stops new attempts and cancels the one running; pictures already made stay, and the addon keeps showing them.";
+            + "stops new attempts and cancels the one running (that one is tried once more when this is on again); pictures already "
+            + "made stay, and the addon keeps showing them.";
     }
 
     /// <summary>Why the box is disabled, or null when it can be used.</summary>
