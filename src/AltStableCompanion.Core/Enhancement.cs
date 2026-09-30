@@ -38,27 +38,40 @@ public static class EnhanceStyles
 /// </summary>
 public sealed record EnhanceCandidate(string Guid, string FileBase, RosterCharacter Character);
 
+/// <summary>Who may be enhanced this time - or nobody, and why.</summary>
+public sealed record EligibilityResult(IReadOnlyList<EnhanceCandidate> Candidates, string? Refused = null);
+
 /// <summary>
-/// Who is eligible, from every account's store at once. Conflicts between accounts are
+/// Who is eligible, from every account's roster at once. Conflicts between accounts are
 /// settled one way, always: hidden anywhere is hidden; the level is the highest seen; the
-/// name, race, gender and class come from the most recently updated record.
+/// name, race, gender and class come from the most recently updated record, and between
+/// two updated at the same moment, the one from the file that sorts first. A snapshot with a
+/// file that could not be read is not a view of every account: nobody is eligible from it,
+/// because a launch cannot be taken back.
 /// </summary>
 public static class Eligibility
 {
-    public static IReadOnlyList<EnhanceCandidate> Select(IReadOnlyList<PortraitStore> stores, int minLevel,
-        Func<string, string?> fileBaseOf)
+    public static EligibilityResult Select(SavedVariablesSnapshot snapshot, int minLevel, Func<string, string?> fileBaseOf)
     {
-        var hidden = new HashSet<string>(stores.SelectMany(s => s.HiddenCharacters), StringComparer.Ordinal);
-        var merged = new Dictionary<string, RosterCharacter>(StringComparer.Ordinal);
-        foreach (var c in stores.SelectMany(s => s.Roster))
+        if (snapshot.Skipped.Count > 0)
         {
-            if (!merged.TryGetValue(c.Guid, out var have))
+            return new([], $"{snapshot.Skipped.Count} account file(s) could not be read this time ({Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(snapshot.Skipped[0])))}): not knowing who is hidden is not permission");
+        }
+        var hidden = new HashSet<string>(snapshot.Rosters.SelectMany(r => r.Hidden), StringComparer.Ordinal);
+        var merged = new Dictionary<string, RosterCharacter>(StringComparer.Ordinal);
+        foreach (var roster in snapshot.Rosters.OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var c in roster.Characters)
             {
-                merged[c.Guid] = c;
-                continue;
+                if (!merged.TryGetValue(c.Guid, out var have))
+                {
+                    merged[c.Guid] = c;
+                    continue;
+                }
+                // Strictly newer wins; a tie keeps the one from the file that sorted first.
+                var newest = c.Updated > have.Updated ? c : have;
+                merged[c.Guid] = newest with { Level = Math.Max(c.Level, have.Level) };
             }
-            var newest = c.Updated > have.Updated ? c : have;
-            merged[c.Guid] = newest with { Level = Math.Max(c.Level, have.Level) };
         }
         var out_ = new List<EnhanceCandidate>();
         foreach (var c in merged.Values.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Guid, StringComparer.Ordinal))
@@ -68,7 +81,7 @@ public static class Eligibility
             if (fileBaseOf(c.Guid) is not { } fileBase) continue;
             out_.Add(new EnhanceCandidate(c.Guid, fileBase, c));
         }
-        return out_;
+        return new(out_);
     }
 }
 
@@ -87,9 +100,12 @@ public static class EnhancementPrompt
     public static string Build(RosterCharacter c, string style)
     {
         var race = c.Race?.Trim() ?? "";
+        // The race as a reader would say it: the client's own display name when the addon
+        // kept it ("Windshaper Skyborne"), else the token spelled out ("Night Elf").
+        var raceWords = string.IsNullOrWhiteSpace(c.RaceName) ? RaceWords(race) : c.RaceName.Trim();
         var gender = c.Gender?.Trim() ?? "";
         var cls = c.Class?.Trim() ?? "";
-        var who = string.Join(" ", new[] { gender, race, Class(cls) }.Where(w => w.Length > 0));
+        var who = string.Join(" ", new[] { gender, raceWords, Class(cls) }.Where(w => w.Length > 0));
         if (who.Length == 0) who = "character";
         var sb = new StringBuilder();
         sb.AppendLine("Use the imagegen skill (the built-in image_gen tool) to generate ONE image.");
@@ -103,7 +119,15 @@ public static class EnhancementPrompt
         sb.AppendLine("- what is in the hands as shown, and nothing more: do not add weapons, magic effects, glows, pets or anything the screenshot does not show;");
         sb.AppendLine("- the standing pose, facing the viewer.");
         sb.AppendLine();
-        if (Anatomy(race) is { } anatomy) sb.AppendLine($"{Cap(race)} anatomy, which the small screenshot may not make clear: {anatomy}.").AppendLine();
+        if (Anatomy(race) is { } anatomy)
+        {
+            sb.AppendLine($"{RaceWords(race)} anatomy, which the small screenshot may not make clear: {anatomy}.").AppendLine();
+        }
+        else if (race.Length > 0)
+        {
+            // A race the model has never heard of (Forever's Skyborne): the picture is all there is.
+            sb.AppendLine($"The {raceWords} may be a race you do not know: take its anatomy - ears, hands, feet, horns, wings, tail, tusks - exactly from the screenshot, and invent nothing.").AppendLine();
+        }
         sb.AppendLine(Style(style));
         sb.AppendLine();
         sb.AppendLine("Requirements:");
@@ -117,11 +141,22 @@ public static class EnhancementPrompt
         return sb.ToString();
     }
 
+    /// <summary>The race token (UnitRace's fileName, what the addon stores) as words: "NightElf" is "Night Elf", "Scourge" is "Undead".</summary>
+    public static string RaceWords(string token) => token.Trim().ToLowerInvariant() switch
+    {
+        "" => "",
+        "nightelf" or "night elf" => "Night Elf",
+        "scourge" or "undead" => "Undead",
+        "bloodelf" => "Blood Elf",
+        var t => Cap(t),
+    };
+
     /// <summary>
-    /// What a 167-pixel-wide cutout cannot say about a race. The Forever client's races; a
-    /// race not here gets no line, which is safe - the reference still rules.
+    /// What a 167-pixel-wide cutout cannot say about a race. The Classic races the model
+    /// knows; a race not here (Forever's own Skyborne) gets the "take it from the picture"
+    /// line instead - the reference still rules.
     /// </summary>
-    public static string? Anatomy(string race) => race.ToLowerInvariant() switch
+    public static string? Anatomy(string race) => race.Trim().ToLowerInvariant() switch
     {
         "troll" => "two toes on each foot, three fingers on each hand, long pointed ears, tusks at the mouth as small or large as in the screenshot, a tall lean build",
         "orc" => "green skin as in the screenshot, prominent lower tusks, a heavy muscular build, five fingers and five toes",
@@ -189,6 +224,14 @@ public static class EnhancementSignature
     private static string Norm(string? s) => (s ?? "").Trim().ToLowerInvariant();
 }
 
+/// <summary>What one look at a picture found: enough to refuse it or to cut it out, in one pass.</summary>
+public sealed record Inspection(bool BorderHit, long Opaque, int MinX, int MinY, int MaxX, int MaxY)
+{
+    public bool AnyVisible => MaxX >= 0;
+    public int Width => MaxX - MinX + 1;
+    public int Height => MaxY - MinY + 1;
+}
+
 /// <summary>
 /// From what Codex gave back to what the Roster draws. Three checks, each named, that say
 /// the picture is shaped like a cutout - not that it is the right character, which is the
@@ -209,55 +252,51 @@ public static class Enhancement
     public const int Visible = 8;
     public const double MinAspect = 1.15;
 
-    /// <summary>The name of the first check the picture fails, or null when it passes all three.</summary>
-    public static string? Refuse(RgbaImage png)
+    /// <summary>One pass over the pixels: the border, the opaque count, and the box of everything visible.</summary>
+    public static Inspection Inspect(RgbaImage png)
     {
-        for (var y = 0; y < Math.Min(2, png.Height); y++)
-            for (var x = 0; x < png.Width; x++)
-                if (png[x, y].A >= Visible) return TransparentBorder;
-        for (var x = 0; x < png.Width; x++)
-            if (x < 2 || x >= png.Width - 2)
-                for (var y = 0; y < png.Height; y++)
-                    if (png[x, y].A >= Visible) return TransparentBorder;
-
+        var borderHit = false;
         long opaque = 0;
-        for (var i = 3; i < png.Pixels.Length; i += 4) if (png.Pixels[i] >= Opaque) opaque++;
-        if (opaque * 20 < (long)png.Width * png.Height) return EnoughFigure;
+        int minX = png.Width, minY = png.Height, maxX = -1, maxY = -1;
+        var pixels = png.Pixels;
+        var w = png.Width;
+        for (var y = 0; y < png.Height; y++)
+        {
+            var row = y * w * 4;
+            for (var x = 0; x < w; x++)
+            {
+                var a = pixels[row + x * 4 + 3];
+                if (a >= Opaque) opaque++;
+                if (a < Visible) continue;
+                // The top two rows and the outer two columns must be clear; the bottom may hold the feet.
+                if (y < 2 || x < 2 || x >= w - 2) borderHit = true;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+        return new Inspection(borderHit, opaque, minX, minY, maxX, maxY);
+    }
 
-        var box = Bounds(png);
-        if (box is null || box.Value.Height < box.Value.Width * MinAspect) return StandingFigure;
+    /// <summary>The name of the first check the picture fails, or null when it passes all three.</summary>
+    public static string? Refuse(RgbaImage png) => Refuse(png, Inspect(png));
+
+    public static string? Refuse(RgbaImage png, Inspection seen)
+    {
+        if (seen.BorderHit) return TransparentBorder;
+        if (seen.Opaque * 20 < (long)png.Width * png.Height) return EnoughFigure;
+        if (!seen.AnyVisible || seen.Height < seen.Width * MinAspect) return StandingFigure;
         return null;
     }
 
     /// <summary>The picture as a cutout canvas with its sidecar sizes, or a <see cref="ThumbnailException"/> naming the failed check.</summary>
     public static Cutout ToCutout(RgbaImage png, CutoutMeta meta)
     {
-        if (Refuse(png) is { } why) throw new ThumbnailException(why);
-        var box = Bounds(png)!.Value;
-        var figure = png.Crop(box.X, box.Y, box.Width, box.Height);
-        var scaled = Resampler.DownscaleToHeight(figure, CutoutConverter.TargetHeight);
-        var canvas = new RgbaImage(CutoutConverter.Pot(scaled.Width), CutoutConverter.Pot(scaled.Height));
-        for (var y = 0; y < scaled.Height; y++)
-        {
-            Buffer.BlockCopy(scaled.Pixels, scaled.Offset(0, y), canvas.Pixels, canvas.Offset(0, y), scaled.Width * 4);
-        }
+        var seen = Inspect(png);
+        if (Refuse(png, seen) is { } why) throw new ThumbnailException(why);
+        var figure = png.Crop(seen.MinX, seen.MinY, seen.Width, seen.Height);
+        var (canvas, scaled) = CutoutConverter.OnCanvas(figure);
         return new Cutout(canvas, meta with { W = scaled.Width, H = scaled.Height, TexW = canvas.Width, TexH = canvas.Height, Shots = null });
-    }
-
-    // The smallest box holding every pixel that is visible at all: faint noise below
-    // Visible is not the figure.
-    private static (int X, int Y, int Width, int Height)? Bounds(RgbaImage img)
-    {
-        int minX = img.Width, minY = img.Height, maxX = -1, maxY = -1;
-        for (var y = 0; y < img.Height; y++)
-            for (var x = 0; x < img.Width; x++)
-            {
-                if (img.Pixels[img.Offset(x, y) + 3] < Visible) continue;
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
-            }
-        return maxX < 0 ? null : (minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 }

@@ -73,12 +73,7 @@ public static class CutoutConverter
                 $"the cutout is {nativeH} of {shotH} screen rows tall - the matte caught the whole window, not the character");
         }
 
-        var scaled = Resampler.DownscaleToHeight(cut, TargetHeight);
-        var canvas = new RgbaImage(Pot(scaled.Width), Pot(scaled.Height));
-        for (var y = 0; y < scaled.Height; y++)
-        {
-            Buffer.BlockCopy(scaled.Pixels, scaled.Offset(0, y), canvas.Pixels, canvas.Offset(0, y), scaled.Width * 4);
-        }
+        var (canvas, scaled) = OnCanvas(cut);
 
         var meta = new CutoutMeta
         {
@@ -95,6 +90,21 @@ public static class CutoutConverter
         };
 
         return new Cutout(canvas, meta);
+    }
+
+    /// <summary>
+    /// The figure at the cutout height on the power-of-two canvas the game loads, top-left:
+    /// the one shape every cutout has, plain or enhanced.
+    /// </summary>
+    public static (RgbaImage Canvas, RgbaImage Scaled) OnCanvas(RgbaImage figure)
+    {
+        var scaled = Resampler.DownscaleToHeight(figure, TargetHeight);
+        var canvas = new RgbaImage(Pot(scaled.Width), Pot(scaled.Height));
+        for (var y = 0; y < scaled.Height; y++)
+        {
+            Buffer.BlockCopy(scaled.Pixels, scaled.Offset(0, y), canvas.Pixels, canvas.Offset(0, y), scaled.Width * 4);
+        }
+        return (canvas, scaled);
     }
 
     /// <summary>The smallest power of two at least <paramref name="n"/>. WoW reloads those reliably.</summary>

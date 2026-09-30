@@ -104,6 +104,10 @@ public class PngCodecTests
         Assert.Contains("size", Assert.Throws<PngFormatException>(() => PngCodec.Read(Build(PngCodec.MaxSide + 1, 1, 4, good))).Message);
         Assert.Contains("size", Assert.Throws<PngFormatException>(() => PngCodec.Read(Build(4096, 4096, 4, good))).Message);
         Assert.Contains("filter type", Assert.Throws<PngFormatException>(() => PngCodec.Read(Build(1, 1, 4, [Line(7, 1, 2, 3, 4)]))).Message);
+        // A chunk that claims to be almost 2 GB long: past the end, in any arithmetic.
+        var huge = Build(1, 1, 4, good);
+        BinaryPrimitives.WriteUInt32BigEndian(huge.AsSpan(8), 0x7FFFFFF0);
+        Assert.Contains("past the end", Assert.Throws<PngFormatException>(() => PngCodec.Read(huge)).Message);
     }
 
     [Fact]
@@ -124,8 +128,10 @@ public class EligibilityTests
     private static RosterCharacter Char(string guid, string name, int level, long updated = 1, string? race = "Troll", string? cls = "WARLOCK", string? gender = "Female") =>
         new(guid, name, cls, race, gender, level, updated);
 
-    private static PortraitStore Store(string path, IReadOnlyList<RosterCharacter> roster, params string[] hidden) =>
-        new(path, 1, [], null, roster, new HashSet<string>(hidden));
+    private static RosterStore Store(string path, IReadOnlyList<RosterCharacter> roster, params string[] hidden) =>
+        new(path, roster, new HashSet<string>(hidden));
+
+    private static SavedVariablesSnapshot Snap(params RosterStore[] rosters) => new([], rosters, []);
 
     [Fact]
     public void The_roster_tables_are_read_from_the_same_file_as_the_captures_and_never_refuse_it()
@@ -137,24 +143,55 @@ public class EligibilityTests
             "AltStablePortraits = {\n[\"version\"] = 1,\n[\"renders\"] = {\n" + TestData.Record("Kaleid Sumner", "Player-1-AAAA", 1, new DateTime(2026, 9, 29, 12, 0, 0)) + ",\n},\n}\n";
         var store = SavedVariablesReader.Parse(text, "x")!;
         Assert.Single(store.Renders);
-        var c = Assert.Single(store.Roster);
+        var roster = SavedVariablesReader.ParseRoster(text, "x");
+        var c = Assert.Single(roster.Characters);
         Assert.Equal(("Player-1-AAAA", "Kaleid Sumner", "WARLOCK", "Troll", "Female", 12, 1790000000L),
             (c.Guid, c.Name, c.Class, c.Race, c.Gender, c.Level, c.Updated));
-        Assert.Equal(["Player-1-CCCC"], store.HiddenCharacters);
+        Assert.Equal(["Player-1-CCCC"], roster.Hidden);
 
         // The shared helper's file has a decoy roster: its one character, with nothing known.
-        var decoy = SavedVariablesReader.Parse(TestData.SavedVariables([TestData.Record("A", "Player-1-AAAA", 1, new DateTime(2026, 9, 29))]), "x")!;
-        Assert.Equal(("Player-1-0001", "Some Alt", 0), (decoy.Roster.Single().Guid, decoy.Roster.Single().Name, decoy.Roster.Single().Level));
-        Assert.Empty(decoy.HiddenCharacters);
+        var decoy = SavedVariablesReader.ParseRoster(TestData.SavedVariables([TestData.Record("A", "Player-1-AAAA", 1, new DateTime(2026, 9, 29))]), "x");
+        Assert.Equal(("Player-1-0001", "Some Alt", 0), (decoy.Characters.Single().Guid, decoy.Characters.Single().Name, decoy.Characters.Single().Level));
+        Assert.Empty(decoy.Hidden);
         // No roster tables at all, or one that stops mid-table: captures are still read, the roster is empty.
         var store2 = "AltStablePortraits = {\n[\"version\"] = 1,\n[\"renders\"] = {\n" + TestData.Record("A", "Player-1-AAAA", 1, new DateTime(2026, 9, 29)) + ",\n},\n}\n";
-        var bare = SavedVariablesReader.Parse(store2, "x")!;
-        Assert.Single(bare.Renders);
-        Assert.Empty(bare.Roster);
-        Assert.Empty(bare.HiddenCharacters);
-        var broken = SavedVariablesReader.Parse("AltStableDB = {\n[\"Player-1-AAAA\"] = {\n" + store2, "x")!;
-        Assert.Single(broken.Renders);
-        Assert.Empty(broken.Roster);
+        Assert.Single(SavedVariablesReader.Parse(store2, "x")!.Renders);
+        Assert.Empty(SavedVariablesReader.ParseRoster(store2, "x").Characters);
+        Assert.Empty(SavedVariablesReader.ParseRoster(store2, "x").Hidden);
+        var brokenText = "AltStableDB = {\n[\"Player-1-AAAA\"] = {\n" + store2;
+        Assert.Single(SavedVariablesReader.Parse(brokenText, "x")!.Renders);
+        Assert.Empty(SavedVariablesReader.ParseRoster(brokenText, "x").Characters);
+    }
+
+    [Fact]
+    public void Every_account_hides_whatever_its_capture_store_says_and_a_file_not_read_is_known()
+    {
+        using var t = new TempInstall();
+        // Account A captured; account B never did (nil, what the client writes) but hides a
+        // character; account C's store is from a version this app does not know.
+        t.WriteStore("A#1", TestData.SavedVariables([TestData.Record("Aaa", "Player-1-AAAA", 1, new DateTime(2026, 9, 29))]));
+        t.WriteStore("B#1", "AltStableConfig = {\n[\"hiddenCharacters\"] = {\n[\"Player-1-AAAA\"] = true,\n},\n}\nAltStablePortraits = nil\n");
+        t.WriteStore("C#1", "AltStableDB = {\n[\"Player-1-CCCC\"] = {\n[\"name\"] = \"Ccc\",\n[\"level\"] = 50,\n},\n}\nAltStablePortraits = {\n[\"version\"] = 99,\n}\n");
+        var snap = SavedVariablesReader.Snapshot(t.Install.AccountsDir);
+        Assert.Equal(2, snap.Stores.Count);                   // B is nil: not a store
+        Assert.Equal(3, snap.Rosters.Count);                  // but every account has a roster
+        Assert.Contains("Player-1-AAAA", snap.Rosters.Single(r => r.Path.Contains("B#1")).Hidden);
+        Assert.Equal("Ccc", snap.Rosters.Single(r => r.Path.Contains("C#1")).Characters.Single().Name);
+        Assert.Empty(snap.Skipped);
+        // The old entry point is the same read.
+        Assert.Equal(2, SavedVariablesReader.ReadAll(t.Install.AccountsDir).Count);
+
+        // A file that cannot be read is named, and nobody is eligible from that snapshot.
+        var locked = Path.Combine(t.Install.AccountsDir, "A#1", "SavedVariables", "AltStable.lua");
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var partial = SavedVariablesReader.Snapshot(t.Install.AccountsDir);
+            Assert.Equal([locked], partial.Skipped);
+            Assert.Equal(2, partial.Rosters.Count);
+            var refused = Eligibility.Select(partial, 1, _ => "f");
+            Assert.Empty(refused.Candidates);
+            Assert.Contains("not permission", refused.Refused);
+        }
     }
 
     [Fact]
@@ -162,12 +199,12 @@ public class EligibilityTests
     {
         var a = Store("a", [Char("g1", "Aaa", 12), Char("g2", "Bbb", 9), Char("g3", "Ccc", 30), Char("g4", "Ddd", 40), Char("g6", "Fff", 10)], "g3");
         var b = Store("b", [Char("g3", "Ccc", 31)], "g5");
-        IReadOnlyList<EnhanceCandidate> picked = Eligibility.Select([a, b], 10, guid => guid == "g4" ? null : guid.ToLowerInvariant() + "-file");
+        IReadOnlyList<EnhanceCandidate> picked = Eligibility.Select(Snap(a, b), 10, guid => guid == "g4" ? null : guid.ToLowerInvariant() + "-file").Candidates;
         // g2 is level 9; g3 is hidden in account a although visible in b; g4 has no portrait of
         // its own; g6 is exactly the minimum, which is enough.
         Assert.Equal(["g1", "g6"], picked.Select(p => p.Guid));
         Assert.Equal("g1-file", picked[0].FileBase);
-        Assert.Equal(["g1", "g2", "g6"], Eligibility.Select([a, b], 1, guid => guid == "g4" ? null : guid + "-f").Select(p => p.Guid));
+        Assert.Equal(["g1", "g2", "g6"], Eligibility.Select(Snap(a, b), 1, guid => guid == "g4" ? null : guid + "-f").Candidates.Select(p => p.Guid));
     }
 
     [Fact]
@@ -176,11 +213,16 @@ public class EligibilityTests
         // The highest level seen; the rest from the most recently updated record.
         var a = Store("a", [Char("g1", "Old Name", 20, updated: 100, race: "Troll")]);
         var b = Store("b", [Char("g1", "New Name", 15, updated: 200, race: "Orc")]);
-        var one = Assert.Single(Eligibility.Select([a, b], 10, _ => "f"));
+        var one = Assert.Single(Eligibility.Select(Snap(a, b), 10, _ => "f").Candidates);
         Assert.Equal(("New Name", "Orc", 20), (one.Character.Name, one.Character.Race, one.Character.Level));
         // The other order gives the same answer.
-        var same = Assert.Single(Eligibility.Select([b, a], 10, _ => "f"));
+        var same = Assert.Single(Eligibility.Select(Snap(b, a), 10, _ => "f").Candidates);
         Assert.Equal(one, same);
+        // The same moment (both 0 when lastUpdate is missing): the file that sorts first, whichever came first.
+        var x = Store("x", [Char("g1", "From X", 20, updated: 0, race: "Troll")]);
+        var y = Store("y", [Char("g1", "From Y", 20, updated: 0, race: "Orc")]);
+        Assert.Equal("From X", Assert.Single(Eligibility.Select(Snap(x, y), 10, _ => "f").Candidates).Character.Name);
+        Assert.Equal("From X", Assert.Single(Eligibility.Select(Snap(y, x), 10, _ => "f").Candidates).Character.Name);
     }
 }
 
@@ -219,6 +261,20 @@ public class EnhancementPromptTests
         var noRace = EnhancementPrompt.Build(Troll with { Race = null, Gender = null, Class = null }, EnhanceStyles.WowLike);
         Assert.Contains("cutout of a character from", noRace);
         Assert.DoesNotContain("anatomy", noRace);
+        // The token is spelled as a reader would say it, and the client's display name wins.
+        var elf = EnhancementPrompt.Build(Troll with { Race = "NightElf", RaceName = null }, EnhanceStyles.WowLike);
+        Assert.Contains("a Female Night Elf Warlock", elf);
+        Assert.Contains("Night Elf anatomy", elf);
+        Assert.DoesNotContain("NightElf", elf);
+        var undead = EnhancementPrompt.Build(Troll with { Race = "Scourge", RaceName = "Undead" }, EnhanceStyles.WowLike);
+        Assert.Contains("a Female Undead Warlock", undead);
+        Assert.Contains("Undead anatomy", undead);
+        Assert.DoesNotContain("Scourge", undead);
+        // Forever's own race: the model has never seen one, so the picture is the whole truth.
+        var sky = EnhancementPrompt.Build(Troll with { Race = "Skyborne", RaceName = "Windshaper Skyborne" }, EnhanceStyles.WowLike);
+        Assert.Contains("a Female Windshaper Skyborne Warlock", sky);
+        Assert.Contains("may be a race you do not know", sky);
+        Assert.DoesNotContain("anatomy, which", sky);
         Assert.Contains("Death Knight", EnhancementPrompt.Build(Troll with { Class = "DEATHKNIGHT" }, EnhanceStyles.WowLike));
     }
 
@@ -303,6 +359,30 @@ public class AttemptHistoryTests
     private static readonly DateTime T0 = new(2026, 9, 30, 1, 0, 0);
 
     [Fact]
+    public void The_enhancement_block_survives_the_sidecar()
+    {
+        using var t = new TempInstall();
+        var f = new CutoutFolder(Path.Combine(t.Root, "addon"));
+        var meta = new CutoutMeta
+        {
+            W = 4, H = 4, TexW = 4, TexH = 4, Guid = "Player-1-AAAA", Epoch = 7,
+            Enhancement = new EnhancementMeta
+            {
+                SourceHash = "abc", OutputHash = "def", Style = "wow-like", Model = "gpt-6-astra", Effort = "low",
+                Prompt = 1, Signature = "sig", Generated = new DateTime(2026, 9, 30, 1, 2, 3, DateTimeKind.Utc),
+            },
+        };
+        f.WriteCutout("aaa", TestData.Solid(4, 4, 1, 1, 1), meta);
+        var back = f.ReadMeta("aaa")!;
+        Assert.Equal(meta.Enhancement, back.Enhancement);
+        Assert.Equal(7, back.Epoch);
+        // A plain cutout has no block, and writes none.
+        f.WriteCutout("bbb", TestData.Solid(4, 4, 1, 1, 1), meta with { Enhancement = null });
+        Assert.Null(f.ReadMeta("bbb")!.Enhancement);
+        Assert.DoesNotContain("enhancement", File.ReadAllText(Path.Combine(f.CutoutsDir, "bbb.json")));
+    }
+
+    [Fact]
     public void An_attempt_is_written_before_the_launch_and_a_signature_is_never_launched_twice()
     {
         using var t = new TempInstall();
@@ -344,6 +424,9 @@ public class AttemptHistoryTests
         File.WriteAllText(blocked, "");
         var h = AttemptHistory.Load(blocked, "Player-1-DDDD");
         Assert.Throws<AttemptHistoryException>(() => h.Begin(new Attempt { Signature = "s", Started = T0 }));
+        // Not written is not attempted: nothing lingers in memory to refuse the next try.
+        Assert.False(h.Has("s"));
+        Assert.Empty(h.Attempts);
         Assert.Throws<ArgumentException>(() => AttemptHistory.Load(dir, "not a guid!"));
     }
 }

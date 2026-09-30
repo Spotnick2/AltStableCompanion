@@ -44,7 +44,7 @@ public static class PngCodec
         {
             if (pos + 12 > png.Length) throw new PngFormatException("the file ends inside a chunk header");
             var length = BinaryPrimitives.ReadUInt32BigEndian(png[pos..]);
-            if (length > int.MaxValue - 12 || pos + 12 + (int)length > png.Length) throw new PngFormatException("a chunk runs past the end of the file");
+            if ((long)pos + 12 + length > png.Length) throw new PngFormatException("a chunk runs past the end of the file");
             var type = png.Slice(pos + 4, 4);
             var data = png.Slice(pos + 8, (int)length);
             var crc = BinaryPrimitives.ReadUInt32BigEndian(png[(pos + 8 + (int)length)..]);

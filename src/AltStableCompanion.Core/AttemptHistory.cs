@@ -93,7 +93,16 @@ public sealed class AttemptHistory
         if (Has(attempt.Signature)) throw new AttemptHistoryException($"{attempt.Signature} was already attempted");
         var started = attempt with { Outcome = Attempt.Unknown, Ended = null };
         _attempts.Add(started);
-        Save();
+        try
+        {
+            Save();
+        }
+        catch (AttemptHistoryException)
+        {
+            // Not written is not attempted: the next try, when the folder is back, is the first.
+            _attempts.RemoveAt(_attempts.Count - 1);
+            throw;
+        }
         return started;
     }
 

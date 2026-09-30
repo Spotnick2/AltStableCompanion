@@ -21,19 +21,26 @@ public sealed record RenderRecord(
 /// the addon's <c>lastUpdate</c>, seconds since the epoch, for choosing between two accounts'
 /// records of the same character.
 /// </summary>
-public sealed record RosterCharacter(string Guid, string Name, string? Class, string? Race, string? Gender, int Level, long Updated);
+public sealed record RosterCharacter(string Guid, string Name, string? Class, string? Race, string? Gender, int Level, long Updated,
+    string? RaceName = null);
+
+/// <summary>One account's capture store. <see cref="Refused"/> is set for a version this app does not know.</summary>
+public sealed record PortraitStore(string Path, int Version, IReadOnlyList<RenderRecord> Renders, string? Refused = null);
 
 /// <summary>
-/// One account's capture store, with the roster tables read from the same file at the same
-/// moment. <see cref="Refused"/> is set for a capture-record version this app does not know;
-/// the roster tables are never a reason to refuse - conversion does not depend on them.
+/// One account's roster tables, read from the same text as its capture store at the same
+/// moment - and read whatever the capture store said: an account that never captured still
+/// hides characters, and hidden anywhere is hidden.
 /// </summary>
-public sealed record PortraitStore(string Path, int Version, IReadOnlyList<RenderRecord> Renders, string? Refused = null,
-    IReadOnlyList<RosterCharacter>? Characters = null, IReadOnlySet<string>? Hidden = null)
-{
-    public IReadOnlyList<RosterCharacter> Roster => Characters ?? [];
-    public IReadOnlySet<string> HiddenCharacters => Hidden ?? new HashSet<string>();
-}
+public sealed record RosterStore(string Path, IReadOnlyList<RosterCharacter> Characters, IReadOnlySet<string> Hidden);
+
+/// <summary>
+/// Every account's file, read once each: the capture stores (an account with no captures has
+/// none), the roster tables (every account has some), and the files that could not be read
+/// this time - which anything that must not act on a partial view has to know.
+/// </summary>
+public sealed record SavedVariablesSnapshot(IReadOnlyList<PortraitStore> Stores, IReadOnlyList<RosterStore> Rosters,
+    IReadOnlyList<string> Skipped);
 
 public static class SavedVariablesReader
 {
@@ -101,12 +108,15 @@ public static class SavedVariablesReader
                     Str(e, "race"), Str(e, "class"), path));
             }
         }
-        return new PortraitStore(path, version, renders, null, ReadRoster(text), ReadHidden(text));
+        return new PortraitStore(path, version, renders);
     }
 
-    // AltStableDB[guid] = { name, class, race, gender, level, lastUpdate, ... }: what the
-    // roster knows. A record without a safe guid or a name is skipped; a missing level is 0,
-    // a missing lastUpdate is 0. Anything odd in these tables is not a reason to stop.
+    /// <summary>The roster tables of one file. Never throws for what is in them: a broken table is an empty one.</summary>
+    public static RosterStore ParseRoster(string text, string path) => new(path, ReadRoster(text), ReadHidden(text));
+
+    // AltStableDB[guid] = { name, class, race, raceName, gender, level, lastUpdate, ... }: what
+    // the roster knows. A record without a safe guid or a name is skipped; a missing level is
+    // 0, a missing lastUpdate is 0. Anything odd in these tables is not a reason to stop.
     private static IReadOnlyList<RosterCharacter> ReadRoster(string text)
     {
         var chars = new List<RosterCharacter>();
@@ -127,7 +137,8 @@ public static class SavedVariablesReader
             var name = Str(e, "name");
             if (string.IsNullOrWhiteSpace(name)) continue;
             chars.Add(new RosterCharacter(guid, name, Str(e, "class"), Str(e, "race"), Str(e, "gender"),
-                Num(e, "level") is double lv ? (int)lv : 0, Num(e, "lastUpdate") is double up ? (long)up : 0));
+                Num(e, "level") is double lv ? (int)lv : 0, Num(e, "lastUpdate") is double up ? (long)up : 0,
+                Str(e, "raceName")));
         }
         return chars;
     }
@@ -162,16 +173,29 @@ public static class SavedVariablesReader
         ReadAll(FindStores(accountsDir), log);
 
     /// <summary>The same, for files already found.</summary>
-    public static IReadOnlyList<PortraitStore> ReadAll(IEnumerable<string> paths, Action<string>? log = null)
+    public static IReadOnlyList<PortraitStore> ReadAll(IEnumerable<string> paths, Action<string>? log = null) =>
+        Snapshot(paths, log).Stores;
+
+    /// <summary>Every file once: its capture store, its roster tables, or its name among the skipped.</summary>
+    public static SavedVariablesSnapshot Snapshot(string accountsDir, Action<string>? log = null) =>
+        Snapshot(FindStores(accountsDir), log);
+
+    public static SavedVariablesSnapshot Snapshot(IEnumerable<string> paths, Action<string>? log = null)
     {
         var stores = new List<PortraitStore>();
+        var rosters = new List<RosterStore>();
+        var skipped = new List<string>();
         foreach (var path in paths)
         {
             for (var attempt = 1; ; attempt++)
             {
                 try
                 {
-                    var store = Parse(ReadShared(path), path);
+                    var text = ReadShared(path);
+                    // The roster first: it is never a reason to refuse, and an account whose
+                    // capture store is nil, or too new, still hides characters.
+                    rosters.Add(ParseRoster(text, path));
+                    var store = Parse(text, path);
                     if (store is not null) stores.Add(store);
                     break;
                 }
@@ -180,13 +204,14 @@ public static class SavedVariablesReader
                     if (attempt >= 5)
                     {
                         log?.Invoke($"skipped {path} this pass: {ex.Message}");
+                        skipped.Add(path);
                         break;
                     }
                     Thread.Sleep(300);
                 }
             }
         }
-        return stores;
+        return new SavedVariablesSnapshot(stores, rosters, skipped);
     }
 
     // WoW replaces the file (a .bak, then a rename) while we may be reading it; share
