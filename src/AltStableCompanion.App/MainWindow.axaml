@@ -10,7 +10,7 @@
         Background="{DynamicResource BodyBrush}"
         ExtendClientAreaToDecorationsHint="True"
         WindowDecorations="BorderOnly"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="Manual">
 
   <!-- Every colour is a resource with a name that says what it is FOR. The glass themes are a
        second set under the same names; nothing below has a colour of its own. -->

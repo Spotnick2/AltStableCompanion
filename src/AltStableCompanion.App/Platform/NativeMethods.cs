@@ -105,6 +105,41 @@ internal static class NativeMethods
         public int Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct APPBARDATA
+    {
+        public uint cbSize;
+        public nint hWnd;
+        public uint uCallbackMessage;
+        public uint uEdge;
+        public RECT rc;
+        public nint lParam;
+    }
+
+    public const uint ABM_GETTASKBARPOS = 5;
+    public const uint ABE_LEFT = 0;
+    public const uint ABE_TOP = 1;
+
+    // The resize border of a window, per side, at a DPI.
+    public const int SM_CXFRAME = 32;
+    public const int SM_CYFRAME = 33;
+    public const int SM_CXPADDEDBORDER = 92;
+
+    [DllImport("shell32.dll")]
+    public static extern nuint SHAppBarMessage(uint dwMessage, ref APPBARDATA pData);
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetricsForDpi(int nIndex, uint dpi);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern ushort RegisterClassExW(ref WNDCLASSEXW wc);
 

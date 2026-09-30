@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using AltStableCompanion.App.Platform;
 using AltStableCompanion.Core;
 using Avalonia;
 using Avalonia.Controls;
@@ -29,6 +30,7 @@ internal sealed partial class MainWindow : Window
     private const uint WS_MAXIMIZEBOX = 0x00010000;
 
     private readonly IPlatformSettings? _platform;
+    private bool _docked;
     private PlatformColorValues? _colors;
     private MainViewModel? _vm;
     private string _skin = Skins.Clear;
@@ -72,6 +74,8 @@ internal sealed partial class MainWindow : Window
             }
         };
         FollowState();
+        // Placed before it is shown, so it does not appear elsewhere and hop; confirmed once open.
+        DockByTray(shown: false);
     }
 
     /// <summary>Set when the app is going: the close is then a close.</summary>
@@ -81,6 +85,9 @@ internal sealed partial class MainWindow : Window
     {
         base.OnOpened(e);
         Wear();
+        // Now the frame is known: the first time, to correct the estimate; every time, when
+        // the window would come back somewhere no screen is any more.
+        if (!_docked || !OnAScreen()) DockByTray(shown: true);
     }
 
     protected override void OnClosed(EventArgs e)
@@ -156,6 +163,72 @@ internal sealed partial class MainWindow : Window
         Icon.Save(bytes);
         bytes.Position = 0;
         return new Avalonia.Media.Imaging.Bitmap(bytes);
+    }
+
+    // A tray app's window opens by the tray: the corner of the primary screen's working area
+    // that the taskbar is on - bottom-right, unless the taskbar is on the top or the left -
+    // and no taller than that area. Position is the frame's top-left, before and after the
+    // show alike (measured); before the show the frame's size is not known, so its borders
+    // come from the system metrics, and once shown, from the frame itself. After the first
+    // show the window keeps wherever the player put it: close-to-tray hides it, and Show
+    // brings it back there - unless there is no screen there any more.
+    private void DockByTray(bool shown)
+    {
+        if (Screens.Primary is not { } screen) return;
+        var area = screen.WorkingArea;
+        var scale = shown ? RenderScaling : screen.Scaling;
+        var dpi = (uint)Math.Round(96 * scale);
+        var margin = (int)Math.Round(12 * scale);
+
+        // The frame's excess over the client: two side borders across, one below (the client
+        // reaches the top).
+        double excessW, excessH;
+        if (shown && FrameSize is { } frame)
+        {
+            (excessW, excessH) = (frame.Width - ClientSize.Width, frame.Height - ClientSize.Height);
+        }
+        else
+        {
+            var padded = NativeMethods.GetSystemMetricsForDpi(NativeMethods.SM_CXPADDEDBORDER, dpi);
+            excessW = 2 * (NativeMethods.GetSystemMetricsForDpi(NativeMethods.SM_CXFRAME, dpi) + padded) / scale;
+            excessH = (NativeMethods.GetSystemMetricsForDpi(NativeMethods.SM_CYFRAME, dpi) + padded) / scale;
+        }
+
+        // No taller than the working area, margins included: a laptop at 150% has less than
+        // this window's default height, and a small one less than its minimum - which then
+        // gives way too, down to what still shows the headline. On screen beats complete.
+        var room = Math.Floor(area.Height / scale - 2 * margin / scale - excessH);
+        if (Height > room)
+        {
+            var fit = Math.Max(240, room);
+            MinHeight = Math.Min(MinHeight, fit);
+            Height = fit;
+        }
+
+        var w = (int)Math.Round((Width + excessW) * scale);
+        var h = (int)Math.Round((Height + excessH) * scale);
+        var (left, top) = TaskbarEdge();
+        var x = left ? area.X + margin : area.Right - w - margin;
+        var y = top ? area.Y + margin : area.Bottom - h - margin;
+        Position = new PixelPoint(Math.Max(area.X, x), Math.Max(area.Y, y));
+        _docked = shown;
+    }
+
+    // Which edge the taskbar is on: (left, top). Anything else, or no answer, is the
+    // bottom-right corner.
+    private static (bool Left, bool Top) TaskbarEdge()
+    {
+        var data = new NativeMethods.APPBARDATA { cbSize = (uint)Marshal.SizeOf<NativeMethods.APPBARDATA>() };
+        if (NativeMethods.SHAppBarMessage(NativeMethods.ABM_GETTASKBARPOS, ref data) == 0) return (false, false);
+        return (data.uEdge == NativeMethods.ABE_LEFT, data.uEdge == NativeMethods.ABE_TOP);
+    }
+
+    // Whether the window's top-left, a little way in, is on some screen: a monitor that was
+    // unplugged since the window was last seen leaves it nowhere.
+    private bool OnAScreen()
+    {
+        var probe = new PixelPoint(Position.X + 40, Position.Y + 20);
+        return Screens.All.Any(s => s.Bounds.Contains(probe));
     }
 
     // The maximise button says what it will do next.
