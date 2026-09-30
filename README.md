@@ -51,14 +51,37 @@ in the addon's repository.
 ## Shape
 
 .NET 10 and Avalonia; a single self-contained Windows executable; no network access
-at all. It only touches screenshots it matched to a capture, the `AltStableCutouts`
-folder and its own settings in `%APPDATA%\AltStableCompanion`. The file on the releases
+at all - except the enhanced portraits below, which you switch on. It only touches
+screenshots it matched to a capture, the `AltStableCutouts` folder and its own settings in
+`%APPDATA%\AltStableCompanion` (and, for enhanced portraits, Codex's own `generated_images`,
+read only). The file on the releases
 page is built by GitHub Actions from the tagged commit (`.github/workflows/release.yml`),
 with a `SHA256SUMS` beside it; nothing in the app fetches anything.
 
 One exception, which is .NET's and not the app's: a single-file executable unpacks the
 native libraries it carries (Skia, HarfBuzz, ANGLE) into `%TEMP%\.net\AltStableCompanion`
 the first time it starts.
+
+## Enhanced portraits (optional)
+
+Off unless you turn it on, in Settings. It is the one exception to "no network": with it
+on, the app asks the **Codex CLI on this PC** (`codex`, installed and signed in by you) for
+a better picture of each character of the chosen level or more that has a portrait and is
+not hidden - the existing ones too, all of them, when you turn it on. What leaves the PC:
+the portrait's cropped image and the character's race, gender and class, plus any
+instructions your Codex CLI is configured with, to the account Codex is signed in to.
+
+One automatic attempt for each new combination of capture, style and model; an attempt
+uses Codex usage whether or not a picture comes back, and a picture that was refused or
+failed is not tried again for that combination. Turning it off stops new attempts and
+cancels the one running; pictures already made stay in `AltStableCutouts\Cutouts\Enhanced\`
+and the addon keeps drawing them (it needs an AltStable Roster that knows enhanced
+textures; the Settings page says so when yours does not). Codex writes its own copy of
+every picture under its `generated_images` folder; the app reads it and never cleans it.
+
+To take an enhanced picture back, delete `Cutouts\Enhanced\<name>.tga`: the plain portrait
+is drawn again, and that picture is not made again until you capture again or change the
+style.
 
 ## Command line
 

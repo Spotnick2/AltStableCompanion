@@ -11,8 +11,11 @@ namespace AltStableCompanion.Core;
 /// <param name="Waiting">Screenshots newer than any record: a capture may be waiting for a Reload.</param>
 /// <param name="Failed">The pass itself threw.</param>
 public sealed record PassNote(DateTime At, IReadOnlyList<string> Written, int Unconverted = 0,
-    bool Waiting = false, bool Failed = false)
+    bool Waiting = false, bool Failed = false, IReadOnlyList<string>? Enhanced = null)
 {
+    /// <summary>Whose enhanced picture this note is about, when it is: written by the enhancer, not a pass.</summary>
+    public IReadOnlyList<string> EnhancedNames => Enhanced ?? [];
+
     public static PassNote Of(PassReport? report, DateTime at) => report is null
         ? new PassNote(at, [], Failed: true)
         : new PassNote(at, report.Written,
@@ -36,6 +39,8 @@ public sealed record ShellState(
     PassNote? LastWritten = null,
     /// <summary>The player has read that portraits were written ("Got it").</summary>
     bool UpdateSeen = false,
+    /// <summary>"Kaleid Sumner (2 of 5)" while a picture is being made; null otherwise.</summary>
+    string? Enhancing = null,
     /// <summary>
     /// The very first start: nothing is converted until the player has read what happens to
     /// their screenshots and said "Start watching".
@@ -75,6 +80,28 @@ public static class PassText
         "AltStable Companion turns the captures you take in game into portraits, by itself. "
         + "Once a portrait is written, the two screenshots it was made from are deleted. "
         + "No other screenshot is ever touched.";
+
+    /// <summary>
+    /// The words beside the enhancement setting: what it does, what leaves the PC, when it
+    /// spends, what off does. Every clause is something the code does; nothing is promised
+    /// beyond one attempt per combination.
+    /// </summary>
+    public static string EnhanceExplanation(int minLevel, string? codexStatus)
+    {
+        var signedIn = codexStatus is null || codexStatus == "installed" ? "the account the Codex CLI on this PC is signed in to"
+            : $"the account the Codex CLI on this PC is signed in to ({codexStatus.Replace("Logged in using ", "")})";
+        return $"When on, the Codex CLI on this PC is asked for a new picture of each character of level {minLevel} or more that has a portrait "
+            + "and is not hidden - the existing ones too, all of them, when you turn this on. What is sent: the portrait's cropped image and "
+            + $"the character's race, gender and class, plus any instructions your Codex CLI is configured with, to {signedIn}. "
+            + "One automatic attempt for each new combination of capture, style and model; an attempt uses Codex usage whether or not a "
+            + "picture comes back, and a picture that was refused or failed is not tried again for that combination. Turning this off "
+            + "stops new attempts and cancels the one running; pictures already made stay, and the addon keeps showing them.";
+    }
+
+    /// <summary>Why the box is disabled, or null when it can be used.</summary>
+    public static string? EnhanceUnavailable(bool codexFound, bool rosterCapable) =>
+        !codexFound ? "The Codex CLI was not found on this PC." :
+        !rosterCapable ? "The installed AltStable Roster cannot draw enhanced pictures yet: update the addon." : null;
 
     /// <summary>On a row whose picture could not be read this time. The portrait itself is not in question.</summary>
     public const string PreviewUnavailable = "preview unavailable: the file could not be read just now";
@@ -152,6 +179,14 @@ public static class PassText
         if (report.Refused > 0)
         {
             return new("This app is too old for your AltStable", "Update AltStable Companion.", HeadlineKind.Problem);
+        }
+        if (s.LastWritten is { } made && !s.UpdateSeen && made.EnhancedNames.Count > 0)
+        {
+            return new(made.EnhancedNames.Count == 1 ? $"Portrait enhanced: {Names(made.EnhancedNames)}" : $"{Names(made.EnhancedNames)} enhanced",
+                restartNotice
+                    ? "Restart WoW once to see " + (made.EnhancedNames.Count == 1 ? "it" : "them") + ": see below."
+                    : "If WoW is open, /reload to load " + (made.EnhancedNames.Count == 1 ? "it." : "them."),
+                HeadlineKind.Info, Dismissable: true);
         }
         if (s.LastWritten is { Written.Count: > 0 } wrote && !s.UpdateSeen)
         {
@@ -271,6 +306,7 @@ public static class PassText
         {
             parts.Add("nearly square: something else may be in it - capture again");
         }
+        if (row.EnhanceNote is { } note) parts.Add(note);
         if (row.ShowGuid && row.Guid is not null) parts.Add(row.Guid);
         return string.Join(" · ", parts.Where(p => p.Length > 0));
     }
@@ -291,6 +327,7 @@ public static class PassText
     /// </summary>
     public static string? Activity(ShellState s, DateTime today)
     {
+        if (s.Enhancing is { } who) return $"Enhancing {who}…" + (s.LastPass is null ? "" : " " + Activity(s with { Enhancing = null }, today));
         if (s.LastPass is not { } pass) return null;
         var attention = pass.Unconverted switch
         {
