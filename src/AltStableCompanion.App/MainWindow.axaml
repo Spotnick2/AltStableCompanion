@@ -140,16 +140,16 @@
   <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,14" RowSpacing="10">
 
     <Grid Grid.Row="0" Height="34" ColumnDefinitions="Auto,*,Auto,Auto,Auto"
-          chrome:WindowDecorationProperties.ElementRole="TitleBar" Background="Transparent">
-      <Image Grid.Column="0" Source="/Assets/tray.ico" Width="18" Height="18" Margin="12,0,8,0" VerticalAlignment="Center" />
-      <TextBlock Grid.Column="1" Text="AltStable Companion" VerticalAlignment="Center" FontSize="13" />
+          chrome:WindowDecorationProperties.ElementRole="TitleBar" Background="{DynamicResource PaneBrush}">
+      <Image x:Name="StripIcon" Grid.Column="0" Width="18" Height="18" Margin="12,0,8,0" VerticalAlignment="Center" />
+      <TextBlock x:Name="StripTitle" Grid.Column="1" VerticalAlignment="Center" FontSize="13" />
       <Button Grid.Column="2" Classes="caption" Click="OnMinimize" ToolTip.Tip="Minimise"
               chrome:WindowDecorationProperties.ElementRole="MinimizeButton">
         <Path Data="M0,0 L10,0" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" />
       </Button>
-      <Button Grid.Column="3" Classes="caption" Click="OnMaximize" ToolTip.Tip="Maximise"
+      <Button x:Name="MaximizeButton" Grid.Column="3" Classes="caption" Click="OnMaximize"
               chrome:WindowDecorationProperties.ElementRole="MaximizeButton">
-        <Path Data="M0.5,0.5 L9.5,0.5 L9.5,9.5 L0.5,9.5 Z" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" />
+        <Path x:Name="MaximizeGlyphPath" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" />
       </Button>
       <Button Grid.Column="4" Classes="caption close" Click="OnClose" ToolTip.Tip="Close (the app stays in the tray)"
               chrome:WindowDecorationProperties.ElementRole="CloseButton">
@@ -170,7 +170,7 @@
             <Ellipse Classes="dot" Fill="{DynamicResource ProblemBrush}" IsVisible="{Binding AddonMissing}" />
             <TextBlock Text="{Binding Addon}" />
           </StackPanel>
-          <TextBlock Classes="dim" Text="{Binding Accounts}" Margin="16,0,0,0" />
+          <TextBlock Classes="dim" Text="{Binding Accounts}" Margin="16,0,0,0" IsVisible="{Binding HasAccounts}" />
         </StackPanel>
         <Button Grid.Column="3" Classes="link" Content="Settings" Command="{Binding ToggleSettings}" VerticalAlignment="Center" />
       </Grid>

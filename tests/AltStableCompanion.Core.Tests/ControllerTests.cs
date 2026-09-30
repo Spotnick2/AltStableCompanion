@@ -487,11 +487,17 @@ public class ControllerTests
         new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
         using (var c = Started(t))
         {
+            // The window only hears about it through Changed.
+            var changes = 0;
+            c.Changed += () => changes++;
             Assert.Equal(Skins.Clear, c.Current.Skin);
             c.SetSkin("smoked");
             Assert.Equal(Skins.Smoked, c.Current.Skin);
+            Assert.Equal(1, changes);
             c.SetSkin("no such skin");
             Assert.Equal(Skins.Clear, c.Current.Skin);
+            c.SetSkin(Skins.Clear);
+            Assert.Equal(2, changes);
             c.SetSkin(Skins.Flat);
         }
         using (var c = Started(t))

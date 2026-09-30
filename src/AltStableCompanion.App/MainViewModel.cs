@@ -84,7 +84,15 @@ internal sealed class MainViewModel : ObservableObject
     // ---- the top line
     public string Game { get => _game; private set => Set(ref _game, value); }
     public string Addon { get => _addon; private set => Set(ref _addon, value); }
-    public string? Accounts { get => _accounts; private set => Set(ref _accounts, value); }
+    // An empty line still takes a line: before the first pass there is no account count, and
+    // the addon line would sit above the middle.
+    public string? Accounts
+    {
+        get => _accounts;
+        private set { if (Set(ref _accounts, value)) Raise(nameof(HasAccounts)); }
+    }
+
+    public bool HasAccounts => _accounts is not null;
 
     public bool AddonDetected
     {

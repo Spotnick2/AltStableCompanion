@@ -30,7 +30,8 @@ internal sealed record SkinPalette(bool Glass, Color Body, Color Pane, Color Dat
     public static readonly SkinPalette Smoked = new(true,
         Color.Parse("#B80D0F14"), Color.Parse("#D908080A"), Color.Parse("#FF0A0A0D"), Color.Parse("#33FFFFFF"));
 
-    public static SkinPalette Of(string skin) => Skins.Normalize(skin) switch
+    // One of Skins.All, or Clear: the boundaries that take a string from outside normalise it.
+    public static SkinPalette Of(string skin) => skin switch
     {
         Skins.Smoked => Smoked,
         Skins.Flat => Flat,
