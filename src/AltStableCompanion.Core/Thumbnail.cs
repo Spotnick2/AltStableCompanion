@@ -10,9 +10,17 @@ public sealed class ThumbnailException(string message) : Exception(message);
 public static class Thumbnail
 {
     /// <summary>
-    /// The top-left <paramref name="w"/> × <paramref name="h"/> of the canvas, at most
-    /// <paramref name="height"/> tall (a shorter crop is not scaled up). A crop the canvas
-    /// cannot hold is a manifest that lies, and is refused rather than read across rows.
+    /// Height over width of the picture: the slot it is drawn in. A standing character is two
+    /// and a half times taller than wide; the picture is the top of them - head and shoulders,
+    /// as a portrait is - not the whole figure as a sliver.
+    /// </summary>
+    public const double Aspect = 1.2;
+
+    /// <summary>
+    /// The top of the manifest's <paramref name="w"/> × <paramref name="h"/> crop of the
+    /// canvas, <see cref="Aspect"/> times as tall as wide (the whole crop when it is shorter),
+    /// at most <paramref name="height"/> tall (a shorter crop is not scaled up). A crop the
+    /// canvas cannot hold is a manifest that lies, and is refused rather than read across rows.
     /// </summary>
     public static RgbaImage Make(RgbaImage canvas, int w, int h, int height)
     {
@@ -21,49 +29,8 @@ public static class Thumbnail
         {
             throw new ThumbnailException($"a {w}x{h} crop of a {canvas.Width}x{canvas.Height} canvas");
         }
-        var crop = canvas.Crop(0, 0, w, h);
-        // The resampler works in doubles over the whole source. A crop far taller than the
-        // thumbnail is first shrunk by whole blocks, cheaply, to no less than twice the target:
-        // the resampler then has little to do, and nothing to show for the difference at 48 px.
-        var k = h / (2 * height);
-        if (k >= 2) crop = BoxShrink(crop, k);
+        var crop = canvas.Crop(0, 0, w, Math.Min(h, (int)Math.Round(w * Aspect)));
         return Resampler.DownscaleToHeight(crop, height);
-    }
-
-    /// <summary>
-    /// Every <paramref name="k"/> × <paramref name="k"/> block averaged into one pixel, colours
-    /// weighted by alpha so transparent padding does not darken an edge. Rows and columns that
-    /// do not fill a block are dropped.
-    /// </summary>
-    public static RgbaImage BoxShrink(RgbaImage src, int k)
-    {
-        if (k < 1) throw new ArgumentOutOfRangeException(nameof(k));
-        var dst = new RgbaImage(Math.Max(1, src.Width / k), Math.Max(1, src.Height / k));
-        for (var y = 0; y < dst.Height; y++)
-        {
-            for (var x = 0; x < dst.Width; x++)
-            {
-                long r = 0, g = 0, b = 0, a = 0;
-                for (var yy = 0; yy < k; yy++)
-                {
-                    var sy = Math.Min(y * k + yy, src.Height - 1);
-                    for (var xx = 0; xx < k; xx++)
-                    {
-                        var i = src.Offset(Math.Min(x * k + xx, src.Width - 1), sy);
-                        var alpha = src.Pixels[i + 3];
-                        r += src.Pixels[i] * alpha;
-                        g += src.Pixels[i + 1] * alpha;
-                        b += src.Pixels[i + 2] * alpha;
-                        a += alpha;
-                    }
-                }
-                var n = k * k;
-                dst[x, y] = a == 0
-                    ? ((byte)0, (byte)0, (byte)0, (byte)0)
-                    : ((byte)((r + a / 2) / a), (byte)((g + a / 2) / a), (byte)((b + a / 2) / a), (byte)((a + n / 2) / n));
-            }
-        }
-        return dst;
     }
 }
 
