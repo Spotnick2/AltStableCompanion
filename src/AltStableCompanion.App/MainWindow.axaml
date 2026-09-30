@@ -129,7 +129,7 @@
     </Style>
     <!-- The slot a thumbnail sits in: fixed, so a row without one keeps its shape -->
     <Style Selector="Border.thumb">
-      <Setter Property="Width" Value="32" />
+      <Setter Property="Width" Value="40" />
       <Setter Property="Height" Value="48" />
       <Setter Property="Background" Value="{DynamicResource PaneBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource RimBrush}" />

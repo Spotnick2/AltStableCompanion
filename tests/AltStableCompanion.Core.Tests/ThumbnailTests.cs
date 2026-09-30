@@ -17,16 +17,20 @@ public class ThumbnailTests
     }
 
     [Fact]
-    public void The_thumbnail_is_the_top_left_crop_the_manifest_names_scaled_down_and_never_up()
+    public void The_thumbnail_is_the_top_of_the_crop_the_manifest_names_scaled_down_and_never_up()
     {
         var canvas = Canvas(16, 32);
+        // Head and shoulders: the top of the crop, 1.2 times as tall as wide - 6 x 7 of 6 x 10.
         var crop = Thumbnail.Make(canvas, 6, 10, 100);
-        Assert.Equal((6, 10), (crop.Width, crop.Height));
-        Assert.Equal(((byte)5, (byte)9, (byte)0, (byte)255), crop[5, 9]);
+        Assert.Equal((6, 7), (crop.Width, crop.Height));
+        Assert.Equal(((byte)5, (byte)6, (byte)0, (byte)255), crop[5, 6]);
         Assert.Equal(((byte)0, (byte)0, (byte)0, (byte)255), crop[0, 0]);
+        // A crop shorter than that is taken whole.
+        var squat = Thumbnail.Make(canvas, 10, 6, 100);
+        Assert.Equal((10, 6), (squat.Width, squat.Height));
 
         var small = Thumbnail.Make(canvas, 8, 32, 8);
-        Assert.Equal((2, 8), (small.Width, small.Height));
+        Assert.Equal((6, 8), (small.Width, small.Height));
 
         // A manifest that lies is refused, not read across rows - and it is the manifest's
         // fault, not a bug's: its own exception, so a bug is never taken for it.
@@ -55,15 +59,15 @@ public class ThumbnailTests
         var two = Thumbnail.BoxShrink(new RgbaImage(5, 5), 2);
         Assert.Equal((2, 2), (two.Width, two.Height));
 
-        // Make shrinks a crop taller than four times the thumbnail by blocks first; the
+        // Make shrinks a picture taller than four times the thumbnail by blocks first; the
         // result is the same size either way, and a solid colour stays that colour.
-        var tall = new RgbaImage(12, 96);
-        for (var y = 0; y < 96; y++)
-            for (var x = 0; x < 12; x++)
-                tall[x, y] = (10, 20, 30, 255);
-        var thumb = Thumbnail.Make(tall, 12, 96, 8);
-        Assert.Equal((1, 8), (thumb.Width, thumb.Height));
-        Assert.Equal(((byte)10, (byte)20, (byte)30, (byte)255), thumb[0, 4]);
+        var big = new RgbaImage(40, 48);
+        for (var y = 0; y < 48; y++)
+            for (var x = 0; x < 40; x++)
+                big[x, y] = (10, 20, 30, 255);
+        var thumb = Thumbnail.Make(big, 40, 48, 8);
+        Assert.Equal((6, 8), (thumb.Width, thumb.Height));
+        Assert.Equal(((byte)10, (byte)20, (byte)30, (byte)255), thumb[3, 4]);
     }
 
     private static PortraitRow Row(string file, DateTime modified, int w = 4, int h = 8) =>
@@ -89,7 +93,7 @@ public class ThumbnailTests
         var first = m.Cache.Get(dir, Row("aaa.tga", T0), out var failed);
         Assert.NotNull(first);
         Assert.False(failed);
-        Assert.Equal((4, 8), (first.Width, first.Height));
+        Assert.Equal((4, 5), (first.Width, first.Height));
         Assert.Same(first, m.Cache.Get(dir, Row("aaa.tga", T0), out _));
         m.Cache.Sweep();
         Assert.Empty(m.Released);

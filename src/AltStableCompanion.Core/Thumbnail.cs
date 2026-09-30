@@ -10,9 +10,17 @@ public sealed class ThumbnailException(string message) : Exception(message);
 public static class Thumbnail
 {
     /// <summary>
-    /// The top-left <paramref name="w"/> × <paramref name="h"/> of the canvas, at most
-    /// <paramref name="height"/> tall (a shorter crop is not scaled up). A crop the canvas
-    /// cannot hold is a manifest that lies, and is refused rather than read across rows.
+    /// Height over width of the picture: the slot it is drawn in. A standing character is two
+    /// and a half times taller than wide; the picture is the top of them - head and shoulders,
+    /// as a portrait is - not the whole figure as a sliver.
+    /// </summary>
+    public const double Aspect = 1.2;
+
+    /// <summary>
+    /// The top of the manifest's <paramref name="w"/> × <paramref name="h"/> crop of the
+    /// canvas, <see cref="Aspect"/> times as tall as wide (the whole crop when it is shorter),
+    /// at most <paramref name="height"/> tall (a shorter crop is not scaled up). A crop the
+    /// canvas cannot hold is a manifest that lies, and is refused rather than read across rows.
     /// </summary>
     public static RgbaImage Make(RgbaImage canvas, int w, int h, int height)
     {
@@ -21,11 +29,11 @@ public static class Thumbnail
         {
             throw new ThumbnailException($"a {w}x{h} crop of a {canvas.Width}x{canvas.Height} canvas");
         }
-        var crop = canvas.Crop(0, 0, w, h);
+        var crop = canvas.Crop(0, 0, w, Math.Min(h, Math.Max(1, (int)Math.Round(w * Aspect))));
         // The resampler works in doubles over the whole source. A crop far taller than the
         // thumbnail is first shrunk by whole blocks, cheaply, to no less than twice the target:
         // the resampler then has little to do, and nothing to show for the difference at 48 px.
-        var k = h / (2 * height);
+        var k = crop.Height / (2 * height);
         if (k >= 2) crop = BoxShrink(crop, k);
         return Resampler.DownscaleToHeight(crop, height);
     }
