@@ -6,14 +6,16 @@ the memories of the AltStable addon's sessions, so the rules that matter are rep
 
 ## Where things stand
 
-- The app is AltStable#89's endgame. The approved plan (milestones M1 core, M2 Avalonia tray
-  shell, M3 release workflow) is `C:\Users\nicol\.claude\plans\bubbly-singing-pine.md` — read
-  its "companion app" and "Adversarial review" sections before starting a milestone.
-- M1 (core + tests) is PR #1. M2 is next: Avalonia shell, own `Win32TrayIcon` via P/Invoke
-  (a HIDDEN TOP-LEVEL window, not message-only — message-only windows never receive
-  `WM_TASKBARCREATED`), one status window, single instance. No Run key, no `ITrayHost` yet.
-- Open issues worth knowing: #2 (troubleshooting logs / diagnostics zip — leave room for its
-  button in M2's window). In the addon repo: #121 (Codex-enhanced portraits), #124 (auto-capture).
+- The app is AltStable#89's endgame. Its milestones - M1 core, M2 Avalonia tray shell, M3
+  release workflow - are all on `main`. What is left is the backlog: #2 (diagnostics zip),
+  #15 (version and About on the Help page), #16 (update checks, after releases exist), #17
+  (optional Codex-enhanced portraits; a plan first, through Codex). In the addon repo: #124
+  (auto-capture), #131 (a sidecar-less cutout's crop origin).
+- The window: own `Win32TrayIcon` via P/Invoke (a HIDDEN TOP-LEVEL window, not message-only -
+  message-only windows never receive `WM_TASKBARCREATED`), one window with Settings and Help
+  as pages, single instance. No Run key.
+- Releasing: a tag `v<version>` at a commit whose `Directory.Build.props` and `CHANGELOG.md`
+  agree; `Tools/Release.ps1` is what the workflow runs and can be rehearsed locally.
 
 ## Working rules (the owner's, stated explicitly)
 

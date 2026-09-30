@@ -35,6 +35,9 @@ dotnet build -warnaserror
 dotnet test
 ```
 
+CI (`.github/workflows/ci.yml`) runs exactly these two on every push and PR; a release
+(`release.yml`, on a `v*` tag) runs them again, then `Tools/Release.ps1`.
+
 Warnings are errors (`Directory.Build.props`). Tests generate their own images and
 SavedVariables files in temp folders — there are no binary fixtures, and none should be
 added.
