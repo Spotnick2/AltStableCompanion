@@ -158,6 +158,7 @@ internal sealed partial class App : Application
         if (_window is not null) _window.Quitting = true;
         _tray?.Dispose();
         _tray = null;
+        _viewModel?.Dispose();
         _controller?.Dispose();
         Instance?.Dispose();
     }

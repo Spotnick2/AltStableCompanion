@@ -127,6 +127,17 @@
     <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="#E0C42B1C" />
     </Style>
+    <!-- The slot a thumbnail sits in: fixed, so a row without one keeps its shape -->
+    <Style Selector="Border.thumb">
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="48" />
+      <Setter Property="Background" Value="{DynamicResource PaneBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource RimBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
     <Style Selector="ToolTip">
       <Setter Property="MaxWidth" Value="380" />
     </Style>
@@ -291,17 +302,21 @@
           <ItemsControl ItemsSource="{Binding Portraits}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="app:PortraitLine">
-                <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,9"
+                <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,7"
                         ToolTip.Tip="{Binding Tooltip}">
-                  <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold"
-                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                  <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
+                    <!-- The portrait, as the game draws it; the slot stays when there is none -->
+                    <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Classes="thumb">
+                      <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
+                    </Border>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold"
+                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                       <Ellipse Classes="dot" Fill="{DynamicResource GoodBrush}" IsVisible="{Binding Ready}" />
                       <Ellipse Classes="dot" Fill="{DynamicResource AttentionBrush}" IsVisible="{Binding !Ready}" />
                       <TextBlock Text="{Binding State}" />
                     </StackPanel>
-                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Summary}" IsVisible="{Binding HasSummary}"
+                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Summary}" IsVisible="{Binding HasSummary}"
                                Classes.dim="{Binding Quiet}" Classes.warn="{Binding Attention}" />
                   </Grid>
                 </Border>

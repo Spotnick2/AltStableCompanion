@@ -40,7 +40,8 @@ public enum CaptureOutcome
 /// <summary>
 /// One line of the window's list. The PORTRAIT and the LATEST CAPTURE are two facts with two
 /// times, and neither stands in for the other: an older portrait can be ready while the newest
-/// capture was rejected.
+/// capture was rejected. <paramref name="Size"/> is the manifest's crop of the file, what the
+/// game draws and what a thumbnail shows; null without a file.
 /// </summary>
 public sealed record PortraitRow(
     string Name,
@@ -52,7 +53,8 @@ public sealed record PortraitRow(
     CaptureOutcome Outcome,
     string? Note,
     bool NearlySquare = false,
-    bool ShowGuid = false)
+    bool ShowGuid = false,
+    (int W, int H)? Size = null)
 {
     /// <summary>In the manifest on disk. What the game makes of it, the app cannot see.</summary>
     public bool Ready => Source != PortraitSource.None;
@@ -101,14 +103,15 @@ public static class Collection
                 c.Name, c.Guid, entry?.FileName, source,
                 entry is null ? null : Modified(fileTimes, entry),
                 c.LastCaptured, OutcomeOf(c), c.Note,
-                NearlySquare: c.NearlySquare));
+                NearlySquare: c.NearlySquare,
+                Size: entry is null ? null : (entry.W, entry.H)));
         }
 
         foreach (var e in entries.Where(e => !claimed.Contains(e)))
         {
             rows.Add(new PortraitRow(
                 Label(Path.GetFileNameWithoutExtension(e.FileName)), e.Guid, e.FileName, PortraitSource.File,
-                Modified(fileTimes, e), null, CaptureOutcome.None, null));
+                Modified(fileTimes, e), null, CaptureOutcome.None, null, Size: (e.W, e.H)));
         }
 
         // Namesakes are told apart by the one thing that is theirs alone.

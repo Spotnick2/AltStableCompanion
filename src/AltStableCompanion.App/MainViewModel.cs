@@ -1,22 +1,32 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using AltStableCompanion.Core;
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 
 namespace AltStableCompanion.App;
 
 /// <summary>One line of the list, as text. What it says is decided in Core (PassText).</summary>
 /// <param name="Summary">The line under the name.</param>
-/// <param name="Tooltip">The full detail, when the line is not already it; null means no tooltip.</param>
-internal sealed record PortraitLine(string Name, string State, string Summary, string? Tooltip, bool Ready, bool Attention)
+/// <param name="Tooltip">The full detail, when the line is not already it, or when there is
+///   something to add to it; null means no tooltip.</param>
+/// <param name="Thumbnail">The portrait, small; null for a row without one, or one that could
+///   not be read this time. The same instance for the same file, so two lines compare equal.</param>
+internal sealed record PortraitLine(string Name, string State, string Summary, string? Tooltip, bool Ready, bool Attention,
+    IImage? Thumbnail)
 {
     public bool Quiet => !Attention;
     public bool HasSummary => Summary.Length > 0;
 
-    public static PortraitLine From(PortraitRow row, DateTime today)
+    public static PortraitLine From(PortraitRow row, DateTime today, IImage? thumbnail, bool previewFailed)
     {
         var detail = PassText.RowDetail(row, today);
         var summary = PassText.RowSummary(row, today);
-        return new(row.Name, PassText.RowState(row), summary ?? detail, summary is null ? null : detail,
-            row.Ready, row.NeedsAttention);
+        var tooltip = summary is null ? null : detail;
+        if (previewFailed) tooltip = (tooltip ?? detail) + " · " + PassText.PreviewUnavailable;
+        return new(row.Name, PassText.RowState(row), summary ?? detail, tooltip, row.Ready, row.NeedsAttention, thumbnail);
     }
 }
 
@@ -28,9 +38,13 @@ internal sealed record PortraitLine(string Name, string State, string Summary, s
 /// Nothing is decided here. Which headline, which next step, what a row says: that is Core's,
 /// where it is tested. This turns it into properties a window can bind to.
 /// </summary>
-internal sealed class MainViewModel : ObservableObject
+internal sealed class MainViewModel : ObservableObject, IDisposable
 {
+    /// <summary>Twice the 48 px a thumbnail is drawn at: crisp at 200% scaling.</summary>
+    private const int ThumbnailHeight = 96;
+
     private readonly Controller _controller;
+    private readonly ThumbnailCache<Bitmap> _thumbnails = new(ThumbnailHeight, ToBitmap, b => b.Dispose());
     private string _game = "";
     private string _addon = "";
     private string? _accounts;
@@ -293,8 +307,17 @@ internal sealed class MainViewModel : ObservableObject
         var rows = shell.Report?.Portraits ?? [];
         Count = PassText.Count(rows);
         Attention = PassText.Attention(rows);
-        var lines = rows.Select(r => PortraitLine.From(r, today)).ToList();
+        // The pictures are read here, on the UI thread: a few hundred KB each, once per file.
+        var cutouts = shell.Install is null ? null : new CutoutFolder(shell.Install.CutoutAddonDir).CutoutsDir;
+        var lines = rows.Select(r =>
+        {
+            var failed = false;
+            var thumbnail = cutouts is null ? null : _thumbnails.Get(cutouts, r, out failed);
+            return PortraitLine.From(r, today, thumbnail, failed);
+        }).ToList();
         if (!lines.SequenceEqual(_portraits)) Portraits = lines;
+        // Only now, with the rows that showed them replaced.
+        _thumbnails.Sweep();
 
         var warnings = new List<string>(shell.Report?.Warnings ?? []);
         if (now.SettingsProblem is not null) warnings.Insert(0, now.SettingsProblem);
@@ -311,6 +334,26 @@ internal sealed class MainViewModel : ObservableObject
         Check.Enabled = usable && !shell.FirstStart;
         OpenCutouts.Enabled = usable;
         DetectAgain.Enabled = CanChangeInstall;
+    }
+
+    public void Dispose() => _thumbnails.Dispose();
+
+    // What the window draws: the same bytes, straight (unpremultiplied) RGBA, copied into an
+    // immutable bitmap at 96 dpi, so a pixel is a device-independent pixel and the Image's
+    // slot does the scaling. (A WriteableBitmap filled through Lock() drew some sizes and not
+    // others on this machine; this constructor draws them all.)
+    private static Bitmap ToBitmap(RgbaImage img)
+    {
+        var pinned = GCHandle.Alloc(img.Pixels, GCHandleType.Pinned);
+        try
+        {
+            return new Bitmap(PixelFormat.Rgba8888, AlphaFormat.Unpremul, pinned.AddrOfPinnedObject(),
+                new PixelSize(img.Width, img.Height), new Vector(96, 96), img.Width * 4);
+        }
+        finally
+        {
+            pinned.Free();
+        }
     }
 
     // The cutouts folder, or the nearest folder above it that exists: before the first

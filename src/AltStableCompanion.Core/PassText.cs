@@ -76,6 +76,9 @@ public static class PassText
         + "Once a portrait is written, the two screenshots it was made from are deleted. "
         + "No other screenshot is ever touched.";
 
+    /// <summary>On a row whose picture could not be read this time. The portrait itself is not in question.</summary>
+    public const string PreviewUnavailable = "preview unavailable: the file could not be read just now";
+
     /// <summary>Always in view once watching has started: the one thing the player does.</summary>
     public const string AddHint = "To add one: in WoW, /alts portrait, then /reload.";
 

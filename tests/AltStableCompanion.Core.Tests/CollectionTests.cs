@@ -7,9 +7,10 @@ public class CollectionTests
     private static readonly DateTime T0 = new(2026, 9, 29, 1, 6, 38);
     private static readonly DateTime Written = new(2026, 9, 26, 1, 50, 0);
 
-    private static ManifestEntry ByGuid(string guid, string file) => new(guid, guid, file, 1, 1, 1, 1, null, null);
+    // Distinct, not square: a row's Size has to be the entry's W and H in that order.
+    private static ManifestEntry ByGuid(string guid, string file) => new(guid, guid, file, 3, 7, 4, 8, null, null);
 
-    private static ManifestEntry Legacy(string fileBase) => new(fileBase, null, fileBase + ".tga", 1, 1, 1, 1, null, null);
+    private static ManifestEntry Legacy(string fileBase) => new(fileBase, null, fileBase + ".tga", 5, 9, 8, 16, null, null);
 
     private static CharacterStatus Captured(string name, string guid, CharacterState state = CharacterState.Portrait,
         string? note = null) => new(guid, name, T0, state, note);
@@ -27,6 +28,8 @@ public class CollectionTests
         Assert.Equal((Written, T0), (row.FileModified, row.LatestCapture));
         Assert.True(row.Ready);
         Assert.False(row.NeedsAttention);
+        // The manifest's crop, W then H: what a thumbnail shows.
+        Assert.Equal((3, 7), row.Size);
     }
 
     [Fact]
@@ -37,6 +40,7 @@ public class CollectionTests
         var row = Build([Legacy("kaleid-sumner")], Captured("Kaleid Sumner", "Player-1-AAAA", CharacterState.Missing, "no screenshots")).Single();
         Assert.Equal(PortraitSource.ByName, row.Source);
         Assert.Equal("kaleid-sumner.tga", row.FileName);
+        Assert.Equal((5, 9), row.Size);
         Assert.Equal(CaptureOutcome.NoScreenshots, row.Outcome);
         // The portrait is there. That capture's screenshots are gone for good: nothing to do.
         Assert.False(row.NeedsAttention);
@@ -95,6 +99,7 @@ public class CollectionTests
             Assert.Equal(PortraitSource.File, r.Source);
             Assert.Null(r.LatestCapture);
             Assert.Equal(Written, r.FileModified);
+            Assert.Equal((5, 9), r.Size);
             Assert.False(r.NeedsAttention);
         });
         Assert.Equal("Player 4395 0a1b2c3d", Collection.Label("player-4395-0a1b2c3d"));
@@ -118,6 +123,7 @@ public class CollectionTests
             Assert.False(r.Ready);
             Assert.True(r.NeedsAttention);
             Assert.Null(r.FileModified);
+            Assert.Null(r.Size);
         });
         Assert.Equal("identical shots", rows[0].Note);
     }
