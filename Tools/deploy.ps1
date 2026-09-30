@@ -1,3 +1,4 @@
+#Requires -Version 7
 <#
     deploy.ps1 - Build AltStable Companion and put it where it can be run from.
 
@@ -29,7 +30,6 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Project = Join-Path $RepoRoot "src\AltStableCompanion.App"
 $Exe = "AltStableCompanion.exe"
 
 # Full paths, once, by PowerShell's own rules. A relative one means one folder to
@@ -83,16 +83,9 @@ try {
     $revision = $null
 }
 
-if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-
 Write-Host "Building AltStable Companion ..." -ForegroundColor Cyan
-$publish = @($Project, "-c", "Release", "-r", "win-x64", "-o", $stage, "--nologo", "-v", "q", "-warnaserror")
-if ($revision) { $publish += "-p:SourceRevisionId=$revision" }
-dotnet publish @publish
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
-
-$built = Join-Path $stage $Exe
-if (-not (Test-Path -LiteralPath $built)) { throw "The build did not produce $Exe" }
+# The one build: Release.ps1 ships the same one.
+$built = & (Join-Path $PSScriptRoot "Publish-Exe.ps1") -Stage $stage -Revision ($revision ?? "")
 
 # The build took its time: look again. Then the new exe is copied in under another
 # name and moved over the old one, so that a copy cut short leaves the old one whole.

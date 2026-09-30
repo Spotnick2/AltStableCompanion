@@ -25,7 +25,11 @@ AltStableCompanion.slnx
 src/AltStableCompanion.Core/        no UI: install, records, pairing, matte, TGA, manifest, watcher, controller
 src/AltStableCompanion.App/         Avalonia tray shell: window, Win32 tray icon, single instance
 tests/AltStableCompanion.Core.Tests xunit
-Tools/deploy.ps1                    publish the exe to a folder it can be run from
+Tools/Publish-Exe.ps1               the one publish both of the next two ship
+Tools/deploy.ps1                    put the exe where the owner runs it from
+Tools/Release.ps1                   what a tag builds: version check, CHANGELOG notes, exe, SHA256SUMS
+.github/workflows/                  ci.yml (build + test), release.yml (a v* tag -> a GitHub Release)
+CHANGELOG.md                        one section per version; the release notes come from it
 ```
 
 ## Build & test
@@ -34,6 +38,9 @@ Tools/deploy.ps1                    publish the exe to a folder it can be run fr
 dotnet build -warnaserror
 dotnet test
 ```
+
+CI (`.github/workflows/ci.yml`) runs exactly these two on every push and PR; a release
+(`release.yml`, on a `v*` tag) runs them again, then `Tools/Release.ps1`.
 
 Warnings are errors (`Directory.Build.props`). Tests generate their own images and
 SavedVariables files in temp folders — there are no binary fixtures, and none should be

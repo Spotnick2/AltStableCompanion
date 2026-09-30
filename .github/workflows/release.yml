@@ -1,0 +1,69 @@
+# A release is a tag. Push v0.1.0 at a commit whose Directory.Build.props says 0.1.0 and
+# whose CHANGELOG.md has a "## [0.1.0]" section, and this builds the exe, checks it, and
+# publishes the GitHub Release with the exe, SHA256SUMS and that section as the notes.
+#
+# A rehearsal: run it by hand from the Actions tab on any branch. It then does everything
+# but publish. Either way the built files are kept as a workflow artifact.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: |
+          dotnet build -warnaserror --nologo -c Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet test --no-build --nologo -c Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      # A pushed tag names itself; run by hand, the script rehearses the props' version.
+      - name: The tag
+        id: tag
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'push') { '${{ github.ref_name }}' } else { '' }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "prerelease=$($tag.Contains('-'))" >> $env:GITHUB_OUTPUT
+
+      - name: Build the release
+        run: |
+          $tag = '${{ steps.tag.outputs.tag }}'
+          if ($tag) { ./Tools/Release.ps1 -Tag $tag -Out publish/release } else { ./Tools/Release.ps1 -Out publish/release }
+
+      # The exact bytes that were built and checked, whatever happens next: a publish that
+      # fails on GitHub's side can be retried from the Actions tab without a new build.
+      - name: Keep the files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            publish/release/*.exe
+            publish/release/SHA256SUMS
+            publish/release/notes.md
+
+      - name: Publish the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $args = @('release', 'create', '${{ steps.tag.outputs.tag }}', '--verify-tag',
+                    '--title', 'AltStable Companion ${{ steps.tag.outputs.tag }}',
+                    '--notes-file', 'publish/release/notes.md')
+          if ('${{ steps.tag.outputs.prerelease }}' -eq 'True') { $args += '--prerelease' }
+          $args += (Get-ChildItem publish/release/*.exe).FullName
+          $args += 'publish/release/SHA256SUMS'
+          gh @args
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
