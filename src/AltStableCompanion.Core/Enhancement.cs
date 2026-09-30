@@ -20,6 +20,17 @@ public sealed record EnhancementMeta
     public DateTime? Generated { get; init; }
 }
 
+/// <summary>Codex's reasoning efforts, as its <c>model_reasoning_effort</c> takes them. Low is measured to be enough.</summary>
+public static class EnhanceEfforts
+{
+    public const string Low = "low";
+    public const string Medium = "medium";
+    public const string High = "high";
+    public static readonly IReadOnlyList<string> All = [Low, Medium, High];
+
+    public static string Normalize(string? name) => All.FirstOrDefault(e => e.Equals(name?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? Low;
+}
+
 /// <summary>The style presets a player can pick. The prompt's wording for each is the prompt's.</summary>
 public static class EnhanceStyles
 {
@@ -82,6 +93,8 @@ public static class Eligibility
         foreach (var c in merged.Values.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Guid, StringComparer.Ordinal))
         {
             if (hidden.Contains(c.Guid) || c.Level < minLevel) continue;
+            // The prompt is written from these: a record without them is not one to spend on.
+            if (string.IsNullOrWhiteSpace(c.Class) || string.IsNullOrWhiteSpace(c.Race) || string.IsNullOrWhiteSpace(c.Gender)) continue;
             // A name-only legacy portrait is nobody's in particular: not a base to build on.
             if (fileBaseOf(c.Guid) is not { } fileBase) continue;
             out_.Add(new EnhanceCandidate(c.Guid, fileBase, c));

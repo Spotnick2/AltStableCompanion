@@ -71,10 +71,16 @@ changes says `-dirty` in its version.
 
 - **Right-size for a single maintainer.** No DI container, no plugin system, no i18n, no
   auto-update. An interface with one implementation is speculation.
-- **No network, ever.** It is a promise in the README. The app touches only screenshots it
-  matched to a capture, the `AltStableCutouts` folder and `%APPDATA%\AltStableCompanion`.
-  The published single-file exe also unpacks its own native libraries under `%TEMP%\.net`;
-  that is the .NET host, it is stated in the README, and nothing else may be added to it.
+- **No network, ever - with one exception the player switches on.** It is a promise in the
+  README. The app touches only screenshots it matched to a capture, the `AltStableCutouts`
+  folder and `%APPDATA%\AltStableCompanion`. The published single-file exe also unpacks its
+  own native libraries under `%TEMP%\.net`; that is the .NET host, it is stated in the README,
+  and nothing else may be added to it. The exception (#17, the contract's section 3): enhanced
+  portraits, **off by default**, hand a character's cropped portrait and its race, gender and
+  class to the Codex CLI on this PC, which sends them to the account it is signed in to; the
+  app writes `Cutouts\Enhanced\` for it and reads Codex's own `generated_images` folder,
+  never cleaning it. Every word the app says about this is exact, and it is off unless the
+  player chose it.
 - **Never delete what you did not match.** Screenshots belong to the player; only the two
   files a capture consumed may go, and only after its cutout is on disk.
 - **Hand-rolled images.** The TGA codec and the resampler are ours (no ImageSharp): small,
