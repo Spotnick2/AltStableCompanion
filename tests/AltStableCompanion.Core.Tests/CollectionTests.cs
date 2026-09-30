@@ -19,6 +19,28 @@ public class CollectionTests
         Collection.Build(entries, captures, entries.ToDictionary(e => e.FileName, _ => Written));
 
     [Fact]
+    public void The_list_puts_the_one_being_worked_on_first_then_the_latest_activity()
+    {
+        var entries = new[] { ByGuid("Player-1-AAAA", "aaa.tga"), ByGuid("Player-1-BBBB", "bbb.tga"), ByGuid("Player-1-CCCC", "ccc.tga") with { Enhanced = new EnhancedTexture(1, 2, 4, 8) } };
+        var times = new Dictionary<string, DateTime>
+        {
+            ["aaa.tga"] = Written.AddDays(2),                                  // the newest portrait
+            ["bbb.tga"] = Written,
+            ["ccc.tga"] = Written.AddDays(-5),
+            [CutoutFolder.EnhancedKey("ccc.tga")] = Written.AddDays(3),        // but the newest thing of all is C's enhanced picture
+        };
+        var rows = Collection.Build(entries, [Captured("Aaa", "Player-1-AAAA"), Captured("Bbb", "Player-1-BBBB"), Captured("Ccc", "Player-1-CCCC")], times,
+            guid => guid == "Player-1-BBBB" ? CutoutFolder.EnhancingNote : null);
+        Assert.Equal(["Bbb", "Ccc", "Aaa"], rows.Select(r => r.Name));
+        Assert.True(rows[0].Enhancing);
+        Assert.Equal(Written.AddDays(3), rows[1].EnhancedModified);
+        Assert.Equal(Written.AddDays(3), rows[1].LastActivity);
+        // Without any activity, by name.
+        var quiet = Collection.Build(entries, [], new Dictionary<string, DateTime>());
+        Assert.Equal(["Aaa", "Bbb", "Ccc"], quiet.Select(r => r.Name));
+    }
+
+    [Fact]
     public void A_character_s_portrait_is_the_one_keyed_by_its_guid()
     {
         var row = Build([ByGuid("Player-1-AAAA", "kaleid-sumner.tga")], Captured("Kaleid Sumner", "Player-1-AAAA")).Single();

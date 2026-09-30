@@ -159,6 +159,30 @@ public class PassTextTests
 {
     private static readonly DateTime T0 = new(2026, 9, 29, 1, 6, 38);
 
+    [Fact]
+    public void What_the_enhancer_is_doing_is_said_in_the_tray_under_the_switch_and_on_the_row()
+    {
+        var busy = new ShellState(Install: null, Enhancing: "Kaleid Sumner (2 of 5)");
+        Assert.Equal("AltStable Companion - no WoW folder", PassText.TrayTip(busy));
+        using var t = new TempInstall();
+        busy = busy with { Install = t.Install };
+        Assert.Equal("AltStable Companion - enhancing Kaleid Sumner (2 of 5)", PassText.TrayTip(busy));
+        Assert.Equal("AltStable Companion - converting", PassText.TrayTip(busy with { Converting = true }));
+        Assert.Equal("Enhancing Kaleid Sumner (2 of 5)…", PassText.EnhanceStatus(busy, T0));
+        Assert.Null(PassText.EnhanceStatus(new ShellState(), T0));
+        var refused = new EnhanceResult(T0.AddMinutes(-3), "Morphisto Ruskador", "refused: transparent border");
+        Assert.Equal("Last: Morphisto Ruskador refused - transparent border, today 01:03:38.", PassText.EnhanceStatus(new ShellState(LastEnhanceResult: refused), T0));
+        Assert.Equal("Last: Kaleid Sumner written, today 01:03:38.", PassText.EnhanceStatus(new ShellState(LastEnhanceResult: refused with { Name = "Kaleid Sumner", Outcome = "written" }), T0));
+        // The balloon: written and refused say so; a cancel is the player's own doing.
+        Assert.Equal(("Portrait enhanced: Kaleid Sumner", "Reload in game to see it."), PassText.EnhanceBalloon(new EnhanceResult(T0, "Kaleid Sumner", "written")));
+        Assert.Equal(("Morphisto Ruskador: enhancement refused - transparent border", "This combination is not tried again. See the list."), PassText.EnhanceBalloon(refused));
+        Assert.Contains("failed - codex exited with 1", PassText.EnhanceBalloon(refused with { Outcome = "failed: codex exited with 1" })!.Value.Title);
+        Assert.Null(PassText.EnhanceBalloon(refused with { Outcome = "cancelled: the app is stopping" }));
+        var row = new PortraitRow("Kaleid Sumner", "Player-1-AAAA", "kaleid-sumner.tga", PortraitSource.ByGuid, T0, T0, CaptureOutcome.Converted, null, EnhanceNote: CutoutFolder.EnhancingNote);
+        Assert.Equal("Enhancing", PassText.RowState(row));
+        Assert.Equal("Ready", PassText.RowState(row with { EnhanceNote = "enhanced (wow-like)" }));
+    }
+
     private static PassReport Report(int written = 0, bool folderCreated = false, bool stale = false,
         int accounts = 1, int refused = 0, params CharacterState[] states) => new(
         [.. states.Select((s, i) => new CharacterStatus($"g{i}", $"Name {i}", T0, s, null))],

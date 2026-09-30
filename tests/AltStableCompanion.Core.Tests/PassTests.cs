@@ -653,6 +653,8 @@ public class ConvertPassTests
         // has captured since (its screenshots are gone); a capture that converts; one that does not.
         TgaCodec.Write(Path.Combine(f.CutoutsDir, "karuzo-elegia.tga"), TestData.Solid(4, 4, 1, 1, 1));
         TgaCodec.Write(Path.Combine(f.CutoutsDir, "old-friend.tga"), TestData.Solid(4, 4, 1, 1, 1));
+        File.SetLastWriteTime(Path.Combine(f.CutoutsDir, "karuzo-elegia.tga"), T0.AddDays(-2));
+        File.SetLastWriteTime(Path.Combine(f.CutoutsDir, "old-friend.tga"), T0.AddDays(-1));
         Capture(t, "1#1", "Kaleid Sumner", Guid1, T0);
         var same = TestData.Solid(400, 1200, 90, 90, 90);
         t.WriteShot(T0.AddMinutes(5), same);
@@ -665,10 +667,12 @@ public class ConvertPassTests
 
         Assert.True(report.ManifestWritten);
         var rows = report.Portraits!;
-        Assert.Equal(["Kaleid Sumner", "Karuzo Elegia", "Old Friend", "Twice Shot"], rows.Select(r => r.Name));
-        Assert.Equal([PortraitSource.ByGuid, PortraitSource.File, PortraitSource.ByName, PortraitSource.None], rows.Select(r => r.Source));
-        Assert.Equal([CaptureOutcome.Converted, CaptureOutcome.None, CaptureOutcome.NoScreenshots, CaptureOutcome.Unusable], rows.Select(r => r.Outcome));
-        Assert.Equal([false, false, false, true], rows.Select(r => r.NeedsAttention));
+        // Latest activity first: the portrait written now, the capture of T0+5, Old Friend's
+        // capture of T0-30 (newer than its file), the file of two days ago.
+        Assert.Equal(["Kaleid Sumner", "Twice Shot", "Old Friend", "Karuzo Elegia"], rows.Select(r => r.Name));
+        Assert.Equal([PortraitSource.ByGuid, PortraitSource.None, PortraitSource.ByName, PortraitSource.File], rows.Select(r => r.Source));
+        Assert.Equal([CaptureOutcome.Converted, CaptureOutcome.Unusable, CaptureOutcome.NoScreenshots, CaptureOutcome.None], rows.Select(r => r.Outcome));
+        Assert.Equal([false, true, false, false], rows.Select(r => r.NeedsAttention));
         Assert.All(rows.Where(r => r.Ready), r => Assert.NotNull(r.FileModified));
         Assert.Equal("3", PassText.Count(rows));
         Assert.Equal("1 character needs attention", PassText.Attention(rows));

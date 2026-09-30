@@ -221,6 +221,9 @@ public sealed class CutoutFolder(string addonDir)
     /// failed: ...", "enhancement cancelled", "enhancing" (an attempt still open). Null when
     /// there is no history, or it cannot be read.
     /// </summary>
+    /// <summary>The note of a character whose picture is being made right now.</summary>
+    public const string EnhancingNote = "enhancing";
+
     public string? EnhanceNote(string guid)
     {
         AttemptHistory history;
@@ -238,7 +241,7 @@ public sealed class CutoutFolder(string addonDir)
         var what = Reason(last.Outcome, Attempt.Refused) is { } refused ? "enhancement refused: " + refused
             : Reason(last.Outcome, Attempt.Failed) is { } failed ? "enhancement failed: " + failed
             : last.Outcome.StartsWith(Attempt.Cancelled, StringComparison.Ordinal) ? "enhancement cancelled"
-            : last.Outcome == Attempt.Unknown ? (last.Ended is null ? "enhancing" : "enhancement outcome unknown")
+            : last.Outcome == Attempt.Unknown ? (last.Ended is null ? EnhancingNote : "enhancement outcome unknown")
             : last.Outcome;
         // What is on disk is an earlier success: say both.
         return shown is null ? what : $"enhanced ({shown.Style}); {last.Style} {what.Replace("enhancement ", "")}";
@@ -370,9 +373,16 @@ public sealed class CutoutFolder(string addonDir)
         {
             var path = Path.Combine(CutoutsDir, e.FileName);
             if (File.Exists(path)) times[e.FileName] = File.GetLastWriteTime(path);
+            // The enhanced picture's own time, under its own key: activity of its own.
+            if (e.Enhanced is null) continue;
+            var enhanced = Path.Combine(EnhancedDir, e.FileName);
+            if (File.Exists(enhanced)) times[EnhancedKey(e.FileName)] = File.GetLastWriteTime(enhanced);
         }
         return times;
     }
+
+    /// <summary>The key of an enhanced picture's time in <see cref="FileTimes"/>.</summary>
+    public static string EnhancedKey(string fileName) => "Enhanced/" + fileName;
 
     /// <summary>
     /// Rebuild the manifest from what is on disk, and write it when its entries changed. An

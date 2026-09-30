@@ -24,6 +24,23 @@ public sealed record PassNote(DateTime At, IReadOnlyList<string> Written, int Un
 /// <summary>Enhanced pictures written since the player last said "Got it", newest last.</summary>
 public sealed record EnhancedNote(DateTime At, IReadOnlyList<string> Names);
 
+/// <summary>How the last generation ended: who, and the attempt's outcome ("written", "refused: …", "failed: …", "cancelled…").</summary>
+public sealed record EnhanceResult(DateTime At, string Name, string Outcome)
+{
+    public bool Written => Outcome == Attempt.Written;
+    public bool Cancelled => Outcome.StartsWith(Attempt.Cancelled, StringComparison.Ordinal);
+
+    /// <summary>"refused - transparent border", "failed - codex exited with 1", "written", "cancelled".</summary>
+    public string Words
+    {
+        get
+        {
+            var i = Outcome.IndexOf(": ", StringComparison.Ordinal);
+            return i < 0 ? Outcome : Outcome[..i] + " - " + Outcome[(i + 2)..];
+        }
+    }
+}
+
 /// <summary>Everything the status line is worked out from. No UI type in it.</summary>
 public sealed record ShellState(
     WowInstall? Install = null,
@@ -43,6 +60,8 @@ public sealed record ShellState(
     EnhancedNote? LastEnhanced = null,
     /// <summary>The player has read that pictures were enhanced ("Got it").</summary>
     bool EnhanceSeen = false,
+    /// <summary>How the last generation of this install ended, since the app started; null before any.</summary>
+    EnhanceResult? LastEnhanceResult = null,
     /// <summary>"Kaleid Sumner (2 of 5)" while a picture is being made; null otherwise.</summary>
     string? Enhancing = null,
     /// <summary>
@@ -249,7 +268,7 @@ public static class PassText
         var n => $"{n} characters need attention",
     };
 
-    public static string RowState(PortraitRow row) => row.Ready ? "Ready" : "No portrait";
+    public static string RowState(PortraitRow row) => row.Enhancing ? "Enhancing" : row.Ready ? "Ready" : "No portrait";
 
     /// <summary>
     /// The row's tooltip, from its <see cref="RowSummary"/> and <see cref="RowDetail"/>: the
@@ -379,10 +398,33 @@ public static class PassText
             { Install: null } => "no WoW folder",
             { FirstStart: true } => "not started: open the window",
             { Converting: true } => "converting",
+            { Enhancing: { } who } => $"enhancing {who}",
             { Paused: true } => "automatic processing off",
             _ => "watching",
         };
         return $"AltStable Companion - {what}";
+    }
+
+    /// <summary>
+    /// The balloon for a generation that ended: a picture written, refused or failed. A
+    /// cancellation raises none - the player did that, or quit.
+    /// </summary>
+    public static (string Title, string Text)? EnhanceBalloon(EnhanceResult r)
+    {
+        if (r.Cancelled) return null;
+        if (r.Written) return ($"Portrait enhanced: {r.Name}", "Reload in game to see it.");
+        return ($"{r.Name}: enhancement {r.Words}", "This combination is not tried again. See the list.");
+    }
+
+    /// <summary>
+    /// The line under the switch: what the enhancer is doing now, or how its last generation
+    /// ended, or null when it has done nothing since the app started.
+    /// </summary>
+    public static string? EnhanceStatus(ShellState s, DateTime today)
+    {
+        if (s.Enhancing is { } who) return $"Enhancing {who}…";
+        if (s.LastEnhanceResult is not { } last) return null;
+        return $"Last: {last.Name} {last.Words}, {Time(last.At, today)}.";
     }
 
     /// <summary>
