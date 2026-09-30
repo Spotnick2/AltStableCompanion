@@ -175,7 +175,7 @@ public static class EnhancementPrompt
         sb.AppendLine("COMPOSITION AND OUTPUT");
         sb.AppendLine("- One character, one view, one vertical 1024x1536 PNG.");
         sb.AppendLine("- The complete character and all equipment, from the highest hair, headwear or weapon tip to the lowest foot or item tip.");
-        sb.AppendLine("- The complete silhouette centred, occupying about 80-84% of the canvas height, with at least 8% of the canvas left empty along EACH edge. The margins include hair strands, ears, shoulder pieces, clothing and weapons: nothing touches or crosses an edge.");
+        sb.AppendLine("- The complete silhouette centred and SMALLER than the canvas: it occupies about 70-75% of the canvas height, and a band of fully transparent canvas at least 120 pixels wide is left empty along the left edge, along the right edge, along the top and along the bottom (of the 1024x1536 canvas). The bands include hair strands, ears, shoulder pieces, clothing and weapon tips: nothing touches or crosses an edge. Framed with air around it, not filling the frame.");
         sb.AppendLine("- The character prominent, not a tiny figure in empty space. Fit broad equipment by adjusting the pose and the framing, without cropping, shrinking items or changing their design.");
         sb.AppendLine("- A real transparent background with an alpha channel: empty space, including gaps between limbs and equipment, fully transparent; the character opaque, with normal antialiasing at the silhouette's edges.");
         sb.AppendLine("- No scenery, backdrop, floor, ground shadow, reflection, haze, aura, glow around the figure, vignette, border or checkerboard pattern. Lighting and shadows describe the character's surfaces only.");
@@ -222,7 +222,9 @@ public static class EnhancementPrompt
     {
         EnhanceStyles.Realistic => "Photorealistic: this character as a living person or fantasy being, photographed with studio-quality lighting. Preserve their race-specific anatomy and proportions, including nonhuman features. Real skin with pores and fine lines, real hair with individual strands, fabric weave, worn leather and scuffed metal; cinematic lighting with soft shadows on the figure itself. Make the existing costume and equipment look physically constructed, with visible craftsmanship - stitching, buckles, rivets, engraving - and honest wear. It must not look like a 3D game model, a painting, or a human dressed as a different race.",
         EnhanceStyles.Cartoonish => "A polished animated-series character illustration: bold clean outlines, flat saturated colours and crisp cel shading. Simplify surface textures into clear graphic shapes while preserving the recognisable face, hairstyle, markings, costume patterns and equipment. Expressive, moderately exaggerated features, the race's recognisable proportions kept, a standing silhouette taller than it is wide. One finished full-body character in one view, with no turnaround panels or inset details.",
-        _ => "A finished, hand-painted World of Warcraft promotional character illustration: bold sculpted forms, expressive brushwork, rich colour, and dramatic light and shadow across the figure. Make the transformation obvious at thumbnail size through strong painted volumes and clear material separation, with dimensional cloth folds, substantial metal, textured leather and flowing locks of hair. Preserve the character's recognisable WoW race proportions and existing costume shapes. The result should read as polished fantasy key art, with visible painterly decisions throughout, rather than an in-game render with improved shading. Keep the original equipment design and colours.",
+        // Measured 2026-09-30 on a gnome: painted key art stayed close to the model; the
+        // cinematic render (Blizzard's trailers) was the visible step up the owner wanted.
+        _ => "The look of Blizzard's own World of Warcraft cinematic trailers - a high-end CGI character render, not the in-game model and not a painting: sculpted, fully three-dimensional forms with real weight and volume; skin with subsurface scattering, pores and fine detail; hair as thousands of individual strands with natural flow; cloth with visible weave and heavy folds; leather grain, stitched seams and worn edges; metal with dents, engraving and true reflections; dramatic cinematic lighting with a key light, a rim light and soft shadows on the figure. The step up from the game model must be obvious at thumbnail size, like a trailer frame beside a screenshot. Keep the character's WoW race proportions and stylised features - the same face, the same exaggerated silhouette - and the original equipment design and colours.",
     };
 
     // The addon stores WoW's upper-case class token.
@@ -317,8 +319,12 @@ public static class Enhancement
                 var a = pixels[row + x * 4 + 3];
                 if (a >= Opaque) opaque++;
                 if (a < Visible) continue;
-                // The top two rows and the outer two columns must be clear; the bottom may hold the feet.
-                if (y < 2 || x < 2 || x >= w - 2) borderHit = true;
+                // The top two rows and the outer two columns must hold nothing OPAQUE: a cut
+                // figure does, a hair wisp fading out at the edge does not. Measured on nine
+                // pictures of 2026-09-30: the tool frames the figure as it likes, whatever
+                // margin the prompt asks for, and two good pictures had 3 and 57 faint pixels
+                // there and no opaque one. The bottom may hold the feet.
+                if (a >= Opaque && (y < 2 || x < 2 || x >= w - 2)) borderHit = true;
                 if (x < minX) minX = x;
                 if (x > maxX) maxX = x;
                 if (y < minY) minY = y;

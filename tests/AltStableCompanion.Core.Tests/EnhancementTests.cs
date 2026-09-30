@@ -299,7 +299,7 @@ public class EnhancementPromptTests
         Assert.Contains("ARTIFACT_PATH: ", p);
         Assert.Contains("do not invent a path", p);
         Assert.Contains("Do not add weapons, shields, armour pieces, capes, ornaments, pets or magical effects", p);
-        Assert.Contains("at least 8% of the canvas left empty along EACH edge", p);
+        Assert.Contains("at least 120 pixels wide is left empty along the left edge", p);
         Assert.Contains("POSE", p);
         Assert.Contains("The silhouette stays taller than it is wide", p);
         // The style is named once, under its heading, before the identity list.
@@ -313,8 +313,8 @@ public class EnhancementPromptTests
         Assert.Contains("Photorealistic", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
         Assert.Contains("stitching, buckles, rivets, engraving", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
         Assert.Contains("animated-series", EnhancementPrompt.Build(Troll, EnhanceStyles.Cartoonish));
-        Assert.Contains("hand-painted World of Warcraft promotional character illustration", EnhancementPrompt.Build(Troll, "no such style"));
-        Assert.Contains("rather than an in-game render with improved shading", EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike));
+        Assert.Contains("World of Warcraft cinematic trailers", EnhancementPrompt.Build(Troll, "no such style"));
+        Assert.Contains("not the in-game model and not a painting", EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike));
         Assert.Contains("hooves", EnhancementPrompt.Anatomy("Tauren")!);
         Assert.Contains("green skin", EnhancementPrompt.Anatomy("orc")!);
         Assert.Contains("greyish undead", EnhancementPrompt.Anatomy("Scourge")!);
@@ -379,10 +379,22 @@ public class EnhancementCutoutTests
         Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(Picture(100, 200, 20, 0, 40, 160)));
         Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(Picture(100, 200, 0, 20, 40, 160)));
         Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(Picture(100, 200, 60, 20, 40, 160)));
-        // A faint outlier on the border (alpha below Visible) is not the figure.
+        // A faint outlier on the border (alpha below Visible) is not the figure - and neither
+        // is a hair wisp fading out there: visible but not opaque, on the top or a side.
         var faint = Picture(100, 200, 20, 20, 40, 160);
         faint[0, 0] = (255, 255, 255, 7);
         Assert.Null(Enhancement.Refuse(faint));
+        var wisp = Picture(100, 200, 20, 20, 40, 160);
+        for (var x = 30; x < 60; x++) { wisp[x, 0] = (200, 100, 50, 120); wisp[x, 1] = (200, 100, 50, 249); }
+        wisp[0, 100] = (200, 100, 50, 200); wisp[99, 100] = (200, 100, 50, 249);
+        Assert.Null(Enhancement.Refuse(wisp));
+        // One opaque pixel in the outer band is the figure, cut.
+        var cut = Picture(100, 200, 20, 20, 40, 160);
+        cut[50, 1] = (200, 100, 50, 250);
+        Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(cut));
+        cut = Picture(100, 200, 20, 20, 40, 160);
+        cut[98, 100] = (200, 100, 50, 255);
+        Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(cut));
         // Too little figure: a 4 x 4 in 100 x 200 is under 5 %.
         Assert.Equal(Enhancement.EnoughFigure, Enhancement.Refuse(Picture(100, 200, 20, 20, 4, 4)));
         // Alpha 254 counts as opaque; alpha 200 does not.
