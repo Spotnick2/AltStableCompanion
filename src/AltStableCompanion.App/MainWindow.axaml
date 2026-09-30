@@ -127,6 +127,9 @@
     <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="#E0C42B1C" />
     </Style>
+    <Style Selector="ToolTip">
+      <Setter Property="MaxWidth" Value="380" />
+    </Style>
     <Style Selector="Ellipse.dot">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
@@ -137,7 +140,7 @@
   <!-- The client area reaches the top edge, so the glass does. The title strip is drawn here,
        with the roles that make it a title bar: drag, double-click to maximise, and Windows'
        own snap layouts on the maximise button. -->
-  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,14" RowSpacing="10">
+  <Grid RowDefinitions="Auto,*" Margin="0,0,0,14" RowSpacing="10">
 
     <Grid Grid.Row="0" Height="34" ColumnDefinitions="Auto,*,Auto,Auto,Auto"
           chrome:WindowDecorationProperties.ElementRole="TitleBar" Background="{DynamicResource PaneBrush}">
@@ -157,33 +160,15 @@
       </Button>
     </Grid>
 
-   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0">
-
-    <!-- Which game, is the addon in it, how many accounts -->
+   <!-- Settings is a page: it takes the dashboard's place until Back. -->
+   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0" VerticalAlignment="Top" IsVisible="{Binding ShowSettings}">
     <Border Classes="pane">
-      <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="14">
-        <!-- Blizzard's emblem, resized and nothing else: see Reference/Blizzard/README.md -->
-        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-          <Image Source="/Assets/wow-forever.png" Height="34" VerticalAlignment="Center" />
-          <TextBlock Text="{Binding Game}" FontWeight="SemiBold" VerticalAlignment="Center" />
-        </StackPanel>
-        <Border Grid.Column="1" Width="1" Background="{DynamicResource RimBrush}" />
-        <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center">
-          <StackPanel Orientation="Horizontal" Spacing="7">
-            <Ellipse Classes="dot" Fill="{DynamicResource GoodBrush}" IsVisible="{Binding AddonDetected}" />
-            <Ellipse Classes="dot" Fill="{DynamicResource ProblemBrush}" IsVisible="{Binding AddonMissing}" />
-            <TextBlock Text="{Binding Addon}" />
-          </StackPanel>
-          <TextBlock Classes="dim" Text="{Binding Accounts}" Margin="16,0,0,0" IsVisible="{Binding HasAccounts}" />
-        </StackPanel>
-        <Button Grid.Column="3" Classes="link" Content="Settings" Command="{Binding ToggleSettings}" VerticalAlignment="Center" />
-      </Grid>
-    </Border>
-
-    <!-- Settings: closed until asked for -->
-    <Border Classes="pane" IsVisible="{Binding ShowSettings}">
       <StackPanel Spacing="8">
-        <TextBlock Classes="dim" Text="World of Warcraft folder" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button Classes="link" Content="← Back" Command="{Binding ToggleSettings}" VerticalAlignment="Center" />
+          <TextBlock Classes="heading" Text="Settings" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Classes="dim" Text="World of Warcraft folder" Margin="0,6,0,0" />
         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
           <TextBox Grid.Column="0" Text="{Binding InstallPath, Mode=OneWay}" IsReadOnly="True"
                    PlaceholderText="not set" />
@@ -192,17 +177,50 @@
         </Grid>
         <TextBlock Classes="dim" Text="{Binding InstallNote}" IsVisible="{Binding HasInstallNote}" />
         <TextBlock Classes="warn" Text="{Binding BrowseProblem}" IsVisible="{Binding HasBrowseProblem}" />
-        <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep the screenshots a portrait was made from" />
+        <CheckBox IsChecked="{Binding Automatic}" Content="Process new captures automatically" Margin="0,6,0,0" />
+        <TextBlock Classes="dim" Margin="28,-6,0,0"
+                   Text="Otherwise new captures wait until you check for them." />
+        <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep original capture screenshots" />
         <TextBlock Classes="dim" Margin="28,-6,0,0"
                    Text="Otherwise those two files are deleted once the portrait is written. No other screenshot is ever touched." />
-        <CheckBox IsChecked="{Binding Paused}" Content="Pause watching" />
-        <TextBlock Classes="dim" Text="Look" />
+        <TextBlock Classes="dim" Text="Look" Margin="0,6,0,0" />
         <StackPanel Orientation="Horizontal" Spacing="14">
           <RadioButton GroupName="skin" Content="Clear glass" IsChecked="{Binding IsClear}" />
           <RadioButton GroupName="skin" Content="Smoked glass" IsChecked="{Binding IsSmoked}" />
           <RadioButton GroupName="skin" Content="Flat" IsChecked="{Binding IsFlat}" />
         </StackPanel>
       </StackPanel>
+    </Border>
+   </StackPanel>
+
+   <!-- The dashboard: one container, hidden as one while Settings has the window. -->
+   <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" RowSpacing="10" IsVisible="{Binding !ShowSettings}">
+   <StackPanel Grid.Row="0" Spacing="10" Margin="14,0">
+
+    <!-- Which game, is the addon in it, how many accounts -->
+    <Border Classes="pane">
+      <!-- The game's name is the one piece that may wrap: at the window's minimum width the
+           addon line and the link matter more than "Forever" on the same line. -->
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="14">
+        <!-- Blizzard's emblem, resized and nothing else: see Reference/Blizzard/README.md -->
+        <Grid Grid.Column="0" ColumnDefinitions="Auto,*" ColumnSpacing="8" VerticalAlignment="Center">
+          <Image Grid.Column="0" Source="/Assets/wow-forever.png" Height="34" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="{Binding Game}" FontWeight="SemiBold" VerticalAlignment="Center" />
+        </Grid>
+        <Border Grid.Column="1" Width="1" Background="{DynamicResource RimBrush}" />
+        <!-- Bounded: an Auto column measures with no width, and trimming needs one. -->
+        <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center" MaxWidth="180">
+          <!-- A Grid, not a horizontal StackPanel: the text has to know its width to trim. -->
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+            <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" IsVisible="{Binding AddonDetected}" />
+            <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource ProblemBrush}" IsVisible="{Binding AddonMissing}" />
+            <TextBlock Grid.Column="1" Text="{Binding Addon}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <TextBlock Classes="dim" Text="{Binding Accounts}" Margin="16,0,0,0" IsVisible="{Binding HasAccounts}"
+                     TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <Button Grid.Column="3" Classes="link" Content="Settings" Command="{Binding ToggleSettings}" VerticalAlignment="Center" />
+      </Grid>
     </Border>
 
     <TextBlock Classes="warn" Text="{Binding FlavorWarning}" IsVisible="{Binding HasFlavorWarning}" />
@@ -214,25 +232,23 @@
       <StackPanel Spacing="4">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
           <TextBlock Grid.Column="0" Classes="title" Text="{Binding Title}" />
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
-            <Button Content="Got it" Command="{Binding GotIt}" IsVisible="{Binding Dismissable}" />
-            <!-- Paused is said whatever the headline is: a player who follows the next step
-                 and then waits for a portrait has to know nothing is being watched. -->
-            <Border IsVisible="{Binding Paused}" Background="{DynamicResource AttentionPaneBrush}"
-                    BorderBrush="{DynamicResource AttentionBrush}" BorderThickness="1" CornerRadius="6" Padding="8,2">
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <TextBlock Text="Paused" VerticalAlignment="Center" Foreground="{DynamicResource AttentionBrush}" />
-                <Button Classes="link" Content="Resume" Command="{Binding Resume}" />
-              </StackPanel>
-            </Border>
-          </StackPanel>
+          <Button Grid.Column="1" Content="Got it" Command="{Binding GotIt}" IsVisible="{Binding Dismissable}" VerticalAlignment="Top" />
         </Grid>
         <TextBlock Text="{Binding Next}" IsVisible="{Binding HasNext}" />
+        <!-- Said whatever the headline is: a player who follows the next step and then waits
+             for a portrait has to know nothing happens by itself. -->
+        <Border IsVisible="{Binding Paused}" HorizontalAlignment="Left" Background="{DynamicResource AttentionPaneBrush}"
+                BorderBrush="{DynamicResource AttentionBrush}" BorderThickness="1" CornerRadius="6" Padding="8,2">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="Automatic processing is off" VerticalAlignment="Center" Foreground="{DynamicResource AttentionBrush}" />
+            <Button Classes="link" Content="Turn on" Command="{Binding Resume}" />
+          </StackPanel>
+        </Border>
 
         <!-- The first start: nothing is converted until this is read and answered. -->
         <StackPanel Spacing="8" IsVisible="{Binding FirstStart}" Margin="0,4,0,0">
           <TextBlock Text="{Binding FirstStartText}" />
-          <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep those screenshots" />
+          <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep original capture screenshots" />
           <Button Content="Start watching" Command="{Binding StartWatching}" HorizontalAlignment="Right" />
         </StackPanel>
 
@@ -256,15 +272,18 @@
 
     <!-- The collection -->
     <Border Classes="pane" Padding="14,6" IsVisible="{Binding Started}">
-      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-        <TextBlock Grid.Column="0" Classes="heading" Text="Your portraits" VerticalAlignment="Center" />
-        <TextBlock Grid.Column="1" Classes="dim" Text="{Binding Count}" VerticalAlignment="Center" />
-        <Button Grid.Column="2" Content="Check for new captures" Command="{Binding Check}" />
+      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="2">
+        <TextBlock Grid.Row="0" Grid.Column="0" Classes="heading" VerticalAlignment="Center">
+          <Run Text="Your portraits · " /><Run Text="{Binding Count}" />
+        </TextBlock>
+        <Button Grid.Row="0" Grid.Column="1" Content="Check for new captures" Command="{Binding Check}" />
+        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="warn" Text="{Binding Attention}" IsVisible="{Binding HasAttention}" />
+        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Classes="dim" Text="{Binding AddHint}" />
       </Grid>
     </Border>
    </StackPanel>
 
-    <Border Grid.Row="2" Classes="data" IsVisible="{Binding Started}" ClipToBounds="True" Margin="14,0">
+    <Border Grid.Row="1" Classes="data" IsVisible="{Binding Started}" ClipToBounds="True" Margin="14,0">
       <Panel>
         <TextBlock Classes="dim" IsVisible="{Binding !HasPortraits}" Margin="14"
                    Text="Nothing here yet." />
@@ -272,7 +291,8 @@
           <ItemsControl ItemsSource="{Binding Portraits}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="app:PortraitLine">
-                <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,9">
+                <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,9"
+                        ToolTip.Tip="{Binding Tooltip}">
                   <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold"
                                TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
@@ -281,10 +301,8 @@
                       <Ellipse Classes="dot" Fill="{DynamicResource AttentionBrush}" IsVisible="{Binding !Ready}" />
                       <TextBlock Text="{Binding State}" />
                     </StackPanel>
-                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="dim" Text="{Binding Detail}"
-                               IsVisible="{Binding Quiet}" />
-                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="warn" Text="{Binding Detail}"
-                               IsVisible="{Binding Attention}" />
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Summary}" IsVisible="{Binding HasSummary}"
+                               Classes.dim="{Binding Quiet}" Classes.warn="{Binding Attention}" />
                   </Grid>
                 </Border>
               </DataTemplate>
@@ -295,7 +313,7 @@
     </Border>
 
     <!-- Help: how it works, where the files are, what was left out and why -->
-   <StackPanel Grid.Row="3" Spacing="10" Margin="14,0">
+   <StackPanel Grid.Row="2" Spacing="10" Margin="14,0">
     <Border Classes="pane" IsVisible="{Binding ShowHelp}">
      <ScrollViewer MaxHeight="260">
       <StackPanel Spacing="8">
@@ -337,5 +355,6 @@
       </Grid>
     </Border>
    </StackPanel>
+   </Grid>
   </Grid>
 </Window>

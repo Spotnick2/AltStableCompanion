@@ -647,7 +647,8 @@ public class ConvertPassTests
         Assert.Equal([CaptureOutcome.Converted, CaptureOutcome.None, CaptureOutcome.NoScreenshots, CaptureOutcome.Unusable], rows.Select(r => r.Outcome));
         Assert.Equal([false, false, false, true], rows.Select(r => r.NeedsAttention));
         Assert.All(rows.Where(r => r.Ready), r => Assert.NotNull(r.FileModified));
-        Assert.Equal("3 portraits · 1 needs attention", PassText.Count(rows));
+        Assert.Equal("3", PassText.Count(rows));
+        Assert.Equal("1 character needs attention", PassText.Attention(rows));
     }
 
     [Fact]

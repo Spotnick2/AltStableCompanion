@@ -106,8 +106,8 @@ internal sealed partial class App : Application
         [
             new TrayMenuItem("Open", () => ShowWindow()),
             new TrayMenuItem("Check for new captures", _controller.ConvertNow, Enabled: usable && !now.Shell.FirstStart),
-            new TrayMenuItem("Pause watching", () => _controller.SetPaused(!_controller.Current.Shell.Paused),
-                Checked: now.Shell.Paused),
+            new TrayMenuItem("Process new captures automatically", () => _controller.SetPaused(!_controller.Current.Shell.Paused),
+                Checked: !now.Shell.Paused),
             new TrayMenuItem("Open Cutouts folder", () => _viewModel?.OpenCutouts.Execute(null), Enabled: usable),
             new TrayMenuItem(null),
             new TrayMenuItem("Quit", Quit),

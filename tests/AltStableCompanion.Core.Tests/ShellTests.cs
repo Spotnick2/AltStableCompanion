@@ -229,7 +229,7 @@ public class PassTextTests
         all = all with { Report = all.Report! with { Accounts = 1 } };
         Assert.Equal("A capture may be waiting", Head(all).Title);
         all = all with { Report = all.Report! with { Stale = null } };
-        Assert.Equal("All captures are converted", Head(all).Title);
+        Assert.Equal("Your portraits are ready", Head(all).Title);
         Assert.Equal(HeadlineKind.Good, Head(all).Kind);
     }
 
@@ -248,14 +248,17 @@ public class PassTextTests
     {
         using var t = new TempInstall();
         var s = With(t, Report() with { Portraits = [Ready()] });
-        Assert.Equal("New captures are processed automatically while this app runs.", Head(s).Next);
-        // A screenshot still being written is not a capture that is converted.
-        var writing = Ready() with { Outcome = CaptureOutcome.Writing, Note = "a screenshot is in use - next pass", Source = PortraitSource.None, FileName = null };
-        Assert.Equal(new Headline("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info),
-            Head(With(t, Report() with { Portraits = [Ready(), writing] })));
-        Assert.Contains("paused", Head(s with { Paused = true }).Next);
-        Assert.DoesNotContain("automatically", Head(s with { Paused = true }).Next);
+        Assert.Equal(new Headline("Your portraits are ready", "New captures are processed automatically while this app runs.", HeadlineKind.Good), Head(s));
+        // Off is said once, by the marker under the headline: the next step does not promise
+        // what will not happen, and does not repeat the marker either.
+        Assert.Equal(new Headline("Your portraits are ready", null, HeadlineKind.Good), Head(s with { Paused = true }));
         Assert.DoesNotContain("up to date", Head(s).Title);
+        // A screenshot still being written is not a portrait that is ready - with a portrait
+        // already there, and without one.
+        var writing = Ready() with { Outcome = CaptureOutcome.Writing, Note = "a screenshot is in use - next pass" };
+        var expected = new Headline("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info);
+        Assert.Equal(expected, Head(With(t, Report() with { Portraits = [Ready(), writing] })));
+        Assert.Equal(expected, Head(With(t, Report() with { Portraits = [Ready(), writing with { Source = PortraitSource.None, FileName = null }] })));
     }
 
     [Fact]
@@ -263,7 +266,7 @@ public class PassTextTests
     {
         using var t = new TempInstall();
         Assert.Equal(new Headline("Not checked yet", null, HeadlineKind.Busy), Head(With(t)));
-        Assert.Contains("paused", Head(With(t) with { Paused = true }).Next);
+        Assert.Equal(new Headline("Not checked yet", null, HeadlineKind.Info), Head(With(t) with { Paused = true }));
     }
 
     [Fact]
@@ -367,14 +370,19 @@ public class PassTextTests
     [Fact]
     public void The_count_is_of_portraits_and_what_needs_attention_is_said_beside_it()
     {
-        Assert.Equal("0 portraits", PassText.Count([]));
-        Assert.Equal("1 portrait", PassText.Count([Ready()]));
-        Assert.Equal("2 portraits", PassText.Count([Ready("A"), Ready("B")]));
+        Assert.Equal("0", PassText.Count([]));
+        Assert.Equal("1", PassText.Count([Ready()]));
+        Assert.Equal("2", PassText.Count([Ready("A"), Ready("B")]));
+        Assert.Null(PassText.Attention([Ready()]));
         // A capture with no portrait is not a portrait.
-        Assert.Equal("1 portrait · 1 needs attention", PassText.Count([Ready(), Rejected()]));
-        Assert.Equal("0 portraits · 2 need attention", PassText.Count([Rejected("A"), Rejected("B")]));
+        // Characters, not portraits: the count of files and the count of characters are not
+        // one inside the other.
+        Assert.Equal("1", PassText.Count([Ready(), Rejected()]));
+        Assert.Equal("1 character needs attention", PassText.Attention([Ready(), Rejected()]));
+        Assert.Equal("0", PassText.Count([Rejected("A"), Rejected("B")]));
+        Assert.Equal("2 characters need attention", PassText.Attention([Rejected("A"), Rejected("B")]));
         // Two namesakes on one legacy file: one portrait on disk.
-        Assert.Equal("1 portrait", PassText.Count([Ready("A") with { FileName = "twin.tga" }, Ready("B") with { FileName = "twin.tga" }]));
+        Assert.Equal("1", PassText.Count([Ready("A") with { FileName = "twin.tga" }, Ready("B") with { FileName = "twin.tga" }]));
     }
 
     [Fact]
@@ -418,13 +426,39 @@ public class PassTextTests
     }
 
     [Fact]
+    public void A_row_with_nothing_to_act_on_says_only_when_and_what_that_time_is()
+    {
+        var today = new DateTime(2026, 9, 29, 18, 0, 0);
+        var captured = new DateTime(2026, 9, 29, 12, 13, 0);
+        var old = new DateTime(2026, 9, 26, 1, 50, 0);
+        PortraitRow Row(PortraitSource source, CaptureOutcome outcome, string? note = null, DateTime? modified = null) =>
+            new("Aaa", "Player-1-AAAA", source == PortraitSource.None ? null : "aaa.tga", source,
+                source == PortraitSource.None ? null : modified ?? captured, captured, outcome, note);
+
+        // The capture's time is the capture's, the file's time is the file's: neither is "updated".
+        Assert.Equal("Captured today 12:13", PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Converted), today));
+        Assert.Equal("File modified 2026-09-26 01:50", PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Unknown, null, old), today));
+        // An older portrait whose newer capture is gone: the portrait's time, not the capture's.
+        Assert.Equal("File modified 2026-09-26 01:50",
+            PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.NoScreenshots, "no screenshots for this capture on disk", old), today));
+        Assert.Equal("File modified 2026-09-26 01:50", PassText.RowSummary(
+            new PortraitRow("Karuzo Elegia", null, "karuzo-elegia.tga", PortraitSource.File, old, null, CaptureOutcome.None, null), today));
+
+        // The lines that are the thing to read stay whole: attention, a screenshot on its way,
+        // and a name two characters share.
+        Assert.Null(PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Unusable, "identical shots", old), today));
+        Assert.Null(PassText.RowSummary(Row(PortraitSource.None, CaptureOutcome.Writing, "a screenshot is in use - next pass"), today));
+        Assert.Null(PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Converted) with { ShowGuid = true }, today));
+    }
+
+    [Fact]
     public void The_tray_says_in_a_word_what_the_app_is_doing()
     {
         using var t = new TempInstall();
         var s = new ShellState(Install: t.Install, Paused: true, Converting: true, Stopping: true);
         Assert.Equal("AltStable Companion - finishing", PassText.TrayTip(s));
         Assert.Equal("AltStable Companion - converting", PassText.TrayTip(s with { Stopping = false }));
-        Assert.Equal("AltStable Companion - paused", PassText.TrayTip(s with { Stopping = false, Converting = false }));
+        Assert.Equal("AltStable Companion - automatic processing off", PassText.TrayTip(s with { Stopping = false, Converting = false }));
         Assert.Equal("AltStable Companion - watching", PassText.TrayTip(new ShellState(Install: t.Install)));
         Assert.Equal("AltStable Companion - no WoW folder", PassText.TrayTip(new ShellState(Converting: true)));
         Assert.Equal("AltStable Companion - not started: open the window", PassText.TrayTip(new ShellState(Install: t.Install, FirstStart: true)));

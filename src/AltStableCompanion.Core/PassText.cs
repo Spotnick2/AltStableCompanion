@@ -76,6 +76,9 @@ public static class PassText
         + "Once a portrait is written, the two screenshots it was made from are deleted. "
         + "No other screenshot is ever touched.";
 
+    /// <summary>Always in view once watching has started: the one thing the player does.</summary>
+    public const string AddHint = "To add one: in WoW, /alts portrait, then /reload.";
+
     public static readonly IReadOnlyList<string> HowItWorks =
     [
         "1. In WoW: /alts portrait. The game takes two screenshots.",
@@ -122,9 +125,8 @@ public static class PassText
         }
         if (s.Report is not { } report)
         {
-            return s.Paused
-                ? new("Not checked yet", "Watching is paused: resume, or check once.", HeadlineKind.Info)
-                : new("Not checked yet", null, HeadlineKind.Busy);
+            // Off is said once, by the marker under the headline, with the action beside it.
+            return new("Not checked yet", null, s.Paused ? HeadlineKind.Info : HeadlineKind.Busy);
         }
         if (!report.ManifestWritten)
         {
@@ -149,12 +151,7 @@ public static class PassText
                 HeadlineKind.Info, Dismissable: true);
         }
         var rows = report.Portraits ?? [];
-        var attention = rows.Count(r => r.NeedsAttention);
-        if (attention > 0)
-        {
-            return new(attention == 1 ? "1 character needs attention" : $"{attention} characters need attention",
-                "See the list.", HeadlineKind.Attention);
-        }
+        if (Attention(rows) is { } attention) return new(attention, "See the list.", HeadlineKind.Attention);
         if (report.Accounts == 0)
         {
             return new("No AltStable data yet", "Log in to WoW with the addon on, then /reload.", HeadlineKind.Info);
@@ -176,24 +173,45 @@ public static class PassText
         {
             return new("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info);
         }
-        return new("All captures are converted", s.Paused
-            ? "Watching is paused: new captures wait until you resume, or check once."
-            : "New captures are processed automatically while this app runs.", HeadlineKind.Good);
+        return new("Your portraits are ready",
+            s.Paused ? null : "New captures are processed automatically while this app runs.", HeadlineKind.Good);
     }
 
     /// <summary>
-    /// "20 portraits · 1 needs attention". A capture with no portrait is not a portrait, and a
-    /// file two characters share is one portrait, not two.
+    /// The number after "Your portraits ·": portrait files. A capture with no portrait is not
+    /// a portrait, and a file two characters share is one portrait, not two.
     /// </summary>
-    public static string Count(IReadOnlyList<PortraitRow> rows)
+    public static string Count(IReadOnlyList<PortraitRow> rows) =>
+        rows.Where(r => r.Ready).Select(r => r.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+            .ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// "1 character needs attention", beside the count. Characters, not portraits: a character
+    /// with no file at all is the usual one.
+    /// </summary>
+    public static string? Attention(IReadOnlyList<PortraitRow> rows) => rows.Count(r => r.NeedsAttention) switch
     {
-        var ready = rows.Where(r => r.Ready).Select(r => r.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-        var attention = rows.Count(r => r.NeedsAttention);
-        var line = ready == 1 ? "1 portrait" : $"{ready} portraits";
-        return attention == 0 ? line : $"{line} · {attention} " + (attention == 1 ? "needs attention" : "need attention");
-    }
+        0 => null,
+        1 => "1 character needs attention",
+        var n => $"{n} characters need attention",
+    };
 
     public static string RowState(PortraitRow row) => row.Ready ? "Ready" : "No portrait";
+
+    /// <summary>
+    /// The short line under a row's name, for a row with nothing to act on: only when - the
+    /// capture's time for a portrait made from it, else the file's, each called what it is.
+    /// The rest of <see cref="RowDetail"/> is for the tooltip. Null when the row has no short
+    /// form: one that needs attention, one whose screenshot is still being written, or one
+    /// that shares its name shows the full detail, because that line is the thing to read.
+    /// </summary>
+    public static string? RowSummary(PortraitRow row, DateTime today)
+    {
+        if (row.NeedsAttention || row.Outcome == CaptureOutcome.Writing || row.ShowGuid) return null;
+        if (row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured) return "Captured " + When(captured, today);
+        if (row.FileModified is { } modified) return "File modified " + When(modified, today);
+        return "";
+    }
 
     /// <summary>
     /// The line under a row's name. The portrait's time and the capture's time are said apart,
@@ -293,7 +311,7 @@ public static class PassText
             { Install: null } => "no WoW folder",
             { FirstStart: true } => "not started: open the window",
             { Converting: true } => "converting",
-            { Paused: true } => "paused",
+            { Paused: true } => "automatic processing off",
             _ => "watching",
         };
         return $"AltStable Companion - {what}";
