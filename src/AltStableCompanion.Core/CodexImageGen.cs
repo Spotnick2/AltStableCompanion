@@ -267,6 +267,8 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
             // Raw, not ArgumentList: that escapes the inner quotes for a C runtime, and cmd.exe
             // is not one. Under /s the outer quotes are stripped and the rest is the line.
             psi = new ProcessStartInfo("cmd.exe") { Arguments = CommandLine(executable, args) };
+            var words = new[] { executable }.Concat(args).ToList();
+            for (var i = 0; i < words.Count; i++) psi.Environment[Variable(i)] = words[i];
         }
         else
         {
@@ -286,18 +288,27 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
         return psi;
     }
 
-    /// <summary>The cmd.exe line for a .cmd shim: <c>/d /s /c "quoted words"</c>.</summary>
+    /// <summary>
+    /// The cmd.exe line for a .cmd shim: <c>/d /s /c ""%ASC_ARG0%" "%ASC_ARG1%" …"</c>. No word
+    /// is on the line itself: quotes do not stop cmd.exe expanding <c>%NAME%</c> inside them, so
+    /// a folder called <c>job-%OS%</c> would reach the shim as <c>job-Windows_NT</c>. Each word
+    /// is put in an environment variable of the child (see <see cref="Variable"/>), and the
+    /// one expansion pass cmd.exe makes yields the word itself, whatever it holds - the result
+    /// is not expanded again, and inside the quotes nothing else in it is special.
+    /// </summary>
     public static string CommandLine(string executable, IReadOnlyList<string> args)
-        => "/d /s /c \"" + string.Join(' ', new[] { executable }.Concat(args).Select(Quote)) + "\"";
-
-    // cmd.exe quoting: the argument in double quotes when it holds a space or a character cmd
-    // itself acts on; a double quote inside is not something a path or our arguments ever hold.
-    private static string Quote(string arg)
     {
-        if (arg.Contains('"')) throw new ArgumentException("a double quote cannot be passed through cmd.exe", nameof(arg));
-        var needs = arg.Length == 0 || arg.Any(c => char.IsWhiteSpace(c) || "&|<>^%()!".Contains(c));
-        return needs ? "\"" + arg + "\"" : arg;
+        var words = new[] { executable }.Concat(args).ToList();
+        for (var i = 0; i < words.Count; i++)
+        {
+            if (words[i].Length == 0) throw new ArgumentException("an empty word cannot be passed through cmd.exe", nameof(args));
+            if (words[i].Contains('"')) throw new ArgumentException("a double quote cannot be passed through cmd.exe", nameof(args));
+        }
+        return "/d /s /c \"" + string.Join(' ', words.Select((_, i) => "\"%" + Variable(i) + "%\"")) + "\"";
     }
+
+    /// <summary>The child's environment variable holding word <paramref name="i"/> of the line.</summary>
+    public static string Variable(int i) => "ALTSTABLE_ARG" + i;
 
     private static void Append(StringBuilder sb, string? line)
     {

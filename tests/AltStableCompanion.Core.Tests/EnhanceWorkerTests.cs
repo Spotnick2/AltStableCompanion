@@ -72,7 +72,8 @@ public class CodexImageGenTests
         var (exe, home, control, seen) = Shim(t);
         File.WriteAllText(control, "one");
         var gen = new CodexImageGen(exe, home);
-        var jobDir = Path.Combine(t.Root, "job");
+        // A folder shaped like an environment variable, with a space: it must arrive as it is.
+        var jobDir = Path.Combine(t.Root, "job %OS% %PATH% dir");
         Directory.CreateDirectory(jobDir);
         var result = await gen.GenerateAsync(Job(t), jobDir, CancellationToken.None);
         Assert.True(result.Ok, result.Failure);
@@ -144,9 +145,11 @@ public class CodexImageGenTests
         Assert.Throws<ArgumentException>(() => CodexImageGen.Arguments(job with { Model = "bad model" }, "d", "v"));
         Assert.Throws<ArgumentException>(() => CodexImageGen.Arguments(job with { Effort = "low&del" }, "d", "v"));
         Assert.Equal(["exec", "--ignore-user-config"], CodexImageGen.Arguments(job, "d", "v").Take(2));
-        // cmd.exe's line: raw, under /s, each word with a space in quotes and nothing else escaped.
-        Assert.Equal(@"/d /s /c """"C:\Users\John Smith\npm\codex.cmd"" exec -C ""C:\Users\John Smith\job"" -o v""",
-            CodexImageGen.CommandLine(@"C:\Users\John Smith\npm\codex.cmd", ["exec", "-C", @"C:\Users\John Smith\job", "-o", "v"]));
+        // cmd.exe's line: raw, under /s, no word on it - each one comes from the child's environment.
+        Assert.Equal(@"/d /s /c """"%ALTSTABLE_ARG0%"" ""%ALTSTABLE_ARG1%"" ""%ALTSTABLE_ARG2%"" ""%ALTSTABLE_ARG3%""""",
+            CodexImageGen.CommandLine(@"C:\Users\John Smith\npm\codex.cmd", ["exec", "-C", @"C:\Users\John Smith\job-%OS%"]));
+        Assert.Throws<ArgumentException>(() => CodexImageGen.CommandLine("codex.cmd", ["exec", ""]));
+        Assert.Throws<ArgumentException>(() => CodexImageGen.CommandLine("codex.cmd", ["exec", "a\"b"]));
 
         using var t = new TempInstall();
         var (exe, _, _, _) = Shim(t);
@@ -421,6 +424,28 @@ public class EnhanceWorkerTests
         c2.ConvertNow();
         Settle(2000);
         Assert.Equal(1, failing.Calls);
+    }
+
+    [Fact]
+    public void A_picture_whose_data_will_not_inflate_is_a_failed_attempt_and_the_next_candidate_is_not_kept_waiting()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var ms = new MemoryStream();
+        ms.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+        var ihdr = new byte[13];
+        ihdr[3] = 2; ihdr[7] = 2; ihdr[8] = 8; ihdr[9] = 6;
+        PngCodec.Chunk(ms, "IHDR", ihdr);
+        PngCodec.Chunk(ms, "IDAT", new byte[] { 0, 0, 0, 0 });
+        PngCodec.Chunk(ms, "IEND", []);
+        var fake = new Fake { Png = ms.ToArray() };
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        using var c = Started(t, fake);
+        Until(() => fake.Calls == 1 && AttemptHistoryReady(folder), "the failure");
+        Assert.StartsWith("failed: the image data is not valid zlib", AttemptHistory.Load(folder.EnhancedDir, Guid1).Last!.Outcome);
+        Until(() => c.Current.Shell.Enhancing is null, "the activity line cleared");
+        Assert.False(Directory.Exists(Path.Combine(Data(t), "enhance")) && Directory.GetDirectories(Path.Combine(Data(t), "enhance")).Length > 0);
     }
 
     private static bool AttemptHistoryReady(CutoutFolder folder)
