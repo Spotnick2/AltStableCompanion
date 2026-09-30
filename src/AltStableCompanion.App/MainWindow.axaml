@@ -102,6 +102,10 @@
       <Setter Property="Foreground" Value="{DynamicResource ProblemBrush}" />
     </Style>
 
+    <!-- Anything that can be pressed says so under the pointer. -->
+    <Style Selector="Button, CheckBox, RadioButton">
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
     <Style Selector="Button.link">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
@@ -177,15 +181,18 @@
     <Border Classes="pane">
       <StackPanel Spacing="8">
         <StackPanel Orientation="Horizontal" Spacing="12">
-          <Button Classes="link" Content="← Back" Command="{Binding ToggleSettings}" VerticalAlignment="Center" />
+          <Button Classes="link" Content="← Back" Command="{Binding ToggleSettings}" VerticalAlignment="Center"
+                  ToolTip.Tip="Back to your portraits" />
           <TextBlock Classes="heading" Text="Settings" VerticalAlignment="Center" />
         </StackPanel>
         <TextBlock Classes="dim" Text="World of Warcraft folder" Margin="0,6,0,0" />
         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
           <TextBox Grid.Column="0" Text="{Binding InstallPath, Mode=OneWay}" IsReadOnly="True"
                    PlaceholderText="not set" />
-          <Button Grid.Column="1" Content="Browse..." Click="OnBrowse" IsEnabled="{Binding CanChangeInstall}" />
-          <Button Grid.Column="2" Content="Detect again" Command="{Binding DetectAgain}" />
+          <Button Grid.Column="1" Content="Browse..." Click="OnBrowse" IsEnabled="{Binding CanChangeInstall}"
+                  ToolTip.Tip="Pick the World of Warcraft folder, or the flavour folder inside it" />
+          <Button Grid.Column="2" Content="Detect again" Command="{Binding DetectAgain}"
+                  ToolTip.Tip="Forget the chosen folder and look for the game again" />
         </Grid>
         <TextBlock Classes="dim" Text="{Binding InstallNote}" IsVisible="{Binding HasInstallNote}" />
         <TextBlock Classes="warn" Text="{Binding BrowseProblem}" IsVisible="{Binding HasBrowseProblem}" />
@@ -231,7 +238,8 @@
           <TextBlock Classes="dim" Text="{Binding Accounts}" Margin="16,0,0,0" IsVisible="{Binding HasAccounts}"
                      TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
         </StackPanel>
-        <Button Grid.Column="3" Classes="link" Content="Settings" Command="{Binding ToggleSettings}" VerticalAlignment="Center" />
+        <Button Grid.Column="3" Classes="link" Content="Settings" Command="{Binding ToggleSettings}" VerticalAlignment="Center"
+                ToolTip.Tip="The game folder, automatic processing, kept screenshots, and the look" />
       </Grid>
     </Border>
 
@@ -244,7 +252,8 @@
       <StackPanel Spacing="4">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
           <TextBlock Grid.Column="0" Classes="title" Text="{Binding Title}" />
-          <Button Grid.Column="1" Content="Got it" Command="{Binding GotIt}" IsVisible="{Binding Dismissable}" VerticalAlignment="Top" />
+          <Button Grid.Column="1" Content="Got it" Command="{Binding GotIt}" IsVisible="{Binding Dismissable}" VerticalAlignment="Top"
+                  ToolTip.Tip="Clear this notice" />
         </Grid>
         <TextBlock Text="{Binding Next}" IsVisible="{Binding HasNext}" />
         <!-- Said whatever the headline is: a player who follows the next step and then waits
@@ -253,7 +262,8 @@
                 BorderBrush="{DynamicResource AttentionBrush}" BorderThickness="1" CornerRadius="6" Padding="8,2">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <TextBlock Text="Automatic processing is off" VerticalAlignment="Center" Foreground="{DynamicResource AttentionBrush}" />
-            <Button Classes="link" Content="Turn on" Command="{Binding Resume}" />
+            <Button Classes="link" Content="Turn on" Command="{Binding Resume}"
+                    ToolTip.Tip="Process new captures automatically again" />
           </StackPanel>
         </Border>
 
@@ -261,12 +271,14 @@
         <StackPanel Spacing="8" IsVisible="{Binding FirstStart}" Margin="0,4,0,0">
           <TextBlock Text="{Binding FirstStartText}" />
           <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep original capture screenshots" />
-          <Button Content="Start watching" Command="{Binding StartWatching}" HorizontalAlignment="Right" />
+          <Button Content="Start watching" Command="{Binding StartWatching}" HorizontalAlignment="Right"
+                  ToolTip.Tip="Convert the captures that are there now, and new ones as they come while automatic processing is on" />
         </StackPanel>
 
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
           <TextBlock Grid.Column="0" Classes="dim" Text="{Binding Activity}" IsVisible="{Binding HasActivity}" />
           <Button Grid.Column="1" Classes="link" Content="{Binding Problems}" IsVisible="{Binding HasProblems}"
+                  ToolTip.Tip="Show them, under Help"
                   Command="{Binding ToggleHelp}" Foreground="{DynamicResource AttentionBrush}" />
         </Grid>
       </StackPanel>
@@ -278,7 +290,8 @@
             Background="{DynamicResource AttentionPaneBrush}">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
         <TextBlock Grid.Column="0" Text="{Binding RestartNoticeText}" />
-        <Button Grid.Column="1" Content="Dismiss" VerticalAlignment="Top" Command="{Binding DismissRestartNotice}" />
+        <Button Grid.Column="1" Content="Dismiss" VerticalAlignment="Top" Command="{Binding DismissRestartNotice}"
+                ToolTip.Tip="Hide this notice for this game folder" />
       </Grid>
     </Border>
 
@@ -288,7 +301,8 @@
         <TextBlock Grid.Row="0" Grid.Column="0" Classes="heading" VerticalAlignment="Center">
           <Run Text="Your portraits · " /><Run Text="{Binding Count}" />
         </TextBlock>
-        <Button Grid.Row="0" Grid.Column="1" Content="Check for new captures" Command="{Binding Check}" />
+        <Button Grid.Row="0" Grid.Column="1" Content="Check for new captures" Command="{Binding Check}"
+                ToolTip.Tip="Look now, whether or not automatic processing is on" />
         <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="warn" Text="{Binding Attention}" IsVisible="{Binding HasAttention}" />
         <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Classes="dim" Text="{Binding AddHint}" />
       </Grid>
@@ -343,8 +357,10 @@
         </ItemsControl>
         <!-- A row that takes another button (issue #2: "Save diagnostics...") -->
         <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
-          <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}" />
-          <Button Content="Open log" Command="{Binding OpenLog}" />
+          <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}"
+                  ToolTip.Tip="The AltStableCutouts addon folder, where the portraits are written" />
+          <Button Content="Open log" Command="{Binding OpenLog}"
+                  ToolTip.Tip="What every check did, in detail (its folder, before the first)" />
         </WrapPanel>
         <StackPanel Spacing="3" IsVisible="{Binding HasWarnings}">
           <TextBlock Text="Warnings" FontWeight="SemiBold" />
@@ -367,7 +383,8 @@
         <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" />
         <TextBlock Grid.Column="1" Classes="dim" VerticalAlignment="Center"
                    Text="Runs in the background: closing this window leaves it in the tray." />
-        <Button Grid.Column="2" Classes="link" Content="Help" Command="{Binding ToggleHelp}" />
+        <Button Grid.Column="2" Classes="link" Content="Help" Command="{Binding ToggleHelp}"
+                ToolTip.Tip="How it works, the folder, the log, and any warnings" />
       </Grid>
     </Border>
    </StackPanel>
