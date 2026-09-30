@@ -12,6 +12,33 @@ public sealed record WowInstall(string FlavorDir)
     public string AddOnsDir => Path.Combine(FlavorDir, "Interface", "AddOns");
     public string CutoutAddonDir => Path.Combine(AddOnsDir, CutoutFolder.AddonName);
     public bool AltStableInstalled => File.Exists(Path.Combine(AddOnsDir, "AltStable", "AltStable.toc"));
+
+    /// <summary>
+    /// Whether the installed Roster can draw enhanced pictures: its .toc carries
+    /// <c>## X-AltStable-Enhanced: 1</c> (docs/PORTRAIT-CONTRACT.md, section 3). Installed
+    /// support, not a loaded plugin - the Roster is load-on-demand. Read before a generation
+    /// is spent: a picture nothing draws is a waste.
+    /// </summary>
+    public bool RosterDrawsEnhanced => RosterDrawsEnhancedIn(Path.Combine(AddOnsDir, "AltStableRoster", "AltStableRoster.toc"));
+
+    public static bool RosterDrawsEnhancedIn(string tocPath)
+    {
+        try
+        {
+            if (!File.Exists(tocPath)) return false;
+            foreach (var line in File.ReadLines(tocPath))
+            {
+                var t = line.Trim();
+                if (!t.StartsWith("## X-AltStable-Enhanced:", StringComparison.OrdinalIgnoreCase)) continue;
+                return int.TryParse(t["## X-AltStable-Enhanced:".Length..].Trim(), out var v) && v >= 1;
+            }
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 }
 
 /// <summary>

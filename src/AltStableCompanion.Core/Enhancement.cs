@@ -82,6 +82,8 @@ public static class Eligibility
         foreach (var c in merged.Values.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Guid, StringComparer.Ordinal))
         {
             if (hidden.Contains(c.Guid) || c.Level < minLevel) continue;
+            // The prompt is written from these: a record without them is not one to spend on.
+            if (string.IsNullOrWhiteSpace(c.Class) || string.IsNullOrWhiteSpace(c.Race) || string.IsNullOrWhiteSpace(c.Gender)) continue;
             // A name-only legacy portrait is nobody's in particular: not a base to build on.
             if (fileBaseOf(c.Guid) is not { } fileBase) continue;
             out_.Add(new EnhanceCandidate(c.Guid, fileBase, c));

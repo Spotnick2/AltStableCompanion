@@ -66,6 +66,14 @@ public static partial class ManifestWriter
                 sb.Append(", nativeW = ").Append(nw.ToString(CultureInfo.InvariantCulture))
                   .Append(", nativeH = ").Append(nh.ToString(CultureInfo.InvariantCulture));
             }
+            // A whole descriptor: the Roster sizes and crops the enhanced picture by its own numbers.
+            if (e.Enhanced is { } x && SafeFileName().IsMatch(x.FileName))
+            {
+                sb.Append(@", enhanced = { file = [[Interface\AddOns\").Append(CutoutFolder.AddonName).Append(@"\Cutouts\Enhanced\")
+                  .Append(x.FileName).Append("]], ")
+                  .Append(CultureInfo.InvariantCulture, $"w = {x.W}, h = {x.H}, texw = {x.TexW}, texh = {x.TexH}")
+                  .Append(" }");
+            }
             sb.Append(" },\n");
         }
         sb.Append("}\n");

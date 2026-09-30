@@ -3,9 +3,15 @@ using System.Text.Json.Serialization;
 
 namespace AltStableCompanion.Core;
 
-/// <summary>One manifest line's worth: what the Roster reads to draw a cutout.</summary>
+/// <summary>
+/// One manifest line's worth: what the Roster reads to draw a cutout. <see cref="Enhanced"/>
+/// is the second picture's descriptor when one is attached (docs/PORTRAIT-CONTRACT.md, section 3).
+/// </summary>
 public sealed record ManifestEntry(string Key, string? Guid, string FileName, int W, int H, int TexW, int TexH,
-    double? NativeW, double? NativeH);
+    double? NativeW, double? NativeH, EnhancedTexture? Enhanced = null);
+
+/// <summary>A whole texture descriptor for an enhanced picture: the Roster sizes and crops by it.</summary>
+public sealed record EnhancedTexture(string FileName, int W, int H, int TexW, int TexH);
 
 /// <summary>
 /// The generated <c>Interface\AddOns\AltStableCutouts</c> addon: TGAs and their JSON sidecars
@@ -40,6 +46,12 @@ public sealed class CutoutFolder(string addonDir)
 
     public string AddonDir { get; } = addonDir;
     public string CutoutsDir => Path.Combine(AddonDir, "Cutouts");
+
+    /// <summary>
+    /// Where enhanced pictures live: a subfolder, so that nothing that lists Cutouts\ - this
+    /// class included - can take one for a primary portrait. The companion owns it.
+    /// </summary>
+    public string EnhancedDir => Path.Combine(CutoutsDir, "Enhanced");
     public string TocPath => Path.Combine(AddonDir, AddonName + ".toc");
     public string ManifestPath => Path.Combine(AddonDir, "CutoutManifest.lua");
     public bool Exists => Directory.Exists(AddonDir);
@@ -95,9 +107,13 @@ public sealed class CutoutFolder(string addonDir)
     }
 
     /// <summary>The sidecar of a cutout, or null when it has none or it does not parse.</summary>
-    public CutoutMeta? ReadMeta(string fileBase)
+    public CutoutMeta? ReadMeta(string fileBase) => ReadMetaFile(Path.Combine(CutoutsDir, fileBase + ".json"));
+
+    /// <summary>The sidecar of an enhanced picture, or null when it has none or it does not parse.</summary>
+    public CutoutMeta? ReadEnhancedMeta(string fileBase) => ReadMetaFile(Path.Combine(EnhancedDir, fileBase + ".json"));
+
+    private static CutoutMeta? ReadMetaFile(string path)
     {
-        var path = Path.Combine(CutoutsDir, fileBase + ".json");
         if (!File.Exists(path)) return null;
         try
         {
@@ -107,6 +123,38 @@ public sealed class CutoutFolder(string addonDir)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// The attachment rule (docs/PORTRAIT-CONTRACT.md, section 3), the same for every manifest
+    /// writer: the enhanced picture of a primary is listed when the primary has a known GUID
+    /// equal to the enhanced sidecar's, the primary's bytes hash to the sidecar's sourceHash,
+    /// Enhanced\&lt;base&gt;.tga exists and hashes to its outputHash, and the sizes are positive.
+    /// Anything else - a name-only primary, a changed primary, a picture that is not the one
+    /// made, a file that cannot be read just now - is the plain portrait, and nothing is
+    /// touched. The primary is hashed only when an enhanced sidecar exists: that is the one
+    /// case that needs it.
+    /// </summary>
+    public EnhancedTexture? Attached(string fileBase, string primaryPath, string? primaryGuid)
+    {
+        if (primaryGuid is null) return null;
+        var meta = ReadEnhancedMeta(fileBase);
+        if (meta?.Enhancement is not { SourceHash: { } source, OutputHash: { } output }) return null;
+        if (meta.Guid != primaryGuid) return null;
+        if (meta.W <= 0 || meta.H <= 0 || meta.TexW <= 0 || meta.TexH <= 0) return null;
+        var enhanced = Path.Combine(EnhancedDir, fileBase + ".tga");
+        try
+        {
+            if (!File.Exists(enhanced)) return null;
+            if (!string.Equals(EnhancementSignature.HashOf(primaryPath), source, StringComparison.Ordinal)) return null;
+            if (!string.Equals(EnhancementSignature.HashOf(enhanced), output, StringComparison.Ordinal)) return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // In use, or gone between the look and the read: not this time.
+            return null;
+        }
+        return new EnhancedTexture(fileBase + ".tga", meta.W, meta.H, meta.TexW, meta.TexH);
     }
 
     /// <summary>The GUID that owns a file base, per its sidecar - for choosing a namesake's file name.</summary>
@@ -195,7 +243,8 @@ public sealed class CutoutFolder(string addonDir)
             {
                 var native = meta.NativeUnit == "screen" && meta.NativeH is < CutoutConverter.MaxScreenFraction;
                 entries.Add(new ManifestEntry(meta.Guid ?? fileBase, meta.Guid, fileName, meta.W, meta.H,
-                    meta.TexW, meta.TexH, native ? meta.NativeW : null, native ? meta.NativeH : null));
+                    meta.TexW, meta.TexH, native ? meta.NativeW : null, native ? meta.NativeH : null,
+                    Attached(fileBase, tga, meta.Guid)));
                 continue;
             }
             try

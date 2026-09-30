@@ -39,6 +39,44 @@ public sealed record Settings
     public bool InstallUnknown { get; init; }
 
     /// <summary>
+    /// Enhanced portraits (docs/PORTRAIT-CONTRACT.md, section 3): off unless the player turned
+    /// it on, because it sends a picture to a service. The minimum level is the armory's rule:
+    /// a level-one alt is not worth a generation. The style is one of <see cref="EnhanceStyles"/>.
+    /// Model, effort and timeout are in the file only: tuning, not a choice the window offers.
+    /// </summary>
+    public bool Enhance { get; init; }
+
+    public int EnhanceMinLevel
+    {
+        get;
+        init => field = Math.Clamp(value, 1, 60);
+    } = 10;
+
+    public string EnhanceStyle
+    {
+        get;
+        init => field = EnhanceStyles.Normalize(value);
+    } = EnhanceStyles.WowLike;
+
+    public string EnhanceModel
+    {
+        get;
+        init => field = string.IsNullOrWhiteSpace(value) ? "gpt-6-astra" : value.Trim();
+    } = "gpt-6-astra";
+
+    public string EnhanceEffort
+    {
+        get;
+        init => field = value?.Trim().ToLowerInvariant() is "low" or "medium" or "high" ? value.Trim().ToLowerInvariant() : "low";
+    } = "low";
+
+    public int EnhanceTimeoutSeconds
+    {
+        get;
+        init => field = Math.Clamp(value, 60, 1800);
+    } = 360;
+
+    /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
     /// notice is dismissed, so the notice survives the app being closed - or killed - in
@@ -73,10 +111,16 @@ public sealed record Settings
         && Started == other.Started
         && Skin == other.Skin
         && InstallUnknown == other.InstallUnknown
+        && Enhance == other.Enhance
+        && EnhanceMinLevel == other.EnhanceMinLevel
+        && EnhanceStyle == other.EnhanceStyle
+        && EnhanceModel == other.EnhanceModel
+        && EnhanceEffort == other.EnhanceEffort
+        && EnhanceTimeoutSeconds == other.EnhanceTimeoutSeconds
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
-        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, RestartNoticeInstalls.Count);
+        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, Enhance, RestartNoticeInstalls.Count);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
