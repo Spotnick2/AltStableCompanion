@@ -3,7 +3,7 @@
 # publishes the GitHub Release with the exe, SHA256SUMS and that section as the notes.
 #
 # A rehearsal: run it by hand from the Actions tab on any branch. It then does everything
-# but publish, and leaves the files as a workflow artifact to download and try.
+# but publish. Either way the built files are kept as a workflow artifact.
 name: Release
 
 on:
@@ -30,21 +30,29 @@ jobs:
           dotnet test --no-build --nologo -c Release
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-      # A pushed tag names itself; a rehearsal takes the tag the props would want.
+      # A pushed tag names itself; run by hand, the script rehearses the props' version.
       - name: The tag
         id: tag
         run: |
-          if ('${{ github.event_name }}' -eq 'push') {
-            $tag = '${{ github.ref_name }}'
-          } else {
-            [xml]$props = Get-Content Directory.Build.props
-            $tag = "v" + $props.Project.PropertyGroup.Version
-          }
+          $tag = if ('${{ github.event_name }}' -eq 'push') { '${{ github.ref_name }}' } else { '' }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "prerelease=$($tag.Contains('-'))" >> $env:GITHUB_OUTPUT
 
       - name: Build the release
-        run: ./Tools/Release.ps1 -Tag '${{ steps.tag.outputs.tag }}' -Out publish/release
+        run: |
+          $tag = '${{ steps.tag.outputs.tag }}'
+          if ($tag) { ./Tools/Release.ps1 -Tag $tag -Out publish/release } else { ./Tools/Release.ps1 -Out publish/release }
+
+      # The exact bytes that were built and checked, whatever happens next: a publish that
+      # fails on GitHub's side can be retried from the Actions tab without a new build.
+      - name: Keep the files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            publish/release/*.exe
+            publish/release/SHA256SUMS
+            publish/release/notes.md
 
       - name: Publish the release
         if: github.event_name == 'push'
@@ -59,13 +67,3 @@ jobs:
           $args += 'publish/release/SHA256SUMS'
           gh @args
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-
-      - name: Keep the rehearsal's files
-        if: github.event_name != 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-rehearsal
-          path: |
-            publish/release/*.exe
-            publish/release/SHA256SUMS
-            publish/release/notes.md

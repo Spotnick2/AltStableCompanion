@@ -83,9 +83,14 @@ the tag: `release.yml` runs the tests, builds the exe through `Tools/Release.ps1
 checks the tag against the props and takes the notes from the CHANGELOG), and publishes
 the GitHub Release with the exe and `SHA256SUMS`. A version with a `-` (`0.2.0-rc1`) is a
 pre-release. To rehearse, run the workflow by hand from the Actions tab on any branch: it
-does everything but publish, and leaves the files as an artifact. If a publish fails after
-the tag is up, delete the Release (and the tag, if the fix needs a new commit) and push
-the tag again; `gh release create` will not add to an existing Release.
+does everything but publish. Either way the built files are kept as the run's artifact.
+
+If the publish step fails after the tag is up: re-run the failed job from the Actions tab
+(pushing the same tag again is a no-op - no push event, no run). Look under the releases
+page's Drafts first: `gh release create` makes a draft before it uploads the files, so a
+failed upload can leave one, and it must go before the re-run. If the fix needs a new
+commit, the tag moves: `git push --delete origin v<version>`, then tag the new commit and
+push it.
 
 ## Licence
 
