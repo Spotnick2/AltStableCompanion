@@ -108,19 +108,23 @@ public class EnhancedManifestTests
         }
         Assert.NotNull(Now());
 
-        // Nothing moved, and the files are old enough to be trusted: they are not read again.
-        // (The count is process-wide; it must not grow.) A file written just now is always read.
-        File.SetLastWriteTimeUtc(primary, DateTime.UtcNow.AddSeconds(-10));
-        File.SetLastWriteTimeUtc(enhanced, DateTime.UtcNow.AddSeconds(-10));
+        // A rewrite of the same length that keeps its timestamp - inside one clock tick, or a
+        // copy that preserved it - and a pass later: the CURRENT bytes are what count, for
+        // the primary and for the enhanced picture alike.
+        void Rewrite(string path, RgbaImage with)
+        {
+            var stamp = File.GetLastWriteTimeUtc(path);
+            TgaCodec.Write(path, with);
+            File.SetLastWriteTimeUtc(path, stamp);
+        }
+        Rewrite(primary, TestData.Solid(4, 4, 5, 5, 5));
+        Assert.Null(new CutoutFolder(f.AddonDir).Inventory().Single().Enhanced);
+        File.WriteAllBytes(primary, bytes);
         Assert.NotNull(Now());
-        var hashed = CutoutFolder.HashesComputed;
-        for (var i = 0; i < 3; i++) Assert.NotNull(Now());
-        Assert.Equal(hashed, CutoutFolder.HashesComputed);
-        // A rewrite of the same length, in the same instant as far as the clock can tell: seen,
-        // because a fresh file is never taken on trust.
-        TgaCodec.Write(primary, TestData.Solid(4, 4, 5, 5, 5));
-        File.SetLastWriteTimeUtc(primary, DateTime.UtcNow);
-        Assert.Null(Now());
+        Rewrite(enhanced, TestData.Solid(8, 8, 2, 2, 2));
+        Assert.Null(new CutoutFolder(f.AddonDir).Inventory().Single().Enhanced);
+        File.WriteAllBytes(enhanced, made);
+        Assert.NotNull(Now());
     }
 
     [Fact]

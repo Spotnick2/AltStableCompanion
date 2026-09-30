@@ -193,30 +193,12 @@ public sealed class CutoutFolder(string addonDir)
         return new EnhancedTexture(meta.W, meta.H, meta.TexW, meta.TexH);
     }
 
-    // A file's hash, remembered with the length and time it had: the attachment is looked at
-    // on every pass, and a portrait that has not moved is not read again. A file written in
-    // the last two seconds is always read: a rewrite of the same length inside one clock tick
-    // has the same length and time, and two seconds is longer than any tick. Process-wide,
-    // keyed by the full path, because a folder object lives for one pass.
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Length, DateTime Written, string Hash)> Hashes =
-        new(StringComparer.OrdinalIgnoreCase);
-    private static int _hashesComputed;
-
-    private static string HashRemembered(string path)
-    {
-        var info = new FileInfo(path);
-        var length = info.Length;
-        var written = info.LastWriteTimeUtc;
-        var settled = written < DateTime.UtcNow - TimeSpan.FromSeconds(2);
-        if (settled && Hashes.TryGetValue(path, out var known) && known.Length == length && known.Written == written) return known.Hash;
-        var hash = EnhancementSignature.HashOf(path);
-        Interlocked.Increment(ref _hashesComputed);
-        Hashes[path] = (length, written, hash);
-        return hash;
-    }
-
-    /// <summary>How many files have been read and hashed since the process started: for the tests, which watch it not grow.</summary>
-    public static int HashesComputed => _hashesComputed;
+    // The files are hashed every time the attachment is looked at - the contract says the
+    // CURRENT bytes, and a memo keyed by length and time cannot tell a same-length rewrite
+    // inside one clock tick, or a copy that kept its timestamp, from no change. Measured: a
+    // 24-portrait install's 22 MB hashes in 20 ms with the OS cache warm; twice that once a
+    // minute is nothing.
+    private static string HashRemembered(string path) => EnhancementSignature.HashOf(path);
 
     /// <summary>
     /// An enhanced picture and its sidecar, into Enhanced\, the way <see cref="WriteCutout"/>
