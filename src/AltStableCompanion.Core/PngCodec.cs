@@ -122,8 +122,11 @@ public static class PngCodec
         var expected = (long)stride * height;
         var raw = new byte[expected];
         idat.Position = 0;
-        using (var inflate = new ZLibStream(idat, CompressionMode.Decompress))
+        // Bad compressed data is the picture's fault, in the picture's words: the inflater's
+        // own exception must not escape as if the codec had crashed.
+        try
         {
+            using var inflate = new ZLibStream(idat, CompressionMode.Decompress);
             var got = 0;
             while (got < raw.Length)
             {
@@ -132,6 +135,10 @@ public static class PngCodec
                 got += n;
             }
             if (inflate.ReadByte() != -1) throw new PngFormatException("the image data is longer than the picture");
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new PngFormatException("the image data is not valid zlib: " + ex.Message);
         }
 
         var img = new RgbaImage(width, height);

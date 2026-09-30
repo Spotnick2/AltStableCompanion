@@ -34,7 +34,9 @@ internal sealed partial class App : Application
             desktop.ShutdownRequested += (_, _) => Leave();
             desktop.Exit += (_, _) => Leave();
 
-            _controller = new Controller(Options);
+            // The real way to Codex: the CLI on PATH, its own home, its own sign-in. The
+            // controller never uses it unless the player turned enhancement on.
+            _controller = new Controller(Options, enhance: EnhanceHooks.Real());
             // Subscribed BEFORE Start: the first pass begins inside it.
             _controller.Changed += QueueRefresh;
             _controller.PassCompleted += report => Dispatcher.UIThread.Post(() => Announce(report));

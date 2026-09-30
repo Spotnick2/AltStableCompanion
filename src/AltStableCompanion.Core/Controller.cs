@@ -8,7 +8,15 @@ public sealed record Snapshot(
     bool RestartNotice,
     string? SettingsProblem,
     /// <summary>One of <see cref="Skins"/>.</summary>
-    string Skin = Skins.Clear);
+    string Skin = Skins.Clear,
+    /// <summary>Enhanced portraits: on, the level from which, the style (one of <see cref="EnhanceStyles"/>).</summary>
+    bool Enhance = false,
+    int EnhanceMinLevel = Settings.DefaultEnhanceMinLevel,
+    string EnhanceStyle = EnhanceStyles.WowLike,
+    /// <summary>How the Codex CLI is signed in ("Logged in using ChatGPT"), "installed", or null: not on this PC.</summary>
+    string? CodexStatus = null,
+    /// <summary>Whether the CLI has been looked for yet: it is, once the setting is on.</summary>
+    bool CodexProbed = false);
 
 /// <summary>
 /// Everything a shell does that is not drawing: which install, the watcher, the passes, the
@@ -39,10 +47,13 @@ public sealed record Snapshot(
 ///   shown while the first pass runs comes too late for that pass.</item>
 /// </list>
 /// </summary>
-public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
-    Func<DateTime>? clock = null) : IDisposable
+public sealed partial class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
+    Func<DateTime>? clock = null, EnhanceHooks? enhance = null) : IDisposable
 {
     private readonly Func<DateTime> _clock = clock ?? (() => DateTime.Now);
+    // The way to Codex, or none: a controller made without one never enhances. The app hands
+    // in the real one; tests hand in a shim, and there is no path from the shim to PATH.
+    private readonly EnhanceHooks? _enhance = enhance;
     private const string UnreadableCopy = "settings.unreadable.json";
 
     private readonly Lock _passGate = new();                   // held for the length of a pass
@@ -102,6 +113,9 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                 Pinned = resolved.Pinned,
                 KeepScreenshots = _settings.KeepScreenshots,
                 Skin = _settings.Skin,
+                Enhance = _settings.Enhance,
+                EnhanceMinLevel = _settings.EnhanceMinLevel,
+                EnhanceStyle = _settings.EnhanceStyle,
                 SettingsProblem = Problem(),
                 Shell = new ShellState(Paused: _settings.Paused, FirstStart: !_settings.Started),
             };
@@ -110,6 +124,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
         {
             Use(null, "The WoW folder could not be set up - see the log");
         }
+        StartEnhancer();
     }
 
     /// <summary>The player picked a folder. False when it is not a WoW folder: nothing changes.</summary>
@@ -156,7 +171,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
     /// <summary>"Got it": the player has read that portraits were written.</summary>
     public void AcknowledgeUpdate()
     {
-        lock (_gate) _current = _current with { Shell = _current.Shell with { UpdateSeen = true } };
+        lock (_gate) _current = _current with { Shell = _current.Shell with { UpdateSeen = true, EnhanceSeen = true } };
         Changed?.Invoke();
     }
 
@@ -189,6 +204,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             _current = _current with { Shell = _current.Shell with { Paused = paused } };
         }
         Save(s => s with { Paused = paused });
+        if (!paused) WakeEnhancer();
     }
 
     /// <summary>
@@ -230,10 +246,13 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             _current = _current with { Shell = _current.Shell with { Stopping = true } };
         }
         watcher?.Dispose();
+        StopEnhancer();
         Changed?.Invoke();
-        return Task.Run(() =>
+        return Task.Run(async () =>
         {
             lock (_passGate) { }
+            // The picture in flight was told to stop; its child is killed, its record written.
+            if (_enhanceLoop is { } loop) await Task.WhenAny(loop, Task.Delay(TimeSpan.FromSeconds(15)));
             _log?.Write("stopped");
         });
     }
@@ -265,6 +284,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
         }
 
         Watcher? old;
+        CancellationTokenSource? job = null;
         lock (_gate)
         {
             if (_stopping)
@@ -294,9 +314,15 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
                     LastPass = same ? _current.Shell.LastPass : null,
                     LastWritten = same ? _current.Shell.LastWritten : null,
                     UpdateSeen = same && _current.Shell.UpdateSeen,
+                    LastEnhanced = same ? _current.Shell.LastEnhanced : null,
+                    EnhanceSeen = same && _current.Shell.EnhanceSeen,
                 },
             };
+            // A picture being made for another game is not wanted here: give it up now, not
+            // when it comes back.
+            if (!same) { job = _jobCts; _jobCts = null; }
         }
+        job?.Cancel();
         old?.Dispose();
         Changed?.Invoke();
         // The first look, at once - and not one the player asked for: it obeys a pause.
@@ -367,6 +393,8 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             }
             Changed?.Invoke();
             if (current && report is not null) PassCompleted?.Invoke(report);
+            // A pass may have written a portrait somebody is now eligible for.
+            if (current && report is not null) WakeEnhancer();
         }
     }
 
@@ -448,5 +476,6 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             _watcher = null;
         }
         watcher?.Dispose();
+        StopEnhancer();
     }
 }

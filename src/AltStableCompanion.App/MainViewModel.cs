@@ -65,6 +65,12 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private bool _firstStart;
     private bool _showSettings;
     private string _skin = Skins.Clear;
+    private bool _enhance;
+    private string _enhanceMinLevel = "10";
+    private string _enhanceStyle = EnhanceStyles.WowLike;
+    private string? _codexStatus;
+    private bool _rosterCapable;
+    private bool _codexProbed;
     private bool _showHelp;
     private string _search = "";
     private IReadOnlyList<PortraitRow> _rows = [];
@@ -259,6 +265,69 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         private set { if (Set(ref _skin, value)) { Raise(nameof(IsClear)); Raise(nameof(IsSmoked)); Raise(nameof(IsFlat)); } }
     }
 
+    // ---- enhanced portraits: the one thing that leaves the PC, off unless chosen
+    public bool Enhance
+    {
+        get => _enhance;
+        set { if (Set(ref _enhance, value)) Apply(); }
+    }
+
+    /// <summary>
+    /// The box's text, handed over when the player leaves the box or presses Enter - never per
+    /// keystroke: a "2" on the way to "25" would spend generations on level-2 alts. Digits
+    /// that make a level apply; anything else goes back to the level in force.
+    /// </summary>
+    public string EnhanceMinLevel
+    {
+        get => _enhanceMinLevel;
+        set
+        {
+            if (int.TryParse(value.Trim(), out var level) && level >= 1)
+            {
+                Set(ref _enhanceMinLevel, value);
+                Apply();
+            }
+            else
+            {
+                // Raised whether or not the field changes: the box shows the nonsense, the field
+                // never held it, and the box must be told again.
+                _enhanceMinLevel = _knownLevel.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                Raise(nameof(EnhanceMinLevel));
+            }
+            Raise(nameof(EnhanceExplanation));
+        }
+    }
+
+    private int _knownLevel = Settings.DefaultEnhanceMinLevel;
+
+    /// <summary>The box can be used when it can be turned on - or is on: what is on must be turn-off-able.</summary>
+    public bool EnhanceUsable => CanEnhance || _enhance;
+
+    public bool IsWowLike { get => _enhanceStyle == EnhanceStyles.WowLike; set { if (value) SetStyle(EnhanceStyles.WowLike); } }
+    public bool IsRealistic { get => _enhanceStyle == EnhanceStyles.Realistic; set { if (value) SetStyle(EnhanceStyles.Realistic); } }
+    public bool IsCartoonish { get => _enhanceStyle == EnhanceStyles.Cartoonish; set { if (value) SetStyle(EnhanceStyles.Cartoonish); } }
+
+    private void SetStyle(string style)
+    {
+        if (_enhanceStyle == style) return;
+        _enhanceStyle = style;
+        Apply();
+    }
+
+    private void Apply()
+    {
+        var level = int.TryParse(_enhanceMinLevel.Trim(), out var l) && l >= 1 ? l : Settings.DefaultEnhanceMinLevel;
+        _controller.SetEnhance(_enhance, level, _enhanceStyle);
+    }
+
+    public string EnhanceExplanation => PassText.EnhanceExplanation(
+        int.TryParse(_enhanceMinLevel.Trim(), out var l) && l >= 1 ? l : Settings.DefaultEnhanceMinLevel, _codexStatus);
+
+    /// <summary>Why the box cannot be used, or null. Until the CLI has been looked for, nothing is said against it.</summary>
+    public string? EnhanceUnavailable => PassText.EnhanceUnavailable(codexFound: !_codexProbed || _codexStatus is not null, rosterCapable: _rosterCapable);
+    public bool CanEnhance => EnhanceUnavailable is null;
+    public bool HasEnhanceUnavailable => EnhanceUnavailable is not null;
+
     public bool IsClear { get => _skin == Skins.Clear; set { if (value) _controller.SetSkin(Skins.Clear); } }
     public bool IsSmoked { get => _skin == Skins.Smoked; set { if (value) _controller.SetSkin(Skins.Smoked); } }
     public bool IsFlat { get => _skin == Skins.Flat; set { if (value) _controller.SetSkin(Skins.Flat); } }
@@ -352,6 +421,24 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Set(ref _keepScreenshots, now.KeepScreenshots, nameof(KeepScreenshots));
         if (Set(ref _paused, shell.Paused, nameof(Paused))) Raise(nameof(Automatic));
         Skin = now.Skin;
+        // Enhancement, from the controller: through the fields, then the derived words.
+        Set(ref _enhance, now.Enhance, nameof(Enhance));
+        // The box's text follows the level when the level changed - not on every refresh, which
+        // would overwrite what is being typed.
+        if (_knownLevel != now.EnhanceMinLevel)
+        {
+            _knownLevel = now.EnhanceMinLevel;
+            Set(ref _enhanceMinLevel, now.EnhanceMinLevel.ToString(System.Globalization.CultureInfo.InvariantCulture), nameof(EnhanceMinLevel));
+        }
+        if (_enhanceStyle != now.EnhanceStyle)
+        {
+            _enhanceStyle = now.EnhanceStyle;
+            Raise(nameof(IsWowLike)); Raise(nameof(IsRealistic)); Raise(nameof(IsCartoonish));
+        }
+        _codexStatus = now.CodexStatus;
+        _codexProbed = now.CodexProbed;
+        _rosterCapable = shell.Install?.RosterDrawsEnhanced ?? false;
+        Raise(nameof(EnhanceExplanation)); Raise(nameof(EnhanceUnavailable)); Raise(nameof(CanEnhance)); Raise(nameof(HasEnhanceUnavailable)); Raise(nameof(EnhanceUsable));
 
         _rows = shell.Report?.Portraits ?? [];
         Count = PassText.Count(_rows);

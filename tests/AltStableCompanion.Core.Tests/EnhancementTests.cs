@@ -6,6 +6,21 @@ namespace AltStableCompanion.Core.Tests;
 
 public class PngCodecTests
 {
+    [Fact]
+    public void Bad_compressed_data_is_the_pictures_fault_in_the_codecs_words()
+    {
+        // A valid signature, IHDR and CRCs; the IDAT is not zlib at all.
+        var ms = new MemoryStream();
+        ms.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+        var ihdr = new byte[13];
+        ihdr[3] = 2; ihdr[7] = 2; ihdr[8] = 8; ihdr[9] = 6;
+        PngCodec.Chunk(ms, "IHDR", ihdr);
+        PngCodec.Chunk(ms, "IDAT", new byte[] { 0, 0, 0, 0 });
+        PngCodec.Chunk(ms, "IEND", []);
+        var ex = Assert.Throws<PngFormatException>(() => PngCodec.Read(ms.ToArray()));
+        Assert.Contains("not valid zlib", ex.Message);
+    }
+
     // A PNG built by hand, byte by byte, so the reader is tested against the format and not
     // against our own writer: filter per line, IDAT split as asked, any colour type.
     private static byte[] Build(int w, int h, int channels, byte[][] filteredLines, int idatPieces = 1,

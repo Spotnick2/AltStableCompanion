@@ -54,8 +54,16 @@ public sealed record PortraitRow(
     string? Note,
     bool NearlySquare = false,
     bool ShowGuid = false,
-    (int W, int H)? Size = null)
+    (int W, int H)? Size = null,
+    /// <summary>The enhanced picture attached to this portrait, if one is: what the game draws, and the thumbnail shows.</summary>
+    EnhancedTexture? Enhanced = null,
+    /// <summary>What the enhancer last did for this character, in a few words, or null.</summary>
+    string? EnhanceNote = null)
 {
+    /// <summary>The file the thumbnail is made from: the enhanced picture when there is one.</summary>
+    public string? ThumbnailFile => Enhanced is null ? FileName : FileName is null ? null : Path.Combine("Enhanced", FileName);
+    public (int W, int H)? ThumbnailSize => Enhanced is { } e ? (e.W, e.H) : Size;
+
     /// <summary>In the manifest on disk. What the game makes of it, the app cannot see.</summary>
     public bool Ready => Source != PortraitSource.None;
 
@@ -88,7 +96,8 @@ public static class Collection
     public static IReadOnlyList<PortraitRow> Build(
         IReadOnlyList<ManifestEntry> entries,
         IReadOnlyList<CharacterStatus> captures,
-        IReadOnlyDictionary<string, DateTime> fileTimes)
+        IReadOnlyDictionary<string, DateTime> fileTimes,
+        Func<string, string?>? enhanceNote = null)
     {
         var byKey = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
         foreach (var e in entries) byKey.TryAdd(e.Key, e);
@@ -104,14 +113,17 @@ public static class Collection
                 entry is null ? null : Modified(fileTimes, entry),
                 c.LastCaptured, OutcomeOf(c), c.Note,
                 NearlySquare: c.NearlySquare,
-                Size: entry is null ? null : (entry.W, entry.H)));
+                Size: entry is null ? null : (entry.W, entry.H),
+                Enhanced: entry?.Enhanced,
+                EnhanceNote: enhanceNote?.Invoke(c.Guid)));
         }
 
         foreach (var e in entries.Where(e => !claimed.Contains(e)))
         {
             rows.Add(new PortraitRow(
                 Label(Path.GetFileNameWithoutExtension(e.FileName)), e.Guid, e.FileName, PortraitSource.File,
-                Modified(fileTimes, e), null, CaptureOutcome.None, null, Size: (e.W, e.H)));
+                Modified(fileTimes, e), null, CaptureOutcome.None, null, Size: (e.W, e.H),
+                Enhanced: e.Enhanced, EnhanceNote: e.Guid is null ? null : enhanceNote?.Invoke(e.Guid)));
         }
 
         // Namesakes are told apart by the one thing that is theirs alone.

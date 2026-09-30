@@ -58,13 +58,20 @@ public sealed class ThumbnailCache<TImage>(int height, Func<RgbaImage, TImage> m
     public TImage? Get(string cutoutsDir, PortraitRow row, out bool failed)
     {
         failed = false;
-        if (row.FileName is null || row.Size is not { } size || row.FileModified is not { } modified) return null;
-        var key = new Key(cutoutsDir, row.FileName, modified, size.W, size.H);
+        if (row.ThumbnailFile is not { } file || row.ThumbnailSize is not { } size || row.FileModified is not { } modified) return null;
+        // An enhanced picture is a file of its own: its own time is part of the key.
+        var path = Path.Combine(cutoutsDir, file);
+        if (row.Enhanced is not null)
+        {
+            try { modified = File.GetLastWriteTimeUtc(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { failed = true; return null; }
+        }
+        var key = new Key(cutoutsDir, file, modified, size.W, size.H);
         _used.Add(key);
         if (_kept.TryGetValue(key, out var image)) return image;
         try
         {
-            image = make(Thumbnail.Make(TgaCodec.Read(Path.Combine(cutoutsDir, row.FileName)), size.W, size.H, height));
+            image = make(Thumbnail.Make(TgaCodec.Read(path), size.W, size.H, height));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TgaFormatException or ThumbnailException)
         {
