@@ -111,6 +111,24 @@ public class PngCodecTests
     }
 
     [Fact]
+    public void A_file_larger_than_a_generated_picture_is_refused_before_it_is_read()
+    {
+        using var t = new TempInstall();
+        var big = Path.Combine(t.Root, "big.png");
+        using (var f = new FileStream(big, FileMode.Create))
+        {
+            f.SetLength(PngCodec.MaxEncodedBytes + 1);
+        }
+        var before = GC.GetTotalAllocatedBytes(precise: true);
+        Assert.Contains("larger than", Assert.Throws<PngFormatException>(() => PngCodec.Read(big)).Message);
+        // Not the file's worth of bytes: the refusal came from its length.
+        Assert.True(GC.GetTotalAllocatedBytes(precise: true) - before < PngCodec.MaxEncodedBytes / 4);
+        var small = Path.Combine(t.Root, "small.png");
+        File.WriteAllBytes(small, PngCodec.Write(new RgbaImage(2, 2)));
+        Assert.Equal(2, PngCodec.Read(small).Width);
+    }
+
+    [Fact]
     public void What_we_write_we_read_back_exactly()
     {
         var img = new RgbaImage(5, 3);
@@ -160,7 +178,13 @@ public class EligibilityTests
         Assert.Empty(SavedVariablesReader.ParseRoster(store2, "x").Hidden);
         var brokenText = "AltStableDB = {\n[\"Player-1-AAAA\"] = {\n" + store2;
         Assert.Single(SavedVariablesReader.Parse(brokenText, "x")!.Renders);
-        Assert.Empty(SavedVariablesReader.ParseRoster(brokenText, "x").Characters);
+        var brokenRoster = SavedVariablesReader.ParseRoster(brokenText, "x");
+        Assert.Empty(brokenRoster.Characters);
+        Assert.Contains("AltStableDB", brokenRoster.Problem);
+        // A hidden table that stops mid-way is not "nobody hidden": it is not known.
+        var brokenHidden = SavedVariablesReader.ParseRoster("AltStableConfig = {\n[\"hiddenCharacters\"] = {\n[\"Player-1-AAAA\"] = true,\n" + store2, "x");
+        Assert.Contains("AltStableConfig", brokenHidden.Problem);
+        Assert.Null(SavedVariablesReader.ParseRoster(store2, "x").Problem);
     }
 
     [Fact]
@@ -192,6 +216,16 @@ public class EligibilityTests
             Assert.Empty(refused.Candidates);
             Assert.Contains("not permission", refused.Refused);
         }
+
+        // A roster table cut short in one account, with the character intact in another:
+        // still nobody, and the message names the account.
+        t.WriteStore("D#1", "AltStableConfig = {\n[\"hiddenCharacters\"] = {\n[\"Player-1-AAAA\"] = true,\n");
+        var torn = SavedVariablesReader.Snapshot(t.Install.AccountsDir);
+        Assert.Empty(torn.Skipped);
+        var unknown = Eligibility.Select(torn, 1, _ => "f");
+        Assert.Empty(unknown.Candidates);
+        Assert.Contains("D#1", unknown.Refused);
+        Assert.Contains("not permission", unknown.Refused);
     }
 
     [Fact]
@@ -419,6 +453,10 @@ public class AttemptHistoryTests
         Assert.Throws<AttemptHistoryException>(() => AttemptHistory.Load(dir, "Player-1-BBBB"));
         File.WriteAllText(AttemptHistory.PathFor(dir, "Player-1-CCCC"), "{ \"Guid\": \"Player-1-CCCC\", \"Attempts\": [ { \"Outcome\": \"written\" } ] }");
         Assert.Throws<AttemptHistoryException>(() => AttemptHistory.Load(dir, "Player-1-CCCC"));
+        File.WriteAllText(AttemptHistory.PathFor(dir, "Player-1-EEEE"), "{ \"Guid\": \"Player-1-EEEE\", \"Attempts\": [ null ] }");
+        Assert.Throws<AttemptHistoryException>(() => AttemptHistory.Load(dir, "Player-1-EEEE"));
+        // Refused, and left as it was: the history is never rewritten by a reader.
+        Assert.Contains("null", File.ReadAllText(AttemptHistory.PathFor(dir, "Player-1-EEEE")));
         // A record that cannot be written refuses the launch: the folder is a file.
         var blocked = Path.Combine(t.Root, "blocked");
         File.WriteAllText(blocked, "");

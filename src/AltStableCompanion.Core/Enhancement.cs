@@ -55,7 +55,12 @@ public static class Eligibility
     {
         if (snapshot.Skipped.Count > 0)
         {
-            return new([], $"{snapshot.Skipped.Count} account file(s) could not be read this time ({Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(snapshot.Skipped[0])))}): not knowing who is hidden is not permission");
+            return new([], $"{snapshot.Skipped.Count} account file(s) could not be read this time ({Account(snapshot.Skipped[0])}): not knowing who is hidden is not permission");
+        }
+        // A roster table that stopped mid-way in any account: who it hides is not known either.
+        if (snapshot.Rosters.FirstOrDefault(r => r.Problem is not null) is { } broken)
+        {
+            return new([], $"{Account(broken.Path)}'s roster could not be read ({broken.Problem}): not knowing who is hidden is not permission");
         }
         var hidden = new HashSet<string>(snapshot.Rosters.SelectMany(r => r.Hidden), StringComparer.Ordinal);
         var merged = new Dictionary<string, RosterCharacter>(StringComparer.Ordinal);
@@ -83,6 +88,10 @@ public static class Eligibility
         }
         return new(out_);
     }
+
+    // The account folder's name, for a message: WTF\Account\<name>\SavedVariables\AltStable.lua.
+    private static string Account(string storePath) =>
+        Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(storePath))) ?? storePath;
 }
 
 /// <summary>

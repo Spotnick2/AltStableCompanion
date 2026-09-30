@@ -30,9 +30,12 @@ public sealed record PortraitStore(string Path, int Version, IReadOnlyList<Rende
 /// <summary>
 /// One account's roster tables, read from the same text as its capture store at the same
 /// moment - and read whatever the capture store said: an account that never captured still
-/// hides characters, and hidden anywhere is hidden.
+/// hides characters, and hidden anywhere is hidden. <see cref="Problem"/> is set when a
+/// table stopped mid-way: what it would have said is not known, and the tables it did give
+/// are not a view of the account.
 /// </summary>
-public sealed record RosterStore(string Path, IReadOnlyList<RosterCharacter> Characters, IReadOnlySet<string> Hidden);
+public sealed record RosterStore(string Path, IReadOnlyList<RosterCharacter> Characters, IReadOnlySet<string> Hidden,
+    string? Problem = null);
 
 /// <summary>
 /// Every account's file, read once each: the capture stores (an account with no captures has
@@ -111,8 +114,35 @@ public static class SavedVariablesReader
         return new PortraitStore(path, version, renders);
     }
 
-    /// <summary>The roster tables of one file. Never throws for what is in them: a broken table is an empty one.</summary>
-    public static RosterStore ParseRoster(string text, string path) => new(path, ReadRoster(text), ReadHidden(text));
+    /// <summary>
+    /// The roster tables of one file. Never throws for what is in them - conversion does not
+    /// depend on them - but a table that stops mid-way is named in <see cref="RosterStore.Problem"/>.
+    /// </summary>
+    public static RosterStore ParseRoster(string text, string path)
+    {
+        string? problem = null;
+        IReadOnlyList<RosterCharacter> chars;
+        IReadOnlySet<string> hidden;
+        try
+        {
+            chars = ReadRoster(text);
+        }
+        catch (SavedVariablesFormatException ex)
+        {
+            chars = [];
+            problem = $"{RosterGlobal}: {ex.Message}";
+        }
+        try
+        {
+            hidden = ReadHidden(text);
+        }
+        catch (SavedVariablesFormatException ex)
+        {
+            hidden = new HashSet<string>();
+            problem = $"{ConfigGlobal}: {ex.Message}";
+        }
+        return new RosterStore(path, chars, hidden, problem);
+    }
 
     // AltStableDB[guid] = { name, class, race, raceName, gender, level, lastUpdate, ... }: what
     // the roster knows. A record without a safe guid or a name is skipped; a missing level is
@@ -120,16 +150,7 @@ public static class SavedVariablesReader
     private static IReadOnlyList<RosterCharacter> ReadRoster(string text)
     {
         var chars = new List<RosterCharacter>();
-        object? value;
-        try
-        {
-            value = LuaTableScanner.ReadGlobal(text, RosterGlobal, out _);
-        }
-        catch (SavedVariablesFormatException)
-        {
-            return chars;
-        }
-        if (value is not Dictionary<object, object?> db) return chars;
+        if (LuaTableScanner.ReadGlobal(text, RosterGlobal, out _) is not Dictionary<object, object?> db) return chars;
         foreach (var (key, entry) in db)
         {
             if (key is not string guid || !ManifestWriter.IsSafeKey(guid)) continue;
@@ -147,16 +168,7 @@ public static class SavedVariablesReader
     private static IReadOnlySet<string> ReadHidden(string text)
     {
         var hidden = new HashSet<string>(StringComparer.Ordinal);
-        object? value;
-        try
-        {
-            value = LuaTableScanner.ReadGlobal(text, ConfigGlobal, out _);
-        }
-        catch (SavedVariablesFormatException)
-        {
-            return hidden;
-        }
-        if (value is not Dictionary<object, object?> config) return hidden;
+        if (LuaTableScanner.ReadGlobal(text, ConfigGlobal, out _) is not Dictionary<object, object?> config) return hidden;
         if (!config.TryGetValue("hiddenCharacters", out var h) || h is not Dictionary<object, object?> set) return hidden;
         foreach (var (key, flag) in set)
         {

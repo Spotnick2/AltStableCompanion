@@ -64,8 +64,8 @@ public sealed class AttemptHistory
         {
             var file = JsonSerializer.Deserialize<Stored>(File.ReadAllText(path), Json);
             if (file?.Attempts is null || file.Guid != guid) throw new AttemptHistoryException($"{path} is not {guid}'s attempt history");
-            if (file.Attempts.Any(a => string.IsNullOrEmpty(a.Signature))) throw new AttemptHistoryException($"{path} has an attempt with no signature");
-            return new AttemptHistory(path, file.Attempts);
+            if (file.Attempts.Any(a => a is null || string.IsNullOrEmpty(a.Signature))) throw new AttemptHistoryException($"{path} has an attempt with no signature");
+            return new AttemptHistory(path, [.. file.Attempts.Select(a => a!)]);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -119,7 +119,7 @@ public sealed class AttemptHistory
     {
         var guid = Path.GetFileName(_path);
         guid = guid[..^".attempts.json".Length];
-        var text = JsonSerializer.Serialize(new Stored { Guid = guid, Attempts = _attempts }, Json);
+        var text = JsonSerializer.Serialize(new Stored { Guid = guid, Attempts = [.. _attempts] }, Json);
         var tmp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
@@ -137,7 +137,7 @@ public sealed class AttemptHistory
     private sealed class Stored
     {
         public string? Guid { get; set; }
-        public List<Attempt>? Attempts { get; set; }
+        public List<Attempt?>? Attempts { get; set; }
     }
 }
 

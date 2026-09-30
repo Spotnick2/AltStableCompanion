@@ -24,8 +24,19 @@ public static class PngCodec
 
     public static RgbaImage Read(string path)
     {
-        var bytes = File.ReadAllBytes(path);
-        if (bytes.Length > MaxEncodedBytes) throw new PngFormatException($"{bytes.Length} bytes: larger than a generated picture ({MaxEncodedBytes})");
+        using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        // The limit is enforced before any allocation, and the read is bounded whatever the
+        // file does while it is open: at most MaxEncodedBytes + 1 bytes are ever read.
+        if (s.Length > MaxEncodedBytes) throw new PngFormatException($"{s.Length} bytes: larger than a generated picture ({MaxEncodedBytes})");
+        var bytes = new byte[(int)s.Length];
+        var got = 0;
+        while (got < bytes.Length)
+        {
+            var n = s.Read(bytes, got, bytes.Length - got);
+            if (n == 0) throw new PngFormatException($"the file shrank while it was read: {got} of {bytes.Length} bytes");
+            got += n;
+        }
+        if (s.ReadByte() != -1) throw new PngFormatException("the file grew while it was read");
         return Read(bytes);
     }
 
