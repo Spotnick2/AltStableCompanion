@@ -4,12 +4,14 @@ using AltStableCompanion.Core;
 namespace AltStableCompanion.App;
 
 /// <summary>One line of the list, as text. What it says is decided in Core (PassText).</summary>
-internal sealed record PortraitLine(string Name, string State, string Detail, bool Ready, bool Attention)
+internal sealed record PortraitLine(string Name, string State, string Summary, string Detail, bool Ready, bool Attention)
 {
     public bool Quiet => !Attention;
+    public bool HasSummary => Summary.Length > 0;
 
     public static PortraitLine From(PortraitRow row, DateTime today) => new(
-        row.Name, PassText.RowState(row), PassText.RowDetail(row, today), row.Ready, row.NeedsAttention);
+        row.Name, PassText.RowState(row), PassText.RowSummary(row, today), PassText.RowDetail(row, today),
+        row.Ready, row.NeedsAttention);
 }
 
 /// <summary>
@@ -34,6 +36,7 @@ internal sealed class MainViewModel : ObservableObject
     private Headline _headline = new("", null, HeadlineKind.Busy);
     private string? _activity;
     private string _count = "";
+    private string? _attention;
     private string? _problems;
     private bool _canChangeInstall = true;
     private bool _keepScreenshots;
@@ -79,6 +82,7 @@ internal sealed class MainViewModel : ObservableObject
 
     public string RestartNoticeText => PassText.RestartNotice;
     public string FirstStartText => PassText.FirstStart;
+    public string AddHint => PassText.AddHint;
     public IReadOnlyList<string> HowItWorks => PassText.HowItWorks;
 
     // ---- the top line
@@ -143,13 +147,24 @@ internal sealed class MainViewModel : ObservableObject
     public bool FirstStart
     {
         get => _firstStart;
-        private set { if (Set(ref _firstStart, value)) Raise(nameof(Started)); }
+        private set { if (Set(ref _firstStart, value)) { Raise(nameof(Started)); Raise(nameof(ShowList)); } }
     }
 
     public bool Started => !_firstStart;
 
+    /// <summary>The list has the window once watching has started, unless Settings has it.</summary>
+    public bool ShowList => Started && !_showSettings;
+
     // ---- the list
     public string Count { get => _count; private set => Set(ref _count, value); }
+
+    public string? Attention
+    {
+        get => _attention;
+        private set { if (Set(ref _attention, value)) Raise(nameof(HasAttention)); }
+    }
+
+    public bool HasAttention => _attention is not null;
 
     public IReadOnlyList<PortraitLine> Portraits
     {
@@ -160,7 +175,11 @@ internal sealed class MainViewModel : ObservableObject
     public bool HasPortraits => _portraits.Count > 0;
 
     // ---- settings
-    public bool ShowSettings { get => _showSettings; set => Set(ref _showSettings, value); }
+    public bool ShowSettings
+    {
+        get => _showSettings;
+        set { if (Set(ref _showSettings, value)) Raise(nameof(ShowList)); }
+    }
     public string InstallPath { get => _installPath; private set => Set(ref _installPath, value); }
     public bool CanChangeInstall { get => _canChangeInstall; private set => Set(ref _canChangeInstall, value); }
 
@@ -189,8 +208,11 @@ internal sealed class MainViewModel : ObservableObject
     public bool Paused
     {
         get => _paused;
-        set { if (Set(ref _paused, value)) _controller.SetPaused(value); }
+        set { if (Set(ref _paused, value)) { Raise(nameof(Automatic)); _controller.SetPaused(value); } }
     }
+
+    /// <summary>The setting as the player reads it: on means new captures are processed.</summary>
+    public bool Automatic { get => !_paused; set => Paused = !value; }
 
     /// <summary>One of <see cref="Skins"/>. The window listens for it.</summary>
     public string Skin
@@ -266,11 +288,12 @@ internal sealed class MainViewModel : ObservableObject
 
         // Through the fields: this is the controller telling the window, not the player.
         Set(ref _keepScreenshots, now.KeepScreenshots, nameof(KeepScreenshots));
-        Set(ref _paused, shell.Paused, nameof(Paused));
+        if (Set(ref _paused, shell.Paused, nameof(Paused))) Raise(nameof(Automatic));
         Skin = now.Skin;
 
         var rows = shell.Report?.Portraits ?? [];
         Count = PassText.Count(rows);
+        Attention = PassText.Attention(rows);
         var lines = rows.Select(r => PortraitLine.From(r, today)).ToList();
         if (!lines.SequenceEqual(_portraits)) Portraits = lines;
 
