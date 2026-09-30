@@ -11,11 +11,8 @@ namespace AltStableCompanion.Core;
 /// <param name="Waiting">Screenshots newer than any record: a capture may be waiting for a Reload.</param>
 /// <param name="Failed">The pass itself threw.</param>
 public sealed record PassNote(DateTime At, IReadOnlyList<string> Written, int Unconverted = 0,
-    bool Waiting = false, bool Failed = false, IReadOnlyList<string>? Enhanced = null)
+    bool Waiting = false, bool Failed = false)
 {
-    /// <summary>Whose enhanced picture this note is about, when it is: written by the enhancer, not a pass.</summary>
-    public IReadOnlyList<string> EnhancedNames => Enhanced ?? [];
-
     public static PassNote Of(PassReport? report, DateTime at) => report is null
         ? new PassNote(at, [], Failed: true)
         : new PassNote(at, report.Written,
@@ -23,6 +20,9 @@ public sealed record PassNote(DateTime At, IReadOnlyList<string> Written, int Un
                 or CharacterState.Ambiguous or CharacterState.Failed),
             Waiting: report.Stale is not null);
 }
+
+/// <summary>Enhanced pictures written since the player last said "Got it", newest last.</summary>
+public sealed record EnhancedNote(DateTime At, IReadOnlyList<string> Names);
 
 /// <summary>Everything the status line is worked out from. No UI type in it.</summary>
 public sealed record ShellState(
@@ -39,6 +39,10 @@ public sealed record ShellState(
     PassNote? LastWritten = null,
     /// <summary>The player has read that portraits were written ("Got it").</summary>
     bool UpdateSeen = false,
+    /// <summary>The last enhanced pictures of this install, beside - never instead of - the last pass that wrote.</summary>
+    EnhancedNote? LastEnhanced = null,
+    /// <summary>The player has read that pictures were enhanced ("Got it").</summary>
+    bool EnhanceSeen = false,
     /// <summary>"Kaleid Sumner (2 of 5)" while a picture is being made; null otherwise.</summary>
     string? Enhancing = null,
     /// <summary>
@@ -180,12 +184,15 @@ public static class PassText
         {
             return new("This app is too old for your AltStable", "Update AltStable Companion.", HeadlineKind.Problem);
         }
-        if (s.LastWritten is { } made && !s.UpdateSeen && made.EnhancedNames.Count > 0)
+        // Both unread: the newer news first; "Got it" reads both.
+        var enhanced = s.LastEnhanced is { Names.Count: > 0 } && !s.EnhanceSeen ? s.LastEnhanced : null;
+        var written = s.LastWritten is { Written.Count: > 0 } && !s.UpdateSeen ? s.LastWritten : null;
+        if (enhanced is not null && (written is null || enhanced.At >= written.At))
         {
-            return new(made.EnhancedNames.Count == 1 ? $"Portrait enhanced: {Names(made.EnhancedNames)}" : $"{Names(made.EnhancedNames)} enhanced",
+            return new(enhanced.Names.Count == 1 ? $"Portrait enhanced: {Names(enhanced.Names)}" : $"{Names(enhanced.Names)} enhanced",
                 restartNotice
-                    ? "Restart WoW once to see " + (made.EnhancedNames.Count == 1 ? "it" : "them") + ": see below."
-                    : "If WoW is open, /reload to load " + (made.EnhancedNames.Count == 1 ? "it." : "them."),
+                    ? "Restart WoW once to see " + (enhanced.Names.Count == 1 ? "it" : "them") + ": see below."
+                    : "If WoW is open, /reload to load " + (enhanced.Names.Count == 1 ? "it." : "them."),
                 HeadlineKind.Info, Dismissable: true);
         }
         if (s.LastWritten is { Written.Count: > 0 } wrote && !s.UpdateSeen)

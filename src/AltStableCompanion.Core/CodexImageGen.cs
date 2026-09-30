@@ -75,21 +75,41 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
     /// </summary>
     public static async Task<string?> LoginStatusAsync(string executable, CancellationToken ct)
     {
+        // Bounded: a codex that waits on something (a broken auth file, a prompt) must not hold
+        // the enhancer; stdin is closed at once, both pipes are drained together.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(LoginStatusTimeout);
         try
         {
             using var p = Process.Start(StartInfo(executable, ["login", "status"], null, null));
             if (p is null) return null;
-            var output = await p.StandardOutput.ReadToEndAsync(ct);
-            var error = await p.StandardError.ReadToEndAsync(ct);
-            await p.WaitForExitAsync(ct);
-            var text = (output + "\n" + error).Trim();
-            var line = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
-            return p.ExitCode == 0 && line is not null ? line : null;
+            try
+            {
+                p.StandardInput.Close();
+                var output = p.StandardOutput.ReadToEndAsync(timeout.Token);
+                var error = p.StandardError.ReadToEndAsync(timeout.Token);
+                await p.WaitForExitAsync(timeout.Token);
+                var text = (await output + "\n" + await error).Trim();
+                var line = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
+                return p.ExitCode == 0 && line is not null ? line : null;
+            }
+            catch (OperationCanceledException)
+            {
+                Kill(p);
+                return null;
+            }
         }
-        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or InvalidOperationException or OperationCanceledException)
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
             return null;
         }
+    }
+
+    public static readonly TimeSpan LoginStatusTimeout = TimeSpan.FromSeconds(30);
+
+    private static void Kill(Process p)
+    {
+        try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
     }
 
     /// <summary>The arguments, as words: what a test can assert on, and what the shell gets.</summary>
@@ -143,13 +163,21 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
             p.BeginErrorReadLine();
             try
             {
-                await p.StandardInput.WriteAsync(job.Prompt.AsMemory(), timeout.Token);
-                p.StandardInput.Close();
+                try
+                {
+                    await p.StandardInput.WriteAsync(job.Prompt.AsMemory(), timeout.Token);
+                    p.StandardInput.Close();
+                }
+                catch (IOException)
+                {
+                    // The pipe broke: Codex left before reading the prompt (no auth, no usage).
+                    // Its exit code and what it printed say why, below.
+                }
                 await p.WaitForExitAsync(timeout.Token);
             }
             catch (OperationCanceledException)
             {
-                try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
+                Kill(p);
                 return new CodexResult(null, ct.IsCancellationRequested ? "cancelled" : $"timed out after {job.Timeout.TotalSeconds:0} s", Tail(stdout, stderr));
             }
             exit = p.ExitCode;
@@ -173,6 +201,8 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
         byte[] bytes;
         try
         {
+            var length = new FileInfo(picture).Length;
+            if (length > PngCodec.MaxEncodedBytes) return new CodexResult(null, $"the picture is {length / (1024 * 1024)} MB; the most this app reads is {PngCodec.MaxEncodedBytes / (1024 * 1024)} MB", Tail(stdout, stderr));
             bytes = File.ReadAllBytes(picture);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -234,10 +264,9 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
         var ext = Path.GetExtension(executable);
         if (OperatingSystem.IsWindows() && (ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase) || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase)))
         {
-            psi = new ProcessStartInfo("cmd.exe");
-            psi.ArgumentList.Add("/d");
-            psi.ArgumentList.Add("/c");
-            psi.ArgumentList.Add(string.Join(' ', new[] { executable }.Concat(args).Select(Quote)));
+            // Raw, not ArgumentList: that escapes the inner quotes for a C runtime, and cmd.exe
+            // is not one. Under /s the outer quotes are stripped and the rest is the line.
+            psi = new ProcessStartInfo("cmd.exe") { Arguments = CommandLine(executable, args) };
         }
         else
         {
@@ -249,6 +278,7 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
         psi.RedirectStandardInput = true;
         psi.RedirectStandardOutput = true;
         psi.RedirectStandardError = true;
+        psi.StandardInputEncoding = new UTF8Encoding(false);
         psi.StandardOutputEncoding = Encoding.UTF8;
         psi.StandardErrorEncoding = Encoding.UTF8;
         if (workingDir is not null) psi.WorkingDirectory = workingDir;
@@ -256,8 +286,12 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
         return psi;
     }
 
-    // cmd.exe quoting: the argument in double quotes, with the characters cmd itself acts on
-    // escaped; a double quote inside is not something a path or our arguments ever hold.
+    /// <summary>The cmd.exe line for a .cmd shim: <c>/d /s /c "quoted words"</c>.</summary>
+    public static string CommandLine(string executable, IReadOnlyList<string> args)
+        => "/d /s /c \"" + string.Join(' ', new[] { executable }.Concat(args).Select(Quote)) + "\"";
+
+    // cmd.exe quoting: the argument in double quotes when it holds a space or a character cmd
+    // itself acts on; a double quote inside is not something a path or our arguments ever hold.
     private static string Quote(string arg)
     {
         if (arg.Contains('"')) throw new ArgumentException("a double quote cannot be passed through cmd.exe", nameof(arg));

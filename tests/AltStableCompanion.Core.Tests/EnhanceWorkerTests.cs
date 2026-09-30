@@ -11,9 +11,9 @@ public class CodexImageGenTests
     // file beside it, so one shim plays every part. It records the arguments and the prompt.
     private static (string Exe, string Home, string Control, string Seen) Shim(TempInstall t)
     {
-        var dir = Path.Combine(t.Root, "shim");
+        var dir = Path.Combine(t.Root, "codex shim");
         Directory.CreateDirectory(dir);
-        var home = Path.Combine(t.Root, "codex-home");
+        var home = Path.Combine(t.Root, "codex home");
         Directory.CreateDirectory(Path.Combine(home, "generated_images"));
         var control = Path.Combine(dir, "behaviour.txt");
         var seen = Path.Combine(dir, "seen.txt");
@@ -23,6 +23,9 @@ public class CodexImageGenTests
             $Args = @($args)
             $here = Split-Path -Parent $MyInvocation.MyCommand.Path
             $behaviour = (Get-Content -LiteralPath (Join-Path $here 'behaviour.txt') -Raw).Trim()
+            if ($Args -contains 'login') { if ($behaviour -eq 'fail') { exit 3 }; Write-Output 'Logged in using ChatGPT'; exit 0 }
+            if ($behaviour -eq 'earlyexit') { [Console]::Error.WriteLine('left early'); exit 3 }
+            [Console]::InputEncoding = [Text.Encoding]::UTF8
             $prompt = [Console]::In.ReadToEnd()
             $verdict = $null; $jobDir = $null
             for ($i = 0; $i -lt $Args.Count; $i++) {
@@ -46,6 +49,7 @@ public class CodexImageGenTests
                 'wrongpath' { $p = Put 'a.png' $png; Set-Content -LiteralPath $verdict -Value "ARTIFACT_PATH: $($p + '.other.png')" }
                 'noreport'  { $p = Put 'a.png' $png; Set-Content -LiteralPath $verdict -Value "done, no path" }
                 'badmagic'  { $p = Put 'a.png' ([byte[]](1,2,3,4,5,6,7,8,9)); Set-Content -LiteralPath $verdict -Value "ARTIFACT_PATH: $p" }
+                'huge'      { $big = New-Object byte[] (33 * 1024 * 1024); [Array]::Copy($png, $big, 8); $p = Put 'a.png' $big; Set-Content -LiteralPath $verdict -Value "ARTIFACT_PATH: $p" }
                 'hang'      { Start-Sleep -Seconds 60 }
                 'fail'      { [Console]::Error.WriteLine('no auth'); exit 3 }
             }
@@ -58,7 +62,7 @@ public class CodexImageGenTests
     {
         var reference = Path.Combine(t.Root, "reference.png");
         PngCodec.Write(reference, new RgbaImage(2, 2));
-        return new CodexJob("Draw a troll with two toes.", reference, "gpt-6-astra", "low", timeout ?? TimeSpan.FromSeconds(30));
+        return new CodexJob("Draw a troll with two toes - élan, Ünterwelt.", reference, "gpt-6-astra", "low", timeout ?? TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -80,7 +84,12 @@ public class CodexImageGenTests
         {
             Assert.Contains(flag, args);
         }
-        Assert.EndsWith("--prompt--\nDraw a troll with two toes.", args.Replace("\r\n", "\n"));
+        // The prompt arrives whole, in UTF-8 - and through a folder with a space in its name.
+        Assert.EndsWith("--prompt--\nDraw a troll with two toes - élan, Ünterwelt.", args.Replace("\r\n", "\n"));
+        Assert.Contains(' ', Path.GetDirectoryName(exe)!);
+        Assert.Equal("Logged in using ChatGPT", await CodexImageGen.LoginStatusAsync(exe, CancellationToken.None));
+        File.WriteAllText(control, "fail");
+        Assert.Null(await CodexImageGen.LoginStatusAsync(exe, CancellationToken.None));
         // Codex's own folder is left as it was found, picture included.
         Assert.Single(Directory.GetFiles(Path.Combine(home, "generated_images"), "*.png", SearchOption.AllDirectories));
     }
@@ -91,7 +100,9 @@ public class CodexImageGenTests
     [InlineData("wrongpath", "not the one that appeared")]
     [InlineData("noreport", "names no picture")]
     [InlineData("badmagic", "not a PNG")]
+    [InlineData("huge", "the most this app reads is 32 MB")]
     [InlineData("fail", "exited with 3")]
+    [InlineData("earlyexit", "exited with 3")]
     public async Task Anything_but_exactly_the_reported_picture_fails_without_guessing(string behaviour, string reason)
     {
         using var t = new TempInstall();
@@ -100,10 +111,14 @@ public class CodexImageGenTests
         var gen = new CodexImageGen(exe, home);
         var jobDir = Path.Combine(t.Root, "job");
         Directory.CreateDirectory(jobDir);
-        var result = await gen.GenerateAsync(Job(t), jobDir, CancellationToken.None);
+        // "earlyexit" leaves before reading stdin, with a prompt larger than the pipe: the
+        // broken pipe is not the story, the exit code and stderr are.
+        var job = behaviour == "earlyexit" ? Job(t) with { Prompt = new string('x', 400 * 1024) } : Job(t);
+        var result = await gen.GenerateAsync(job, jobDir, CancellationToken.None);
         Assert.False(result.Ok);
         Assert.Contains(reason, result.Failure);
         if (behaviour == "fail") Assert.Contains("no auth", result.Detail);
+        if (behaviour == "earlyexit") Assert.Contains("left early", result.Detail);
     }
 
     [Fact]
@@ -129,6 +144,9 @@ public class CodexImageGenTests
         Assert.Throws<ArgumentException>(() => CodexImageGen.Arguments(job with { Model = "bad model" }, "d", "v"));
         Assert.Throws<ArgumentException>(() => CodexImageGen.Arguments(job with { Effort = "low&del" }, "d", "v"));
         Assert.Equal(["exec", "--ignore-user-config"], CodexImageGen.Arguments(job, "d", "v").Take(2));
+        // cmd.exe's line: raw, under /s, each word with a space in quotes and nothing else escaped.
+        Assert.Equal(@"/d /s /c """"C:\Users\John Smith\npm\codex.cmd"" exec -C ""C:\Users\John Smith\job"" -o v""",
+            CodexImageGen.CommandLine(@"C:\Users\John Smith\npm\codex.cmd", ["exec", "-C", @"C:\Users\John Smith\job", "-o", "v"]));
 
         using var t = new TempInstall();
         var (exe, _, _, _) = Shim(t);
@@ -190,6 +208,7 @@ public class EnhanceWorkerTests
         public byte[]? Png = GoodPng();
         public string? Failure;
         public TaskCompletionSource<bool>? Hold;
+        public bool FinishAnyway;                      // a cancellation arrives too late: the picture comes back
         public string? Status = "Logged in using ChatGPT";
         public readonly List<string> Prompts = [];
 
@@ -201,7 +220,8 @@ public class EnhanceWorkerTests
             if (Hold is { } hold)
             {
                 using var reg = ct.Register(() => hold.TrySetCanceled());
-                try { await hold.Task; } catch (OperationCanceledException) { return new CodexResult(null, "cancelled", ""); }
+                try { await hold.Task; }
+                catch (OperationCanceledException) { if (!FinishAnyway) return new CodexResult(null, "cancelled", ""); }
             }
             return Failure is { } f ? new CodexResult(null, f, "") : new CodexResult(Png, null, "");
         }, _ => Task.FromResult(Status));
@@ -270,8 +290,13 @@ public class EnhanceWorkerTests
         var row = c.Current.Shell.Report!.Portraits!.Single();
         Assert.Equal("enhanced (wow-like)", row.EnhanceNote);
         Assert.Equal(Path.Combine("Enhanced", "kaleid-sumner.tga"), row.ThumbnailFile);
-        Assert.Equal(["Kaleid Sumner"], c.Current.Shell.LastWritten!.EnhancedNames);
+        // Beside the pass's own note, not instead of it: the status line keeps "Last written".
+        Assert.Equal(["Kaleid Sumner"], c.Current.Shell.LastEnhanced!.Names);
+        Assert.Equal(["Kaleid Sumner"], c.Current.Shell.LastWritten!.Written);
+        Assert.Contains("Last written: Kaleid Sumner", PassText.Activity(c.Current.Shell with { LastPass = new PassNote(T0, []) }, T0));
         Assert.StartsWith("Portrait enhanced: Kaleid Sumner", PassText.Headline(c.Current.Shell).Title);
+        c.AcknowledgeUpdate();
+        Assert.DoesNotContain("enhanced", PassText.Headline(c.Current.Shell).Title);
         Assert.Null(c.Current.Shell.Enhancing);
         Assert.Equal("Logged in using ChatGPT", c.Current.CodexStatus);
 
@@ -281,6 +306,78 @@ public class EnhanceWorkerTests
         Assert.Equal(1, fake.Calls);
         // The job folder is gone.
         Assert.False(Directory.Exists(Path.Combine(Data(t), "enhance")) && Directory.GetDirectories(Path.Combine(Data(t), "enhance")).Length > 0);
+    }
+
+    [Fact]
+    public void A_picture_that_cannot_be_written_is_recorded_as_failed_not_written()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        // A folder where the file should go: the replace cannot succeed.
+        Directory.CreateDirectory(Path.Combine(folder.EnhancedDir, "kaleid-sumner.tga"));
+        var fake = new Fake();
+        using var c = Started(t, fake);
+        Until(() => fake.Calls == 1 && AttemptHistoryReady(folder), "the attempt");
+        Until(() => !AttemptHistory.Load(folder.EnhancedDir, Guid1).Last!.Outcome.StartsWith("written"), "the record corrected", 5);
+        var last = AttemptHistory.Load(folder.EnhancedDir, Guid1).Last!;
+        Assert.StartsWith("failed: could not be written", last.Outcome);
+        Assert.Null(last.OutputHash);
+        Assert.Null(c.Current.Shell.LastEnhanced);
+    }
+
+    [Fact]
+    public async Task A_picture_that_comes_back_as_the_app_stops_or_the_game_changes_is_still_written()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake { Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously), FinishAnyway = true };
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        using (var c = Started(t, fake))
+        {
+            Until(() => fake.Calls == 1, "the launch");
+            await c.StopAsync().WaitAsync(TimeSpan.FromSeconds(20));
+        }
+        Assert.True(File.Exists(Path.Combine(folder.EnhancedDir, "kaleid-sumner.tga")));
+        Assert.Equal(Attempt.Written, AttemptHistory.Load(folder.EnhancedDir, Guid1).Last!.Outcome);
+
+        // Browse to another game while a picture is being made: the job is given up at once.
+        using var t2 = new TempInstall();
+        Roster(t2, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t2);
+        using var other = new TempInstall();
+        var fake2 = new Fake { Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) };
+        using var c2 = Started(t2, fake2);
+        Until(() => fake2.Calls == 1, "the launch");
+        Assert.True(c2.Browse(other.Install.FlavorDir));
+        var folder2 = new CutoutFolder(t2.Install.CutoutAddonDir);
+        Until(() => AttemptHistoryReady(folder2), "the record");
+        Assert.Equal(Attempt.Cancelled, AttemptHistory.Load(folder2.EnhancedDir, Guid1).Last!.Outcome);
+        Assert.Null(c2.Current.Shell.Enhancing);
+    }
+
+    [Fact]
+    public void Stale_job_folders_and_odd_records_do_no_harm()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var stale = Path.Combine(Data(t), "enhance", "stale");
+        Directory.CreateDirectory(stale);
+        File.WriteAllText(Path.Combine(stale, "reference.png"), "left by a run that died");
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Directory.CreateDirectory(folder.EnhancedDir);
+        // An outcome with no reason, as a hand edit or a later version might leave: a note, not a crash.
+        File.WriteAllText(AttemptHistory.PathFor(folder.EnhancedDir, Guid1),
+            "{\"Guid\":\"" + Guid1 + "\",\"Attempts\":[{\"Signature\":\"abc\",\"Started\":\"2026-09-29T12:00:00\",\"Ended\":\"2026-09-29T12:01:00\",\"Outcome\":\"failed\"}]}");
+        Assert.Equal("enhancement failed: (no reason given)", folder.EnhanceNote(Guid1));
+        var fake = new Fake();
+        using var c = Started(t, fake, enhance: false);
+        Until(() => c.Current.Shell.Report is not null && !c.Current.Shell.Converting, "the first pass");
+        Assert.False(Directory.Exists(stale));
+        Assert.Equal("enhancement failed: (no reason given)", c.Current.Shell.Report!.Portraits!.Single().EnhanceNote);
     }
 
     [Fact]
@@ -381,10 +478,22 @@ public class EnhanceWorkerTests
         c.SetEnhance(true, 10, EnhanceStyles.WowLike);
         Settle(1500);
         Assert.Equal(1, fake.Calls);
-        // Another style is another combination.
+        // Another style is another combination - and a picture in flight, of the old style,
+        // is given up for it rather than spent to the end.
+        var second = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.Hold = second;
         c.SetEnhance(true, 10, EnhanceStyles.Realistic);
-        fake.Hold = null;
         Until(() => fake.Calls == 2, "the second style");
+        var third = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.Hold = third;
+        c.SetEnhance(true, 10, EnhanceStyles.Cartoonish);
+        Until(() => second.Task.IsCanceled, "the realistic picture given up");
+        Until(() => fake.Calls == 3, "the third style");
+        third.SetResult(true);
+        Until(() => File.Exists(Path.Combine(folder.EnhancedDir, "kaleid-sumner.tga")), "the cartoon written");
+        var attempts = AttemptHistory.Load(folder.EnhancedDir, Guid1).Attempts;
+        Assert.Equal([Attempt.Cancelled, Attempt.Cancelled, Attempt.Written], attempts.Select(a => a.Outcome));
+        Assert.Equal([EnhanceStyles.WowLike, EnhanceStyles.Realistic, EnhanceStyles.Cartoonish], attempts.Select(a => a.Style));
     }
 
     [Fact]
@@ -410,7 +519,10 @@ public class EnhanceWorkerTests
         Until(() => again.Current.Shell.Report is not null && !again.Current.Shell.Converting, "the first pass");
         Settle(2000);
         Assert.Equal(0, fake.Calls);
-        Until(() => again.Current.Shell.Report?.Portraits?.Single().EnhanceNote is not null, "the note");
-        Assert.Equal("enhancing", again.Current.Shell.Report!.Portraits!.Single().EnhanceNote);
+        // ...and closed, so the row does not say "enhancing" about a run that is dead.
+        Until(() => again.Current.Shell.Report?.Portraits?.Single().EnhanceNote == "enhancement cancelled", "the note");
+        var closed = AttemptHistory.Load(folder.EnhancedDir, Guid1).Last!;
+        Assert.Equal("cancelled: the app did not live to finish it", closed.Outcome);
+        Assert.NotNull(closed.Ended);
     }
 }

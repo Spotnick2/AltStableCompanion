@@ -251,6 +251,25 @@ internal sealed partial class MainWindow : Window
         base.OnClosing(e);
     }
 
+    // Enter in the level box applies it, as leaving the box does. The box is then told what
+    // the level is, by hand: a binding does not re-publish a value it already published, and
+    // "abc" must go back to "15" although "15" is what the box was last told.
+    private void OnLevelKeyDown(object? sender, Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key != Avalonia.Input.Key.Enter) return;
+        ApplyLevel(sender);
+        e.Handled = true;
+    }
+
+    private void OnLevelLostFocus(object? sender, RoutedEventArgs e) => ApplyLevel(sender);
+
+    private void ApplyLevel(object? sender)
+    {
+        if (sender is not TextBox box || DataContext is not MainViewModel vm) return;
+        vm.EnhanceMinLevel = box.Text ?? "";
+        box.Text = vm.EnhanceMinLevel;
+    }
+
     private void OnMinimize(object? sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
     private void OnMaximize(object? sender, RoutedEventArgs e) =>

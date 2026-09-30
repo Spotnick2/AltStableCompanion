@@ -10,27 +10,33 @@ public sealed record EnhanceHooks(
     Func<CodexJob, string, CancellationToken, Task<CodexResult>> Generate,
     Func<CancellationToken, Task<string?>> CodexFound)
 {
-    /// <summary>The real thing: the CLI on PATH, its own home, its login status.</summary>
-    public static EnhanceHooks Real()
-    {
-        var exe = CodexImageGen.Find();
-        var gen = exe is null ? null : new CodexImageGen(exe, CodexImageGen.DefaultHome());
-        return new(
-            (job, dir, ct) => gen is null
-                ? Task.FromResult(new CodexResult(null, "codex is not on PATH", ""))
-                : gen.GenerateAsync(job, dir, ct),
-            async ct => exe is null ? null : await CodexImageGen.LoginStatusAsync(exe, ct) ?? "installed");
-    }
+    /// <summary>
+    /// The real thing: the CLI on PATH, its own home, its login status - looked for at each
+    /// call, since the player may install Codex, or remove it, while the app runs.
+    /// </summary>
+    public static EnhanceHooks Real() => new(
+        (job, dir, ct) => CodexImageGen.Find() is { } exe
+            ? new CodexImageGen(exe, CodexImageGen.DefaultHome()).GenerateAsync(job, dir, ct)
+            : Task.FromResult(new CodexResult(null, "codex is not on PATH", "")),
+        async ct => CodexImageGen.Find() is { } exe ? await CodexImageGen.LoginStatusAsync(exe, ct) ?? "installed" : null);
 }
 
 public sealed partial class Controller
 {
     private readonly SemaphoreSlim _enhanceWake = new(0, 1);
-    private CancellationTokenSource? _jobCts;               // the generation in flight, if any
+    // The generation in flight, if any. Never disposed: whoever cancels it (the window, quit,
+    // Browse) does so outside the gate, after the worker may have let go of it.
+    private CancellationTokenSource? _jobCts;
     private Task? _enhanceLoop;
     private string? _codexStatus;                            // null: not found; else how it is signed in
     private bool _codexProbed;
+    private DateTime _codexProbedAt;                         // UTC; looked for again after ProbeAgain, or when asked
+    private bool _reprobeCodex;
+    private int _sweptGeneration = -1;                       // the install whose open records were closed
     private string? _enhanceRefused;                         // why nobody is eligible right now, logged once
+
+    /// <summary>How long the CLI's presence and sign-in are taken on trust while enhancing.</summary>
+    public static readonly TimeSpan ProbeAgain = TimeSpan.FromMinutes(5);
 
     /// <summary>What one launch carries from its preparation to its publication.</summary>
     private sealed record EnhanceJob(string Guid, string Base, string Name, string Signature, string SourceHash,
@@ -45,6 +51,9 @@ public sealed partial class Controller
     private void StartEnhancer()
     {
         if (_enhance is null) return;
+        // Job folders are this run's; whatever a run that did not end left is a copy of a
+        // portrait nobody needs.
+        TryDeleteDir(Path.Combine(_dataDir, "enhance"));
         _enhanceLoop = Task.Run(EnhanceLoopAsync);
         WakeEnhancer();
     }
@@ -63,10 +72,23 @@ public sealed partial class Controller
                     var job = PrepareEnhancement();
                     if (job is null) break;
                     CancellationTokenSource cts;
+                    // The launch, and the last look before it: the setting, the style and the
+                    // install may have changed while the job was prepared.
+                    string? abandon;
                     lock (_gate)
                     {
-                        if (_stopping) { AbandonJob(job, "the app is stopping"); return; }
-                        cts = _jobCts = new CancellationTokenSource();
+                        abandon = _stopping ? "the app is stopping"
+                            : !_settings.Enhance ? "turned off before the launch"
+                            : _settings.EnhanceStyle != job.Style ? "the style changed before the launch"
+                            : job.Generation != _generation ? "the game changed before the launch"
+                            : null;
+                        cts = abandon is null ? _jobCts = new CancellationTokenSource() : new CancellationTokenSource();
+                    }
+                    if (abandon is not null)
+                    {
+                        AbandonJob(job, abandon);
+                        if (_stopping) return;
+                        continue;
                     }
                     CodexResult result;
                     try
@@ -78,7 +100,6 @@ public sealed partial class Controller
                         result = new CodexResult(null, "the generation threw: " + ex.Message, "");
                     }
                     lock (_gate) { if (ReferenceEquals(_jobCts, cts)) _jobCts = null; }
-                    cts.Dispose();
                     PublishEnhancement(job, result);
                 }
             }
@@ -89,15 +110,22 @@ public sealed partial class Controller
         }
     }
 
+    // Once at the start, so the window is right before the box is ticked; then, while
+    // enhancing, when the window asked (the setting changed) or after a while.
     private async Task ProbeCodexAsync()
     {
         bool probe;
-        lock (_gate) { probe = !_codexProbed && _settings.Enhance; }
+        lock (_gate)
+        {
+            probe = !_codexProbed || (_settings.Enhance && (_reprobeCodex || DateTime.UtcNow - _codexProbedAt > ProbeAgain));
+            _reprobeCodex = false;
+        }
         if (!probe) return;
         var status = await _enhance!.CodexFound(CancellationToken.None);
         lock (_gate)
         {
             _codexProbed = true;
+            _codexProbedAt = DateTime.UtcNow;
             _codexStatus = status;
             _current = _current with { CodexStatus = status, CodexProbed = true };
         }
@@ -116,14 +144,34 @@ public sealed partial class Controller
             WowInstall install;
             int generation;
             string? codex;
+            bool sweep;
+            ShellState shell;
             lock (_gate)
             {
-                if (_stopping || !_settings.Enhance || _current.Shell.Install is null || _current.Shell.FirstStart || _current.Shell.Paused) return Idle(null);
+                if (_stopping || _current.Shell.Install is null) return Idle(null);
                 settings = _settings;
-                install = _current.Shell.Install;
+                shell = _current.Shell;
+                install = shell.Install!;
                 generation = _generation;
                 codex = _codexStatus;
+                sweep = _sweptGeneration != generation;
+                _sweptGeneration = generation;
             }
+            // Whatever is still open in this install's history was begun by a run that did not
+            // live to end it: this loop is the only launcher, and nothing of its is in flight
+            // here. Closed, the row stops saying "enhancing"; the signature stays attempted.
+            if (sweep)
+            {
+                var swept = new CutoutFolder(install.CutoutAddonDir);
+                var closed = AttemptHistory.CloseOpen(swept.EnhancedDir,
+                    Attempt.Cancelled + ": the app did not live to finish it", _clock(), m => _log?.Write("enhance: " + m));
+                if (closed > 0)
+                {
+                    _log?.Write($"enhance: {closed} attempt(s) left open by an earlier run closed");
+                    RefreshAfterEnhancement(swept, generation, null);
+                }
+            }
+            if (!settings.Enhance || shell.FirstStart || shell.Paused) return Idle(null);
             if (codex is null) return Idle("the Codex CLI is not on this PC");
             if (!install.RosterDrawsEnhanced) return Idle("the installed AltStable Roster cannot draw enhanced pictures");
 
@@ -248,7 +296,10 @@ public sealed partial class Controller
     /// <summary>
     /// What came back, decoded and checked OUTSIDE the gates; then, under them, the record and
     /// the files, in that order - the record first, so a crash between the two leaves an
-    /// attempt that says "written" with an output hash the next start can look for.
+    /// attempt that says "written" (the signature stays attempted, the player sees no picture
+    /// and can delete the record to try again). A picture that came back complete is written
+    /// into the install it was made for, whatever changed meanwhile: the usage is spent, and
+    /// the portrait it was made from is the one check that matters.
     /// </summary>
     private void PublishEnhancement(EnhanceJob job, CodexResult result)
     {
@@ -294,32 +345,16 @@ public sealed partial class Controller
         lock (_passGate)
         {
             var folder = new CutoutFolder(job.InstallDir);
-            bool stillWanted;
-            lock (_gate)
-            {
-                stillWanted = !_stopping && job.Generation == _generation && _settings.Enhance;
-            }
             if (outcome == Attempt.Written)
             {
-                if (!stillWanted) outcome = Attempt.Cancelled + ": no longer wanted when it came back";
-                else
-                {
-                    // The portrait it was made from must still be the portrait: a new capture
-                    // since means a new signature, and this picture is nobody's.
-                    string now;
-                    try { now = EnhancementSignature.HashOf(Path.Combine(folder.CutoutsDir, job.Base + ".tga")); }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { now = ""; }
-                    if (now != job.SourceHash) outcome = Attempt.Failed + ": the portrait changed while the picture was made";
-                }
+                // The portrait it was made from must still be the portrait: a new capture
+                // since means a new signature, and this picture is nobody's.
+                string now;
+                try { now = EnhancementSignature.HashOf(Path.Combine(folder.CutoutsDir, job.Base + ".tga")); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { now = ""; }
+                if (now != job.SourceHash) outcome = Attempt.Failed + ": the portrait changed while the picture was made";
             }
-            try
-            {
-                AttemptHistory.Load(folder.EnhancedDir, job.Guid).End(job.Signature, outcome, _clock(), outputHash);
-            }
-            catch (AttemptHistoryException ex)
-            {
-                _log?.Write($"enhance: {ex.Message}");
-            }
+            Record(folder, job, outcome, outputHash);
             if (outcome == Attempt.Written)
             {
                 try
@@ -330,22 +365,36 @@ public sealed partial class Controller
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     _log?.Write($"enhance: {job.Name}: the picture could not be written: {ex.Message}");
-                    outcome = Attempt.Failed + ": could not be written";
+                    // The record said written; it must not stay saying so.
+                    outcome = Attempt.Failed + ": could not be written - " + ex.Message;
+                    Record(folder, job, outcome, null);
                 }
             }
             else
             {
                 _log?.Write($"enhance: {job.Name}: {outcome}");
             }
-            RefreshAfterEnhancement(folder, job, outcome == Attempt.Written);
+            RefreshAfterEnhancement(folder, job.Generation, outcome == Attempt.Written ? job.Name : null);
         }
         TryDeleteDir(job.Dir);
         Changed?.Invoke();
     }
 
+    private void Record(CutoutFolder folder, EnhanceJob job, string outcome, string? outputHash)
+    {
+        try
+        {
+            AttemptHistory.Load(folder.EnhancedDir, job.Guid).End(job.Signature, outcome, _clock(), outputHash);
+        }
+        catch (AttemptHistoryException ex)
+        {
+            _log?.Write($"enhance: {ex.Message}");
+        }
+    }
+
     // Under _passGate. The manifest and the rows again, from the folder as it is now; the
-    // notice, when a picture was written.
-    private void RefreshAfterEnhancement(CutoutFolder folder, EnhanceJob job, bool written)
+    // notice, when a picture was written - beside the last pass's, never instead of it.
+    private void RefreshAfterEnhancement(CutoutFolder folder, int generation, string? written)
     {
         IReadOnlyList<ManifestEntry> entries;
         IReadOnlyDictionary<string, DateTime> times;
@@ -362,16 +411,23 @@ public sealed partial class Controller
         }
         lock (_gate)
         {
-            if (job.Generation != _generation || _current.Shell.Report is not { } report) return;
+            if (generation != _generation || _current.Shell.Report is not { } report) return;
             var rows = Collection.Build(entries, report.Characters, times, folder.EnhanceNote);
-            var note = written ? new PassNote(_clock(), [], Enhanced: [job.Name]) : null;
+            var shell = _current.Shell;
+            EnhancedNote? note = null;
+            if (written is not null)
+            {
+                // Unread news gathers: "Kaleid Sumner, Zoruka enhanced".
+                var unread = shell.LastEnhanced is { } earlier && !shell.EnhanceSeen ? earlier.Names : [];
+                note = new EnhancedNote(_clock(), [.. unread, written]);
+            }
             _current = _current with
             {
-                Shell = _current.Shell with
+                Shell = shell with
                 {
                     Report = report with { Portraits = rows },
-                    LastWritten = note ?? _current.Shell.LastWritten,
-                    UpdateSeen = note is null && _current.Shell.UpdateSeen,
+                    LastEnhanced = note ?? shell.LastEnhanced,
+                    EnhanceSeen = note is null && shell.EnhanceSeen,
                 },
             };
         }
@@ -383,7 +439,11 @@ public sealed partial class Controller
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _log?.Write($"enhance: {dir} could not be deleted: {ex.Message}"); }
     }
 
-    /// <summary>The enhancement settings, from the window. Turning it off cancels the picture in flight.</summary>
+    /// <summary>
+    /// The enhancement settings, from the window. Turning it off, or changing the style,
+    /// cancels the picture in flight. The setting changes under the gate BEFORE the
+    /// cancellation, so a job prepared in the meantime finds it off at its launch.
+    /// </summary>
     public void SetEnhance(bool on, int minLevel, string style)
     {
         CancellationTokenSource? cancel = null;
@@ -392,11 +452,14 @@ public sealed partial class Controller
             var before = (_settings.Enhance, _settings.EnhanceMinLevel, _settings.EnhanceStyle);
             var after = new Settings { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style };
             if (before == (after.Enhance, after.EnhanceMinLevel, after.EnhanceStyle)) return;
-            if (!on) { cancel = _jobCts; _jobCts = null; }
+            _settings = _settings with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
+            Write();
+            if (!on || before.EnhanceStyle != after.EnhanceStyle) { cancel = _jobCts; _jobCts = null; }
+            _reprobeCodex = on;
             _current = _current with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
         }
         cancel?.Cancel();
-        Save(s => s with { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style });
+        Changed?.Invoke();
         WakeEnhancer();
     }
 

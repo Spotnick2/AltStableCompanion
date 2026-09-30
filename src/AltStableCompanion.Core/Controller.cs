@@ -171,7 +171,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
     /// <summary>"Got it": the player has read that portraits were written.</summary>
     public void AcknowledgeUpdate()
     {
-        lock (_gate) _current = _current with { Shell = _current.Shell with { UpdateSeen = true } };
+        lock (_gate) _current = _current with { Shell = _current.Shell with { UpdateSeen = true, EnhanceSeen = true } };
         Changed?.Invoke();
     }
 
@@ -284,6 +284,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         }
 
         Watcher? old;
+        CancellationTokenSource? job = null;
         lock (_gate)
         {
             if (_stopping)
@@ -313,9 +314,15 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                     LastPass = same ? _current.Shell.LastPass : null,
                     LastWritten = same ? _current.Shell.LastWritten : null,
                     UpdateSeen = same && _current.Shell.UpdateSeen,
+                    LastEnhanced = same ? _current.Shell.LastEnhanced : null,
+                    EnhanceSeen = same && _current.Shell.EnhanceSeen,
                 },
             };
+            // A picture being made for another game is not wanted here: give it up now, not
+            // when it comes back.
+            if (!same) { job = _jobCts; _jobCts = null; }
         }
+        job?.Cancel();
         old?.Dispose();
         Changed?.Invoke();
         // The first look, at once - and not one the player asked for: it obeys a pause.

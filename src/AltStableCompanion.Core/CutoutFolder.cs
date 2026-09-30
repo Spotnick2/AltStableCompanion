@@ -235,13 +235,20 @@ public sealed class CutoutFolder(string addonDir)
         if (history.Last is not { } last) return null;
         var shown = history.LastWritten;
         if (last.Outcome == Attempt.Written) return $"enhanced ({last.Style})";
-        var what = last.Outcome.StartsWith(Attempt.Refused, StringComparison.Ordinal) ? "enhancement refused: " + last.Outcome[(Attempt.Refused.Length + 2)..]
-            : last.Outcome.StartsWith(Attempt.Failed, StringComparison.Ordinal) ? "enhancement failed: " + last.Outcome[(Attempt.Failed.Length + 2)..]
+        var what = Reason(last.Outcome, Attempt.Refused) is { } refused ? "enhancement refused: " + refused
+            : Reason(last.Outcome, Attempt.Failed) is { } failed ? "enhancement failed: " + failed
             : last.Outcome.StartsWith(Attempt.Cancelled, StringComparison.Ordinal) ? "enhancement cancelled"
             : last.Outcome == Attempt.Unknown ? (last.Ended is null ? "enhancing" : "enhancement outcome unknown")
             : last.Outcome;
         // What is on disk is an earlier success: say both.
         return shown is null ? what : $"enhanced ({shown.Style}); {last.Style} {what.Replace("enhancement ", "")}";
+    }
+
+    // "refused: why" -> "why"; "refused" alone -> "(no reason given)"; anything else -> null.
+    private static string? Reason(string outcome, string prefix)
+    {
+        if (outcome == prefix) return "(no reason given)";
+        return outcome.StartsWith(prefix + ": ", StringComparison.Ordinal) ? outcome[(prefix.Length + 2)..] : null;
     }
 
     /// <summary>The GUID that owns a file base, per its sidecar - for choosing a namesake's file name.</summary>

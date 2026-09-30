@@ -106,7 +106,37 @@ public sealed class AttemptHistory
         return started;
     }
 
-    /// <summary>Record how the launch ended.</summary>
+    /// <summary>
+    /// Every attempt in the folder that was begun and never ended is ended now, with this
+    /// outcome. For the one launcher there is, at a moment when nothing is in flight: what is
+    /// open then is an app that did not live to finish. Files that cannot be read are left.
+    /// </summary>
+    public static int CloseOpen(string enhancedDir, string outcome, DateTime when, Action<string>? warn = null)
+    {
+        if (!Directory.Exists(enhancedDir)) return 0;
+        var closed = 0;
+        foreach (var file in Directory.EnumerateFiles(enhancedDir, "*.attempts.json"))
+        {
+            var guid = Path.GetFileName(file)[..^".attempts.json".Length];
+            if (!ManifestWriter.IsSafeKey(guid)) continue;
+            try
+            {
+                var history = Load(enhancedDir, guid);
+                foreach (var open in history._attempts.Where(a => a.Ended is null).ToList())
+                {
+                    history.End(open.Signature, outcome, when);
+                    closed++;
+                }
+            }
+            catch (AttemptHistoryException ex)
+            {
+                warn?.Invoke(ex.Message);
+            }
+        }
+        return closed;
+    }
+
+    /// <summary>Record how the launch ended - or, ended again: a write that failed after the record said written.</summary>
     public void End(string signature, string outcome, DateTime when, string? outputHash = null)
     {
         var i = _attempts.FindIndex(a => a.Signature == signature);
