@@ -6,7 +6,9 @@ public sealed record Snapshot(
     bool Pinned,
     bool KeepScreenshots,
     bool RestartNotice,
-    string? SettingsProblem);
+    string? SettingsProblem,
+    /// <summary>One of <see cref="Skins"/>.</summary>
+    string Skin = Skins.Clear);
 
 /// <summary>
 /// Everything a shell does that is not drawing: which install, the watcher, the passes, the
@@ -106,6 +108,7 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             {
                 Pinned = resolved.Pinned,
                 KeepScreenshots = _settings.KeepScreenshots,
+                Skin = _settings.Skin,
                 SettingsProblem = Problem(),
                 Shell = new ShellState(Paused: _settings.Paused, FirstStart: !_settings.Started),
             };
@@ -172,6 +175,17 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
         // The pass that runs next is one the player asked for, paused or not.
         Interlocked.Exchange(ref _asked, 1);
         watcher.RunNow();
+    }
+
+    public void SetSkin(string skin)
+    {
+        skin = Skins.Normalize(skin);
+        lock (_gate)
+        {
+            if (_current.Skin == skin) return;
+            _current = _current with { Skin = skin };
+        }
+        Save(s => s with { Skin = skin });
     }
 
     public void SetPaused(bool paused)

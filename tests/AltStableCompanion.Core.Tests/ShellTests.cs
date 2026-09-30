@@ -662,6 +662,33 @@ public class ShellCoreTests
         Assert.Equal(s, Settings.Load(dir));
     }
 
+    [Theory]
+    [InlineData(null, "clear")]
+    [InlineData("", "clear")]
+    [InlineData("clear", "clear")]
+    [InlineData(" Smoked ", "smoked")]
+    [InlineData("FLAT", "flat")]
+    [InlineData("liquid", "clear")]
+    public void A_skin_is_one_of_the_addon_s_or_the_default(string? name, string want)
+    {
+        Assert.Equal(want, Skins.Normalize(name));
+        Assert.Equal(want, new Settings { Skin = name! }.Skin);
+    }
+
+    [Fact]
+    public void The_skin_is_saved_and_told_apart()
+    {
+        using var t = new TempInstall();
+        var dir = Path.Combine(t.Root, "appdata");
+        new Settings { Skin = Skins.Smoked }.Save(dir);
+        Assert.Equal(Skins.Smoked, Settings.Load(dir).Skin);
+        Assert.NotEqual(new Settings { Skin = Skins.Smoked }, new Settings { Skin = Skins.Flat });
+
+        File.WriteAllText(Path.Combine(dir, "settings.json"), """{ "Skin": null }""");
+        Assert.Equal(Skins.Clear, Settings.Load(dir, out var problem).Skin);
+        Assert.Null(problem);
+    }
+
     [Fact]
     public void Settings_written_before_the_notice_was_a_list_still_load()
     {

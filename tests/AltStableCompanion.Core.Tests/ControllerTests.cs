@@ -481,6 +481,32 @@ public class ControllerTests
     }
 
     [Fact]
+    public void The_skin_chosen_is_the_skin_at_the_next_start()
+    {
+        using var t = new TempInstall();
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Paused = true }.Save(Data(t));
+        using (var c = Started(t))
+        {
+            // The window only hears about it through Changed.
+            var changes = 0;
+            c.Changed += () => changes++;
+            Assert.Equal(Skins.Clear, c.Current.Skin);
+            c.SetSkin("smoked");
+            Assert.Equal(Skins.Smoked, c.Current.Skin);
+            Assert.Equal(1, changes);
+            c.SetSkin("no such skin");
+            Assert.Equal(Skins.Clear, c.Current.Skin);
+            c.SetSkin(Skins.Clear);
+            Assert.Equal(2, changes);
+            c.SetSkin(Skins.Flat);
+        }
+        using (var c = Started(t))
+        {
+            Assert.Equal(Skins.Flat, c.Current.Skin);
+        }
+    }
+
+    [Fact]
     public void A_folder_that_is_not_wow_changes_nothing()
     {
         using var t = new TempInstall();
