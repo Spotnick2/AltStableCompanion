@@ -28,6 +28,12 @@ public sealed record CutoutMeta
     public string[]? Shots { get; init; }
 
     /// <summary>
+    /// Set on the sidecar of an enhanced texture (Cutouts\Enhanced\): the plain portrait it
+    /// was made from, by the hash of that file's bytes, and what made it.
+    /// </summary>
+    public EnhancementMeta? Enhancement { get; init; }
+
+    /// <summary>
     /// A standing character is much taller than it is wide. Nearly square means something else
     /// survived the matte - a tooltip above the stage is the one that has happened. Worked out
     /// from the native size the sidecar keeps, so EVERY pass can say it, not only the one that
@@ -67,12 +73,7 @@ public static class CutoutConverter
                 $"the cutout is {nativeH} of {shotH} screen rows tall - the matte caught the whole window, not the character");
         }
 
-        var scaled = Resampler.DownscaleToHeight(cut, TargetHeight);
-        var canvas = new RgbaImage(Pot(scaled.Width), Pot(scaled.Height));
-        for (var y = 0; y < scaled.Height; y++)
-        {
-            Buffer.BlockCopy(scaled.Pixels, scaled.Offset(0, y), canvas.Pixels, canvas.Offset(0, y), scaled.Width * 4);
-        }
+        var (canvas, scaled) = OnCanvas(cut);
 
         var meta = new CutoutMeta
         {
@@ -89,6 +90,21 @@ public static class CutoutConverter
         };
 
         return new Cutout(canvas, meta);
+    }
+
+    /// <summary>
+    /// The figure at the cutout height on the power-of-two canvas the game loads, top-left:
+    /// the one shape every cutout has, plain or enhanced.
+    /// </summary>
+    public static (RgbaImage Canvas, RgbaImage Scaled) OnCanvas(RgbaImage figure)
+    {
+        var scaled = Resampler.DownscaleToHeight(figure, TargetHeight);
+        var canvas = new RgbaImage(Pot(scaled.Width), Pot(scaled.Height));
+        for (var y = 0; y < scaled.Height; y++)
+        {
+            Buffer.BlockCopy(scaled.Pixels, scaled.Offset(0, y), canvas.Pixels, canvas.Offset(0, y), scaled.Width * 4);
+        }
+        return (canvas, scaled);
     }
 
     /// <summary>The smallest power of two at least <paramref name="n"/>. WoW reloads those reliably.</summary>

@@ -261,6 +261,19 @@ public sealed class CutoutFolder(string addonDir)
     }
 
     // The sidecar's JSON shape, which make-cutout.py also writes: lowercase keys as there.
+    // The enhancement block of an enhanced texture's sidecar (docs/PORTRAIT-CONTRACT.md, "Enhanced textures").
+    private sealed class SidecarEnhancement
+    {
+        [JsonPropertyName("sourceHash")] public string? SourceHash { get; set; }
+        [JsonPropertyName("outputHash")] public string? OutputHash { get; set; }
+        [JsonPropertyName("style")] public string? Style { get; set; }
+        [JsonPropertyName("model")] public string? Model { get; set; }
+        [JsonPropertyName("effort")] public string? Effort { get; set; }
+        [JsonPropertyName("prompt")] public int Prompt { get; set; }
+        [JsonPropertyName("signature")] public string? Signature { get; set; }
+        [JsonPropertyName("generated")] public DateTime? Generated { get; set; }
+    }
+
     private sealed class Sidecar
     {
         [JsonPropertyName("w")] public int W { get; set; }
@@ -274,17 +287,28 @@ public sealed class CutoutFolder(string addonDir)
         [JsonPropertyName("guid")] public string? Guid { get; set; }
         [JsonPropertyName("epoch")] public long? Epoch { get; set; }
         [JsonPropertyName("shots")] public string[]? Shots { get; set; }
+        [JsonPropertyName("enhancement")] public SidecarEnhancement? Enhancement { get; set; }
 
         public static Sidecar From(CutoutMeta m) => new()
         {
             W = m.W, H = m.H, TexW = m.TexW, TexH = m.TexH, NativeW = m.NativeW, NativeH = m.NativeH,
             NativeUnit = m.NativeUnit, NativePx = m.NativePx, Guid = m.Guid, Epoch = m.Epoch, Shots = m.Shots,
+            Enhancement = m.Enhancement is { } e ? new SidecarEnhancement
+            {
+                SourceHash = e.SourceHash, OutputHash = e.OutputHash, Style = e.Style, Model = e.Model,
+                Effort = e.Effort, Prompt = e.Prompt, Signature = e.Signature, Generated = e.Generated,
+            } : null,
         };
 
         public CutoutMeta ToMeta() => new()
         {
             W = W, H = H, TexW = TexW, TexH = TexH, NativeW = NativeW, NativeH = NativeH,
             NativeUnit = NativeUnit, NativePx = NativePx, Guid = Guid, Epoch = Epoch, Shots = Shots,
+            Enhancement = Enhancement is { } e ? new EnhancementMeta
+            {
+                SourceHash = e.SourceHash, OutputHash = e.OutputHash, Style = e.Style, Model = e.Model,
+                Effort = e.Effort, Prompt = e.Prompt, Signature = e.Signature, Generated = e.Generated,
+            } : null,
         };
     }
 }
