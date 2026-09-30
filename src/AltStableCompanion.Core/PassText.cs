@@ -170,6 +170,12 @@ public static class PassText
         {
             return new("No portraits yet", "In WoW: /alts portrait, then /reload.", HeadlineKind.Info);
         }
+        // A screenshot still on its way is not a capture that is converted, and not the
+        // player's problem either: the next check looks again.
+        if (rows.Any(r => r.Outcome == CaptureOutcome.Writing))
+        {
+            return new("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info);
+        }
         return new("All captures are converted", s.Paused
             ? "Watching is paused: new captures wait until you resume, or check once."
             : "New captures are processed automatically while this app runs.", HeadlineKind.Good);

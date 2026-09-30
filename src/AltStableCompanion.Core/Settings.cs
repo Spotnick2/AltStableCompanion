@@ -80,6 +80,13 @@ public sealed record Settings
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
+    // Whether the file names the property at all, whatever its value.
+    private static bool Has(string json, string property)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty(property, out _);
+    }
+
     public static string DefaultDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AltStableCompanion");
 
@@ -96,9 +103,20 @@ public sealed record Settings
         var path = Path.Combine(dir, "settings.json");
         try
         {
-            return File.Exists(path)
-                ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(path), Json) ?? new Settings()
-                : new Settings();
+            if (!File.Exists(path)) return new Settings();
+            var text = File.ReadAllText(path);
+            var settings = JsonSerializer.Deserialize<Settings>(text, Json) ?? new Settings();
+            // A file from before "Started" existed: whoever chose a folder, or is owed a restart
+            // notice, has used the app, and their captures must not stop converting until they
+            // find a card in a window they may never open. A file that SAYS Started is false
+            // is this version's, written before the card was answered - Browse writes one -
+            // and that answer is still owed.
+            if (!settings.Started && !Has(text, nameof(Started))
+                && (settings.WowFlavorDir is not null || settings.RestartNoticeInstalls.Count > 0))
+            {
+                settings = settings with { Started = true };
+            }
+            return settings;
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {

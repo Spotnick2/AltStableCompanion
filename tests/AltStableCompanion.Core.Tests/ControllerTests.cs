@@ -425,6 +425,33 @@ public class ControllerTests
     }
 
     [Fact]
+    public void A_folder_chosen_on_the_first_start_card_is_still_the_first_start_after_a_restart()
+    {
+        // Browse writes the settings file with Started false. That is not a file from before
+        // Started existed: the card has not been answered, and nothing converts until it is.
+        using var t = new TempInstall();
+        Capture(t, "1#1", "Aaa", "Player-1-AAAAAAAA", T0);
+        using (var c = Started(t, detect: () => null))
+        {
+            Assert.True(c.Current.Shell.FirstStart);
+            Assert.True(c.Browse(t.Install.FlavorDir));
+            Assert.True(c.Current.Shell.FirstStart);
+        }
+        Assert.False(Settings.Load(Data(t)).Started);
+        using (var c = Started(t, detect: () => null))
+        {
+            Assert.True(c.Current.Shell.FirstStart);
+            // Nothing runs by itself: the screenshots are where they were, and no pass ran.
+            Thread.Sleep(1500);
+            Assert.Null(c.Current.Shell.Report);
+            Assert.Equal(2, Directory.GetFiles(t.Install.Screenshots).Length);
+            c.StartWatching();
+            FirstPass(c);
+            Assert.Equal(["Aaa"], c.Current.Shell.LastWritten!.Written);
+        }
+    }
+
+    [Fact]
     public void Settings_from_before_started_existed_are_not_a_first_start()
     {
         // A folder was chosen: somebody used this app here. Their captures keep converting.

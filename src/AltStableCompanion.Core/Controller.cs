@@ -91,13 +91,6 @@ public sealed class Controller(StartupOptions options, Func<WowInstall?>? detect
             _unreadOnDisk = true;
             _log.Write(unread);
         }
-        // Settings from before "Started" existed: whoever chose a folder, or is owed a restart
-        // notice, has used the app. Their captures must not stop converting until they find
-        // a card in a window they may never open.
-        if (!_settings.Started && (_settings.WowFlavorDir is not null || _settings.RestartNoticeInstalls.Count > 0))
-        {
-            _settings = _settings with { Started = true };
-        }
         var resolved = ResolvedInstall.Resolve(options.WowDir, _settings.WowFlavorDir, detect,
             settingsProblem: _settings.InstallUnknown ? "unknown" : null);
         _log.Write($"started - install: {resolved.Install?.FlavorDir ?? "none"}"

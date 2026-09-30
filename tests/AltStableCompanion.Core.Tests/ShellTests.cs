@@ -249,6 +249,10 @@ public class PassTextTests
         using var t = new TempInstall();
         var s = With(t, Report() with { Portraits = [Ready()] });
         Assert.Equal("New captures are processed automatically while this app runs.", Head(s).Next);
+        // A screenshot still being written is not a capture that is converted.
+        var writing = Ready() with { Outcome = CaptureOutcome.Writing, Note = "a screenshot is in use - next pass", Source = PortraitSource.None, FileName = null };
+        Assert.Equal(new Headline("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info),
+            Head(With(t, Report() with { Portraits = [Ready(), writing] })));
         Assert.Contains("paused", Head(s with { Paused = true }).Next);
         Assert.DoesNotContain("automatically", Head(s with { Paused = true }).Next);
         Assert.DoesNotContain("up to date", Head(s).Title);
@@ -698,7 +702,15 @@ public class ShellCoreTests
         File.WriteAllText(Path.Combine(dir, "settings.json"),
             """{ "WowFlavorDir": "X", "KeepScreenshots": true, "Paused": true, "FirstFolderNoticeShown": true }""");
         var s = Settings.Load(dir);
-        Assert.Equal(new Settings { WowFlavorDir = "X", KeepScreenshots = true, Paused = true }, s);
+        // A folder chosen by a version with no Started: whoever did has used the app.
+        Assert.Equal(new Settings { WowFlavorDir = "X", KeepScreenshots = true, Paused = true, Started = true }, s);
         Assert.Empty(s.RestartNoticeInstalls);
+
+        // A file this version wrote before the card was answered says so, and is believed.
+        File.WriteAllText(Path.Combine(dir, "settings.json"), """{ "WowFlavorDir": "X", "Started": false }""");
+        Assert.False(Settings.Load(dir).Started);
+        // Nothing chosen, nothing owed: a first start either way.
+        File.WriteAllText(Path.Combine(dir, "settings.json"), """{ "Paused": true }""");
+        Assert.False(Settings.Load(dir).Started);
     }
 }

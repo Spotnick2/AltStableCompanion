@@ -457,9 +457,16 @@ public class ConvertPassTests
 
         using (File.Open(Path.Combine(t.Install.Screenshots, TestData.ShotName(T0)), FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            var held = pass.Run().Characters.Single();
+            var report = pass.Run();
+            var held = report.Characters.Single();
             Assert.Equal(CharacterState.Missing, held.State);
             Assert.True(held.Transient);
+            // The whole way to the headline: the app is waiting, and says so.
+            Directory.CreateDirectory(Path.Combine(t.Install.AddOnsDir, "AltStable"));
+            File.WriteAllText(Path.Combine(t.Install.AddOnsDir, "AltStable", "AltStable.toc"), "");
+            var headline = PassText.Headline(new ShellState(Install: t.Install, Report: report));
+            Assert.Equal("A capture is still being written", headline.Title);
+            Assert.Equal(HeadlineKind.Info, headline.Kind);
         }
         Assert.Single(pass.Run().Written);
         var gone = pass.Run().Characters.Single();
