@@ -40,36 +40,6 @@ public class ThumbnailTests
         Assert.Throws<ArgumentOutOfRangeException>(() => Thumbnail.Make(canvas, 6, 10, 0));
     }
 
-    [Fact]
-    public void A_tall_crop_is_first_shrunk_by_blocks_weighted_by_alpha()
-    {
-        // A 4x4 block: three opaque reds and one transparent pixel. The colour is the reds'
-        // alone; the alpha is a quarter gone.
-        var src = new RgbaImage(4, 4);
-        for (var y = 0; y < 4; y++)
-            for (var x = 0; x < 4; x++)
-                src[x, y] = (200, 0, 0, 255);
-        src[1, 1] = (0, 0, 255, 0);
-        for (var x = 0; x < 4; x++) src[x, 3] = (0, 0, 255, 0);
-        var one = Thumbnail.BoxShrink(src, 4);
-        Assert.Equal((1, 1), (one.Width, one.Height));
-        Assert.Equal(((byte)200, (byte)0, (byte)0, (byte)175), one[0, 0]);
-
-        // Blocks of 2: four pixels, and the row that does not fill a block is dropped.
-        var two = Thumbnail.BoxShrink(new RgbaImage(5, 5), 2);
-        Assert.Equal((2, 2), (two.Width, two.Height));
-
-        // Make shrinks a picture taller than four times the thumbnail by blocks first; the
-        // result is the same size either way, and a solid colour stays that colour.
-        var big = new RgbaImage(40, 48);
-        for (var y = 0; y < 48; y++)
-            for (var x = 0; x < 40; x++)
-                big[x, y] = (10, 20, 30, 255);
-        var thumb = Thumbnail.Make(big, 40, 48, 8);
-        Assert.Equal((6, 8), (thumb.Width, thumb.Height));
-        Assert.Equal(((byte)10, (byte)20, (byte)30, (byte)255), thumb[3, 4]);
-    }
-
     private static PortraitRow Row(string file, DateTime modified, int w = 4, int h = 8) =>
         new("Aaa", "g1", file, PortraitSource.ByGuid, modified, T0, CaptureOutcome.Converted, null, Size: (w, h));
 

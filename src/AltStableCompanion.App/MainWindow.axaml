@@ -127,7 +127,8 @@
     <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="#E0C42B1C" />
     </Style>
-    <!-- The slot a thumbnail sits in: fixed, so a row without one keeps its shape -->
+    <!-- The slot a thumbnail sits in: fixed, so a row without one keeps its shape. Its shape
+         is Thumbnail.Aspect (height over width, 1.2): change one, change the other. -->
     <Style Selector="Border.thumb">
       <Setter Property="Width" Value="40" />
       <Setter Property="Height" Value="48" />
