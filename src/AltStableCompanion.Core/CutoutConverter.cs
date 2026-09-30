@@ -28,6 +28,12 @@ public sealed record CutoutMeta
     public string[]? Shots { get; init; }
 
     /// <summary>
+    /// Set on the sidecar of an enhanced texture (Cutouts\Enhanced\): the plain portrait it
+    /// was made from, by the hash of that file's bytes, and what made it.
+    /// </summary>
+    public EnhancementMeta? Enhancement { get; init; }
+
+    /// <summary>
     /// A standing character is much taller than it is wide. Nearly square means something else
     /// survived the matte - a tooltip above the stage is the one that has happened. Worked out
     /// from the native size the sidecar keeps, so EVERY pass can say it, not only the one that

@@ -15,12 +15,31 @@ public sealed record RenderRecord(
     string? Class,
     string StorePath);
 
-/// <summary>One account's capture store. <see cref="Refused"/> is set for a version this app does not know.</summary>
-public sealed record PortraitStore(string Path, int Version, IReadOnlyList<RenderRecord> Renders, string? Refused = null);
+/// <summary>
+/// What the addon's roster knows of a character (<c>AltStableDB[guid]</c>): what an enhanced
+/// portrait's prompt says about them, and whether they are worth one. <see cref="Updated"/> is
+/// the addon's <c>lastUpdate</c>, seconds since the epoch, for choosing between two accounts'
+/// records of the same character.
+/// </summary>
+public sealed record RosterCharacter(string Guid, string Name, string? Class, string? Race, string? Gender, int Level, long Updated);
+
+/// <summary>
+/// One account's capture store, with the roster tables read from the same file at the same
+/// moment. <see cref="Refused"/> is set for a capture-record version this app does not know;
+/// the roster tables are never a reason to refuse - conversion does not depend on them.
+/// </summary>
+public sealed record PortraitStore(string Path, int Version, IReadOnlyList<RenderRecord> Renders, string? Refused = null,
+    IReadOnlyList<RosterCharacter>? Characters = null, IReadOnlySet<string>? Hidden = null)
+{
+    public IReadOnlyList<RosterCharacter> Roster => Characters ?? [];
+    public IReadOnlySet<string> HiddenCharacters => Hidden ?? new HashSet<string>();
+}
 
 public static class SavedVariablesReader
 {
     public const string Global = "AltStablePortraits";
+    public const string RosterGlobal = "AltStableDB";
+    public const string ConfigGlobal = "AltStableConfig";
     public const string FileName = "AltStable.lua";
     public const int SupportedVersion = 1;
 
@@ -82,7 +101,57 @@ public static class SavedVariablesReader
                     Str(e, "race"), Str(e, "class"), path));
             }
         }
-        return new PortraitStore(path, version, renders);
+        return new PortraitStore(path, version, renders, null, ReadRoster(text), ReadHidden(text));
+    }
+
+    // AltStableDB[guid] = { name, class, race, gender, level, lastUpdate, ... }: what the
+    // roster knows. A record without a safe guid or a name is skipped; a missing level is 0,
+    // a missing lastUpdate is 0. Anything odd in these tables is not a reason to stop.
+    private static IReadOnlyList<RosterCharacter> ReadRoster(string text)
+    {
+        var chars = new List<RosterCharacter>();
+        object? value;
+        try
+        {
+            value = LuaTableScanner.ReadGlobal(text, RosterGlobal, out _);
+        }
+        catch (SavedVariablesFormatException)
+        {
+            return chars;
+        }
+        if (value is not Dictionary<object, object?> db) return chars;
+        foreach (var (key, entry) in db)
+        {
+            if (key is not string guid || !ManifestWriter.IsSafeKey(guid)) continue;
+            if (entry is not Dictionary<object, object?> e) continue;
+            var name = Str(e, "name");
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            chars.Add(new RosterCharacter(guid, name, Str(e, "class"), Str(e, "race"), Str(e, "gender"),
+                Num(e, "level") is double lv ? (int)lv : 0, Num(e, "lastUpdate") is double up ? (long)up : 0));
+        }
+        return chars;
+    }
+
+    // AltStableConfig.hiddenCharacters = { [guid] = true }: the ones the roster does not draw.
+    private static IReadOnlySet<string> ReadHidden(string text)
+    {
+        var hidden = new HashSet<string>(StringComparer.Ordinal);
+        object? value;
+        try
+        {
+            value = LuaTableScanner.ReadGlobal(text, ConfigGlobal, out _);
+        }
+        catch (SavedVariablesFormatException)
+        {
+            return hidden;
+        }
+        if (value is not Dictionary<object, object?> config) return hidden;
+        if (!config.TryGetValue("hiddenCharacters", out var h) || h is not Dictionary<object, object?> set) return hidden;
+        foreach (var (key, flag) in set)
+        {
+            if (key is string guid && flag is true) hidden.Add(guid);
+        }
+        return hidden;
     }
 
     /// <summary>
