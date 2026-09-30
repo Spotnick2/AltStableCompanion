@@ -20,6 +20,17 @@ public sealed record EnhancementMeta
     public DateTime? Generated { get; init; }
 }
 
+/// <summary>Codex's reasoning efforts, as its <c>model_reasoning_effort</c> takes them. Low is measured to be enough.</summary>
+public static class EnhanceEfforts
+{
+    public const string Low = "low";
+    public const string Medium = "medium";
+    public const string High = "high";
+    public static readonly IReadOnlyList<string> All = [Low, Medium, High];
+
+    public static string Normalize(string? name) => All.FirstOrDefault(e => e.Equals(name?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? Low;
+}
+
 /// <summary>The style presets a player can pick. The prompt's wording for each is the prompt's.</summary>
 public static class EnhanceStyles
 {

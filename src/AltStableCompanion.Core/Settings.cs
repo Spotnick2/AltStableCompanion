@@ -46,11 +46,17 @@ public sealed record Settings
     /// </summary>
     public bool Enhance { get; init; }
 
+    public const int DefaultEnhanceMinLevel = 10;
+    public const string DefaultEnhanceModel = "gpt-6-astra";
+    public const int DefaultEnhanceTimeoutSeconds = 360;
+
+    // No upper bound: the level cap is the client's to know, and the addon follows it. A
+    // level nobody reaches means nobody, which is what it says.
     public int EnhanceMinLevel
     {
         get;
-        init => field = Math.Clamp(value, 1, 60);
-    } = 10;
+        init => field = Math.Max(1, value);
+    } = DefaultEnhanceMinLevel;
 
     public string EnhanceStyle
     {
@@ -61,20 +67,20 @@ public sealed record Settings
     public string EnhanceModel
     {
         get;
-        init => field = string.IsNullOrWhiteSpace(value) ? "gpt-6-astra" : value.Trim();
-    } = "gpt-6-astra";
+        init => field = string.IsNullOrWhiteSpace(value) ? DefaultEnhanceModel : value.Trim();
+    } = DefaultEnhanceModel;
 
     public string EnhanceEffort
     {
         get;
-        init => field = value?.Trim().ToLowerInvariant() is "low" or "medium" or "high" ? value.Trim().ToLowerInvariant() : "low";
-    } = "low";
+        init => field = EnhanceEfforts.Normalize(value);
+    } = EnhanceEfforts.Low;
 
     public int EnhanceTimeoutSeconds
     {
         get;
         init => field = Math.Clamp(value, 60, 1800);
-    } = 360;
+    } = DefaultEnhanceTimeoutSeconds;
 
     /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is

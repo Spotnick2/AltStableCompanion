@@ -10,8 +10,12 @@ namespace AltStableCompanion.Core;
 public sealed record ManifestEntry(string Key, string? Guid, string FileName, int W, int H, int TexW, int TexH,
     double? NativeW, double? NativeH, EnhancedTexture? Enhanced = null);
 
-/// <summary>A whole texture descriptor for an enhanced picture: the Roster sizes and crops by it.</summary>
-public sealed record EnhancedTexture(string FileName, int W, int H, int TexW, int TexH);
+/// <summary>
+/// A whole texture descriptor for an enhanced picture: the Roster sizes and crops by it. The
+/// file is the contract's <c>Enhanced\&lt;base&gt;.tga</c>, the entry's own file name in that
+/// folder, so it is not a field that could disagree with it.
+/// </summary>
+public sealed record EnhancedTexture(int W, int H, int TexW, int TexH);
 
 /// <summary>
 /// The generated <c>Interface\AddOns\AltStableCutouts</c> addon: TGAs and their JSON sidecars
@@ -135,26 +139,98 @@ public sealed class CutoutFolder(string addonDir)
     /// touched. The primary is hashed only when an enhanced sidecar exists: that is the one
     /// case that needs it.
     /// </summary>
-    public EnhancedTexture? Attached(string fileBase, string primaryPath, string? primaryGuid)
+    public EnhancedTexture? Attached(string fileBase, string primaryPath, string? primaryGuid, Action<string>? warn = null)
     {
-        if (primaryGuid is null) return null;
+        var sidecar = Path.Combine(EnhancedDir, fileBase + ".json");
+        if (!File.Exists(sidecar)) return null;
+        var name = "Enhanced\\" + fileBase + ".tga";
         var meta = ReadEnhancedMeta(fileBase);
-        if (meta?.Enhancement is not { SourceHash: { } source, OutputHash: { } output }) return null;
-        if (meta.Guid != primaryGuid) return null;
-        if (meta.W <= 0 || meta.H <= 0 || meta.TexW <= 0 || meta.TexH <= 0) return null;
+        if (meta?.Enhancement is not { SourceHash: { } source, OutputHash: { } output })
+        {
+            warn?.Invoke($"{name} is not drawn: its sidecar has no enhancement block, or does not parse");
+            return null;
+        }
+        if (primaryGuid is null)
+        {
+            warn?.Invoke($"{name} is not drawn: {fileBase}.tga has no GUID of its own");
+            return null;
+        }
+        if (meta.Guid != primaryGuid)
+        {
+            warn?.Invoke($"{name} is not drawn: its sidecar names another character");
+            return null;
+        }
+        if (meta.W <= 0 || meta.H <= 0 || meta.TexW <= 0 || meta.TexH <= 0)
+        {
+            warn?.Invoke($"{name} is not drawn: its sidecar's sizes are not positive");
+            return null;
+        }
         var enhanced = Path.Combine(EnhancedDir, fileBase + ".tga");
         try
         {
-            if (!File.Exists(enhanced)) return null;
-            if (!string.Equals(EnhancementSignature.HashOf(primaryPath), source, StringComparison.Ordinal)) return null;
-            if (!string.Equals(EnhancementSignature.HashOf(enhanced), output, StringComparison.Ordinal)) return null;
+            if (!File.Exists(enhanced))
+            {
+                warn?.Invoke($"{name} is not drawn: the file is gone");
+                return null;
+            }
+            if (!string.Equals(HashRemembered(primaryPath), source, StringComparison.Ordinal))
+            {
+                warn?.Invoke($"{name} is not drawn: {fileBase}.tga is not the portrait it was made from");
+                return null;
+            }
+            if (!string.Equals(HashRemembered(enhanced), output, StringComparison.Ordinal))
+            {
+                warn?.Invoke($"{name} is not drawn: it is not the picture that was made");
+                return null;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // In use, or gone between the look and the read: not this time.
+            warn?.Invoke($"{name} is not drawn this time: {ex.Message}");
             return null;
         }
-        return new EnhancedTexture(fileBase + ".tga", meta.W, meta.H, meta.TexW, meta.TexH);
+        return new EnhancedTexture(meta.W, meta.H, meta.TexW, meta.TexH);
+    }
+
+    // A file's hash, remembered with the length and time it had: the attachment is looked at
+    // on every pass, and a portrait that has not moved is not read again. A file written in
+    // the last two seconds is always read: a rewrite of the same length inside one clock tick
+    // has the same length and time, and two seconds is longer than any tick. Process-wide,
+    // keyed by the full path, because a folder object lives for one pass.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Length, DateTime Written, string Hash)> Hashes =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static int _hashesComputed;
+
+    private static string HashRemembered(string path)
+    {
+        var info = new FileInfo(path);
+        var length = info.Length;
+        var written = info.LastWriteTimeUtc;
+        var settled = written < DateTime.UtcNow - TimeSpan.FromSeconds(2);
+        if (settled && Hashes.TryGetValue(path, out var known) && known.Length == length && known.Written == written) return known.Hash;
+        var hash = EnhancementSignature.HashOf(path);
+        Interlocked.Increment(ref _hashesComputed);
+        Hashes[path] = (length, written, hash);
+        return hash;
+    }
+
+    /// <summary>How many files have been read and hashed since the process started: for the tests, which watch it not grow.</summary>
+    public static int HashesComputed => _hashesComputed;
+
+    /// <summary>
+    /// An enhanced picture and its sidecar, into Enhanced\, the way <see cref="WriteCutout"/>
+    /// writes a primary: the same serializer, the picture replaced under its final name only
+    /// once it is whole.
+    /// </summary>
+    public void WriteEnhanced(string fileBase, RgbaImage canvas, CutoutMeta meta)
+    {
+        Directory.CreateDirectory(EnhancedDir);
+        var tga = Path.Combine(EnhancedDir, fileBase + ".tga");
+        var tmp = tga + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        TgaCodec.Write(tmp, canvas);
+        Replace(tmp, tga);
+        WriteAtomic(Path.Combine(EnhancedDir, fileBase + ".json"), JsonSerializer.Serialize(Sidecar.From(meta), Json));
     }
 
     /// <summary>The GUID that owns a file base, per its sidecar - for choosing a namesake's file name.</summary>
@@ -244,7 +320,7 @@ public sealed class CutoutFolder(string addonDir)
                 var native = meta.NativeUnit == "screen" && meta.NativeH is < CutoutConverter.MaxScreenFraction;
                 entries.Add(new ManifestEntry(meta.Guid ?? fileBase, meta.Guid, fileName, meta.W, meta.H,
                     meta.TexW, meta.TexH, native ? meta.NativeW : null, native ? meta.NativeH : null,
-                    Attached(fileBase, tga, meta.Guid)));
+                    Attached(fileBase, tga, meta.Guid, warn)));
                 continue;
             }
             try
