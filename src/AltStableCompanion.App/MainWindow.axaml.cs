@@ -195,9 +195,15 @@ internal sealed partial class MainWindow : Window
         }
 
         // No taller than the working area, margins included: a laptop at 150% has less than
-        // this window's default height.
-        var room = area.Height / scale - 2 * margin / scale - excessH;
-        if (Height > room) Height = Math.Max(MinHeight, Math.Floor(room));
+        // this window's default height, and a small one less than its minimum - which then
+        // gives way too, down to what still shows the headline. On screen beats complete.
+        var room = Math.Floor(area.Height / scale - 2 * margin / scale - excessH);
+        if (Height > room)
+        {
+            var fit = Math.Max(240, room);
+            MinHeight = Math.Min(MinHeight, fit);
+            Height = fit;
+        }
 
         var w = (int)Math.Round((Width + excessW) * scale);
         var h = (int)Math.Round((Height + excessH) * scale);
