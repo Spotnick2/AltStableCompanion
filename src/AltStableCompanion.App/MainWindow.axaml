@@ -127,6 +127,9 @@
     <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="#E0C42B1C" />
     </Style>
+    <Style Selector="ToolTip">
+      <Setter Property="MaxWidth" Value="380" />
+    </Style>
     <Style Selector="Ellipse.dot">
       <Setter Property="Width" Value="9" />
       <Setter Property="Height" Value="9" />
@@ -137,7 +140,7 @@
   <!-- The client area reaches the top edge, so the glass does. The title strip is drawn here,
        with the roles that make it a title bar: drag, double-click to maximise, and Windows'
        own snap layouts on the maximise button. -->
-  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,14" RowSpacing="10">
+  <Grid RowDefinitions="Auto,*" Margin="0,0,0,14" RowSpacing="10">
 
     <Grid Grid.Row="0" Height="34" ColumnDefinitions="Auto,*,Auto,Auto,Auto"
           chrome:WindowDecorationProperties.ElementRole="TitleBar" Background="{DynamicResource PaneBrush}">
@@ -158,7 +161,7 @@
     </Grid>
 
    <!-- Settings is a page: it takes the dashboard's place until Back. -->
-   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0" IsVisible="{Binding ShowSettings}">
+   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0" VerticalAlignment="Top" IsVisible="{Binding ShowSettings}">
     <Border Classes="pane">
       <StackPanel Spacing="8">
         <StackPanel Orientation="Horizontal" Spacing="12">
@@ -190,7 +193,9 @@
     </Border>
    </StackPanel>
 
-   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0" IsVisible="{Binding !ShowSettings}">
+   <!-- The dashboard: one container, hidden as one while Settings has the window. -->
+   <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" RowSpacing="10" IsVisible="{Binding !ShowSettings}">
+   <StackPanel Grid.Row="0" Spacing="10" Margin="14,0">
 
     <!-- Which game, is the addon in it, how many accounts -->
     <Border Classes="pane">
@@ -203,7 +208,8 @@
           <TextBlock Grid.Column="1" Text="{Binding Game}" FontWeight="SemiBold" VerticalAlignment="Center" />
         </Grid>
         <Border Grid.Column="1" Width="1" Background="{DynamicResource RimBrush}" />
-        <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center">
+        <!-- Bounded: an Auto column measures with no width, and trimming needs one. -->
+        <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center" MaxWidth="180">
           <!-- A Grid, not a horizontal StackPanel: the text has to know its width to trim. -->
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
             <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" IsVisible="{Binding AddonDetected}" />
@@ -277,7 +283,7 @@
     </Border>
    </StackPanel>
 
-    <Border Grid.Row="2" Classes="data" IsVisible="{Binding ShowList}" ClipToBounds="True" Margin="14,0">
+    <Border Grid.Row="1" Classes="data" IsVisible="{Binding Started}" ClipToBounds="True" Margin="14,0">
       <Panel>
         <TextBlock Classes="dim" IsVisible="{Binding !HasPortraits}" Margin="14"
                    Text="Nothing here yet." />
@@ -285,10 +291,8 @@
           <ItemsControl ItemsSource="{Binding Portraits}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="app:PortraitLine">
-                <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,9">
-                  <ToolTip.Tip>
-                    <TextBlock Text="{Binding Detail}" MaxWidth="360" />
-                  </ToolTip.Tip>
+                <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,9"
+                        ToolTip.Tip="{Binding Tooltip}">
                   <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold"
                                TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
@@ -309,7 +313,7 @@
     </Border>
 
     <!-- Help: how it works, where the files are, what was left out and why -->
-   <StackPanel Grid.Row="3" Spacing="10" Margin="14,0" IsVisible="{Binding !ShowSettings}">
+   <StackPanel Grid.Row="2" Spacing="10" Margin="14,0">
     <Border Classes="pane" IsVisible="{Binding ShowHelp}">
      <ScrollViewer MaxHeight="260">
       <StackPanel Spacing="8">
@@ -351,5 +355,6 @@
       </Grid>
     </Border>
    </StackPanel>
+   </Grid>
   </Grid>
 </Window>

@@ -79,10 +79,6 @@ public static class PassText
     /// <summary>Always in view once watching has started: the one thing the player does.</summary>
     public const string AddHint = "To add one: in WoW, /alts portrait, then /reload.";
 
-    // Said wherever a pass would have run by itself and does not. The two actions it names
-    // are the two beside it: the link that turns it on, and the check button.
-    private const string Off = "Automatic processing is off: turn it on, or check for new captures.";
-
     public static readonly IReadOnlyList<string> HowItWorks =
     [
         "1. In WoW: /alts portrait. The game takes two screenshots.",
@@ -129,9 +125,8 @@ public static class PassText
         }
         if (s.Report is not { } report)
         {
-            return s.Paused
-                ? new("Not checked yet", Off, HeadlineKind.Info)
-                : new("Not checked yet", null, HeadlineKind.Busy);
+            // Off is said once, by the marker under the headline, with the action beside it.
+            return new("Not checked yet", null, s.Paused ? HeadlineKind.Info : HeadlineKind.Busy);
         }
         if (!report.ManifestWritten)
         {
@@ -156,12 +151,7 @@ public static class PassText
                 HeadlineKind.Info, Dismissable: true);
         }
         var rows = report.Portraits ?? [];
-        var attention = rows.Count(r => r.NeedsAttention);
-        if (attention > 0)
-        {
-            return new(attention == 1 ? "1 character needs attention" : $"{attention} characters need attention",
-                "See the list.", HeadlineKind.Attention);
-        }
+        if (Attention(rows) is { } attention) return new(attention, "See the list.", HeadlineKind.Attention);
         if (report.Accounts == 0)
         {
             return new("No AltStable data yet", "Log in to WoW with the addon on, then /reload.", HeadlineKind.Info);
@@ -183,9 +173,8 @@ public static class PassText
         {
             return new("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info);
         }
-        return new("Your portraits are ready", s.Paused
-            ? Off
-            : "New captures are processed automatically while this app runs.", HeadlineKind.Good);
+        return new("Your portraits are ready",
+            s.Paused ? null : "New captures are processed automatically while this app runs.", HeadlineKind.Good);
     }
 
     /// <summary>
@@ -210,15 +199,15 @@ public static class PassText
     public static string RowState(PortraitRow row) => row.Ready ? "Ready" : "No portrait";
 
     /// <summary>
-    /// The one line under a row's name. A row with nothing to act on says only when: the
+    /// The short line under a row's name, for a row with nothing to act on: only when - the
     /// capture's time for a portrait made from it, else the file's, each called what it is.
-    /// The rest of <see cref="RowDetail"/> is for the tooltip. A row that needs attention, one
-    /// whose screenshot is still being written, or one that shares its name shows the full
-    /// detail: those lines are the thing to read.
+    /// The rest of <see cref="RowDetail"/> is for the tooltip. Null when the row has no short
+    /// form: one that needs attention, one whose screenshot is still being written, or one
+    /// that shares its name shows the full detail, because that line is the thing to read.
     /// </summary>
-    public static string RowSummary(PortraitRow row, DateTime today)
+    public static string? RowSummary(PortraitRow row, DateTime today)
     {
-        if (row.NeedsAttention || row.Outcome == CaptureOutcome.Writing || row.ShowGuid) return RowDetail(row, today);
+        if (row.NeedsAttention || row.Outcome == CaptureOutcome.Writing || row.ShowGuid) return null;
         if (row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured) return "Captured " + When(captured, today);
         if (row.FileModified is { } modified) return "File modified " + When(modified, today);
         return "";
@@ -322,7 +311,7 @@ public static class PassText
             { Install: null } => "no WoW folder",
             { FirstStart: true } => "not started: open the window",
             { Converting: true } => "converting",
-            { Paused: true } => "paused",
+            { Paused: true } => "automatic processing off",
             _ => "watching",
         };
         return $"AltStable Companion - {what}";

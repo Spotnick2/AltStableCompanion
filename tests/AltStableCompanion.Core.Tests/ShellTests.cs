@@ -249,14 +249,16 @@ public class PassTextTests
         using var t = new TempInstall();
         var s = With(t, Report() with { Portraits = [Ready()] });
         Assert.Equal(new Headline("Your portraits are ready", "New captures are processed automatically while this app runs.", HeadlineKind.Good), Head(s));
-        // Off is said in the words of the setting, and the two actions named are the two beside it.
-        Assert.Equal("Automatic processing is off: turn it on, or check for new captures.", Head(s with { Paused = true }).Next);
-        Assert.DoesNotContain("automatically", Head(s with { Paused = true }).Next);
+        // Off is said once, by the marker under the headline: the next step does not promise
+        // what will not happen, and does not repeat the marker either.
+        Assert.Equal(new Headline("Your portraits are ready", null, HeadlineKind.Good), Head(s with { Paused = true }));
         Assert.DoesNotContain("up to date", Head(s).Title);
-        // A screenshot still being written is not a portrait that is ready.
+        // A screenshot still being written is not a portrait that is ready - with a portrait
+        // already there, and without one.
         var writing = Ready() with { Outcome = CaptureOutcome.Writing, Note = "a screenshot is in use - next pass" };
-        Assert.Equal(new Headline("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info),
-            Head(With(t, Report() with { Portraits = [Ready(), writing] })));
+        var expected = new Headline("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info);
+        Assert.Equal(expected, Head(With(t, Report() with { Portraits = [Ready(), writing] })));
+        Assert.Equal(expected, Head(With(t, Report() with { Portraits = [Ready(), writing with { Source = PortraitSource.None, FileName = null }] })));
     }
 
     [Fact]
@@ -264,7 +266,7 @@ public class PassTextTests
     {
         using var t = new TempInstall();
         Assert.Equal(new Headline("Not checked yet", null, HeadlineKind.Busy), Head(With(t)));
-        Assert.Equal("Automatic processing is off: turn it on, or check for new captures.", Head(With(t) with { Paused = true }).Next);
+        Assert.Equal(new Headline("Not checked yet", null, HeadlineKind.Info), Head(With(t) with { Paused = true }));
     }
 
     [Fact]
@@ -444,12 +446,9 @@ public class PassTextTests
 
         // The lines that are the thing to read stay whole: attention, a screenshot on its way,
         // and a name two characters share.
-        var rejected = Row(PortraitSource.ByGuid, CaptureOutcome.Unusable, "identical shots", old);
-        Assert.Equal(PassText.RowDetail(rejected, today), PassText.RowSummary(rejected, today));
-        var writing = Row(PortraitSource.None, CaptureOutcome.Writing, "a screenshot is in use - next pass");
-        Assert.Equal(PassText.RowDetail(writing, today), PassText.RowSummary(writing, today));
-        var twin = Row(PortraitSource.ByGuid, CaptureOutcome.Converted) with { ShowGuid = true };
-        Assert.Equal(PassText.RowDetail(twin, today), PassText.RowSummary(twin, today));
+        Assert.Null(PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Unusable, "identical shots", old), today));
+        Assert.Null(PassText.RowSummary(Row(PortraitSource.None, CaptureOutcome.Writing, "a screenshot is in use - next pass"), today));
+        Assert.Null(PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Converted) with { ShowGuid = true }, today));
     }
 
     [Fact]
@@ -459,7 +458,7 @@ public class PassTextTests
         var s = new ShellState(Install: t.Install, Paused: true, Converting: true, Stopping: true);
         Assert.Equal("AltStable Companion - finishing", PassText.TrayTip(s));
         Assert.Equal("AltStable Companion - converting", PassText.TrayTip(s with { Stopping = false }));
-        Assert.Equal("AltStable Companion - paused", PassText.TrayTip(s with { Stopping = false, Converting = false }));
+        Assert.Equal("AltStable Companion - automatic processing off", PassText.TrayTip(s with { Stopping = false, Converting = false }));
         Assert.Equal("AltStable Companion - watching", PassText.TrayTip(new ShellState(Install: t.Install)));
         Assert.Equal("AltStable Companion - no WoW folder", PassText.TrayTip(new ShellState(Converting: true)));
         Assert.Equal("AltStable Companion - not started: open the window", PassText.TrayTip(new ShellState(Install: t.Install, FirstStart: true)));

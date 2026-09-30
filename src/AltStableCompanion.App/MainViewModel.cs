@@ -4,14 +4,20 @@ using AltStableCompanion.Core;
 namespace AltStableCompanion.App;
 
 /// <summary>One line of the list, as text. What it says is decided in Core (PassText).</summary>
-internal sealed record PortraitLine(string Name, string State, string Summary, string Detail, bool Ready, bool Attention)
+/// <param name="Summary">The line under the name.</param>
+/// <param name="Tooltip">The full detail, when the line is not already it; null means no tooltip.</param>
+internal sealed record PortraitLine(string Name, string State, string Summary, string? Tooltip, bool Ready, bool Attention)
 {
     public bool Quiet => !Attention;
     public bool HasSummary => Summary.Length > 0;
 
-    public static PortraitLine From(PortraitRow row, DateTime today) => new(
-        row.Name, PassText.RowState(row), PassText.RowSummary(row, today), PassText.RowDetail(row, today),
-        row.Ready, row.NeedsAttention);
+    public static PortraitLine From(PortraitRow row, DateTime today)
+    {
+        var detail = PassText.RowDetail(row, today);
+        var summary = PassText.RowSummary(row, today);
+        return new(row.Name, PassText.RowState(row), summary ?? detail, summary is null ? null : detail,
+            row.Ready, row.NeedsAttention);
+    }
 }
 
 /// <summary>
@@ -147,13 +153,10 @@ internal sealed class MainViewModel : ObservableObject
     public bool FirstStart
     {
         get => _firstStart;
-        private set { if (Set(ref _firstStart, value)) { Raise(nameof(Started)); Raise(nameof(ShowList)); } }
+        private set { if (Set(ref _firstStart, value)) Raise(nameof(Started)); }
     }
 
     public bool Started => !_firstStart;
-
-    /// <summary>The list has the window once watching has started, unless Settings has it.</summary>
-    public bool ShowList => Started && !_showSettings;
 
     // ---- the list
     public string Count { get => _count; private set => Set(ref _count, value); }
@@ -175,11 +178,7 @@ internal sealed class MainViewModel : ObservableObject
     public bool HasPortraits => _portraits.Count > 0;
 
     // ---- settings
-    public bool ShowSettings
-    {
-        get => _showSettings;
-        set { if (Set(ref _showSettings, value)) Raise(nameof(ShowList)); }
-    }
+    public bool ShowSettings { get => _showSettings; set => Set(ref _showSettings, value); }
     public string InstallPath { get => _installPath; private set => Set(ref _installPath, value); }
     public bool CanChangeInstall { get => _canChangeInstall; private set => Set(ref _canChangeInstall, value); }
 
