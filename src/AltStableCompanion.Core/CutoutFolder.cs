@@ -109,6 +109,9 @@ public sealed class CutoutFolder(string addonDir)
             var fileBase = Path.GetFileNameWithoutExtension(json);
             if (ReadMeta(fileBase) is not { } meta || meta.Guid != guid) continue;
             if (!File.Exists(Path.Combine(CutoutsDir, fileBase + ".tga"))) continue;
+            // A file the manifest will not list does not hold anybody's portrait: answering
+            // with it would call a capture converted that the game can never draw.
+            if (!Listable(fileBase + ".tga", meta.Guid)) continue;
             if (best is null || (meta.Epoch ?? long.MinValue) > (bestEpoch ?? long.MinValue))
             {
                 best = fileBase;
@@ -158,8 +161,7 @@ public sealed class CutoutFolder(string addonDir)
             var fileBase = Path.GetFileNameWithoutExtension(tga);
             var fileName = Path.GetFileName(tga);
             var meta = ReadMeta(fileBase);
-            // The key is the GUID, or the file's own name for a cutout that has none.
-            if (!ManifestWriter.IsSafeFileName(fileName) || !ManifestWriter.IsSafeKey(meta?.Guid ?? fileBase))
+            if (!Listable(fileName, meta?.Guid))
             {
                 warn?.Invoke($"{fileName} is not listed: its name or GUID has characters a manifest cannot carry");
                 continue;
@@ -187,9 +189,27 @@ public sealed class CutoutFolder(string addonDir)
             catch (Exception ex) when (ex is IOException or TgaFormatException)
             {
                 // Unreadable right now; it will be listed on the next pass.
+                warn?.Invoke($"{fileName} is not listed: it could not be read ({ex.Message})");
             }
         }
         return entries;
+    }
+
+    // The key is the GUID, or the file's own name for a cutout that has none.
+    private static bool Listable(string fileName, string? guid) =>
+        ManifestWriter.IsSafeFileName(fileName)
+        && ManifestWriter.IsSafeKey(guid ?? Path.GetFileNameWithoutExtension(fileName));
+
+    /// <summary>When each listed file was last written, by file name. Local time.</summary>
+    public IReadOnlyDictionary<string, DateTime> FileTimes(IEnumerable<ManifestEntry> entries)
+    {
+        var times = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in entries)
+        {
+            var path = Path.Combine(CutoutsDir, e.FileName);
+            if (File.Exists(path)) times[e.FileName] = File.GetLastWriteTime(path);
+        }
+        return times;
     }
 
     /// <summary>
@@ -197,9 +217,13 @@ public sealed class CutoutFolder(string addonDir)
     /// idle pass writes nothing: every write is a chance to meet the client reading the file
     /// during a /reload. Returns whether it wrote.
     /// </summary>
-    public bool WriteManifest(DateTime now, Action<string>? warn = null)
+    public bool WriteManifest(DateTime now, Action<string>? warn = null) =>
+        WriteManifest(Inventory(warn), now);
+
+    /// <summary>The same, for an inventory already taken: the folder is listed once a pass.</summary>
+    public bool WriteManifest(IReadOnlyList<ManifestEntry> entries, DateTime now)
     {
-        var lua = ManifestWriter.Render(Inventory(warn), now);
+        var lua = ManifestWriter.Render(entries, now);
         if (File.Exists(ManifestPath) && ManifestWriter.SameEntries(File.ReadAllText(ManifestPath), lua))
         {
             return false;

@@ -51,3 +51,9 @@ Only one instance runs at a time. Starting it again brings the running one's win
 ## Licence
 
 MIT - see [LICENSE](LICENSE).
+
+The World of Warcraft Forever emblem in the window is Blizzard Entertainment's, used
+resized and otherwise unchanged under their trademark usage guidelines; the originals and the
+terms are in [Reference/Blizzard](Reference/Blizzard/README.md). World of Warcraft is a
+trademark or registered trademark of Blizzard Entertainment, Inc., in the U.S. and/or other
+countries. This is a fan tool, not affiliated with or endorsed by Blizzard.

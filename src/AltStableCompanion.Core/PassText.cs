@@ -33,50 +33,208 @@ public sealed record ShellState(
     /// <summary>The last pass of this install, whatever it found.</summary>
     PassNote? LastPass = null,
     /// <summary>The last pass of this install that wrote a portrait, since the app started.</summary>
-    PassNote? LastWritten = null);
+    PassNote? LastWritten = null,
+    /// <summary>The player has read that portraits were written ("Got it").</summary>
+    bool UpdateSeen = false,
+    /// <summary>
+    /// The very first start: nothing is converted until the player has read what happens to
+    /// their screenshots and said "Start watching".
+    /// </summary>
+    bool FirstStart = false);
+
+public enum HeadlineKind
+{
+    /// <summary>Nothing to do.</summary>
+    Good,
+    /// <summary>The app is doing something.</summary>
+    Busy,
+    /// <summary>Something to know, or a step to take in the game.</summary>
+    Info,
+    /// <summary>Something in the list needs the player.</summary>
+    Attention,
+    /// <summary>Something is wrong with the app's own work.</summary>
+    Problem,
+}
+
+/// <summary>What the window leads with: how things stand, and the one next step that applies.</summary>
+public sealed record Headline(string Title, string? Next, HeadlineKind Kind, bool Dismissable = false);
 
 /// <summary>
-/// What the app says about a pass: the status line, the balloon, a character's state. Plain
+/// What the app says: the headline, the next step, the list's lines, the balloon. Plain
 /// strings from plain data, here so that they are tested like the rest.
 /// </summary>
 public static class PassText
 {
+    // Not "first portrait created": the notice is owed for a NEW ADDON FOLDER, which can also
+    // be one that was repaired, and it stays until it is dismissed.
     public const string RestartNotice =
-        "The AltStableCutouts addon was just created. WoW only notices a new addon folder at startup - "
-        + "quit the game completely and start it again once. After that, Reload is enough.";
+        "Restart WoW once to enable the portraits addon. WoW only finds a new addon folder when it starts: "
+        + "if the game is open, quit it completely and start it again. After that, /reload is enough.";
+
+    public const string FirstStart =
+        "AltStable Companion turns the captures you take in game into portraits, by itself. "
+        + "Once a portrait is written, the two screenshots it was made from are deleted. "
+        + "No other screenshot is ever touched.";
+
+    public static readonly IReadOnlyList<string> HowItWorks =
+    [
+        "1. In WoW: /alts portrait. The game takes two screenshots.",
+        "2. /reload (or log out), so the game saves what it captured.",
+        "3. This app makes the portrait, within a few seconds.",
+        "4. /reload again to see it. The very first portrait needs the game restarted once.",
+    ];
 
     /// <summary>
-    /// One line, the most useful thing to know first. What the player has to act on outranks
-    /// what the app is doing, and a hint outranks nothing:
-    /// stopping, no install, converting, a failed pass, no addon, records this app cannot read,
-    /// paused, no data, no pass yet, the reload hint, watching.
+    /// How things stand and what to do next: the first of these that applies.
+    ///
+    /// The app can see files and capture records. It cannot see what the game has loaded, or a
+    /// capture the game has not saved yet. So nothing here says "up to date", and what the
+    /// player may have to do in the game is advice ("if WoW is open ..."), never a debt the
+    /// app claims to have measured.
     /// </summary>
-    public static string StatusLine(ShellState s)
+    public static Headline Headline(ShellState s) => Headline(s, restartNotice: false);
+
+    /// <summary>
+    /// The same, knowing whether the restart notice is owed: the one step that beats "/reload",
+    /// because a reload does not find a new addon folder and the player would follow the
+    /// headline, reload, and see nothing.
+    /// </summary>
+    public static Headline Headline(ShellState s, bool restartNotice)
     {
-        if (s.Stopping) return "Finishing the pass in hand...";
-        if (s.Install is null) return (s.InstallProblem ?? "Couldn't find the WoW folder") + " - Browse...";
-        if (s.Converting) return s.Paused ? "Converting - watching is paused" : "Converting...";
-        if (s.LastError is not null) return "The last pass failed - see the log";
-        if (!s.Install.AltStableInstalled) return "AltStable is not installed in this flavour";
-        if (s.Report is { Refused: > 0 })
+        if (s.Stopping) return new("Finishing...", null, HeadlineKind.Busy);
+        if (s.Install is null)
         {
-            return "Some capture records are newer than this app reads - update the companion";
+            return new("World of Warcraft folder not set",
+                (s.InstallProblem ?? "Couldn't find the WoW folder") + ". Choose it in Settings.", HeadlineKind.Problem);
         }
-        if (s.Paused) return s.Report is null ? "Paused - nothing has been looked at yet" : "Paused";
-        if (s.Report is null) return "Starting...";
-        if (s.Report.Accounts == 0) return "No AltStable data yet - log in with the addon on, then Reload";
-        // Any screenshot newer than the records counts, a hand-taken one too: this is a hint
-        // about what MAY have happened, and is worded as one.
-        if (s.Report.Stale is not null)
+        if (s.FirstStart) return new("Ready to start", null, HeadlineKind.Info);
+        // A check that is running outranks the failure of the one before it: "something went
+        // wrong" over a retry in progress reads as if the retry had failed already.
+        if (s.Converting)
         {
-            return "Newer screenshots found. If you just captured a portrait, Reload in game.";
+            return new("Checking...", s.LastError is null ? null : "The check before this one failed.", HeadlineKind.Busy);
         }
-        // "Watching" is where the app rests: a capture has been dealt with and it is waiting
-        // for the next. What it last did is said beside it, by Activity.
-        return s.Report.Characters.Count == 0
-            ? "Watching for captures - in game: /alts portrait, then Reload"
-            : "Watching for new captures";
+        if (s.LastError is not null)
+        {
+            return new("The last check failed", s.Report is null
+                ? "See the log, under Help."
+                : "The list is from the last check that worked. See the log, under Help.", HeadlineKind.Problem);
+        }
+        if (s.Report is not { } report)
+        {
+            return s.Paused
+                ? new("Not checked yet", "Watching is paused: resume, or check once.", HeadlineKind.Info)
+                : new("Not checked yet", null, HeadlineKind.Busy);
+        }
+        if (!report.ManifestWritten)
+        {
+            return new("Portraits written, but not listed",
+                "The list the game reads could not be written. See the log, under Help.", HeadlineKind.Problem);
+        }
+        if (!s.Install.AltStableInstalled)
+        {
+            return new("AltStable is not installed in this game",
+                "Install the AltStable addon, then start the game.", HeadlineKind.Problem);
+        }
+        if (report.Refused > 0)
+        {
+            return new("This app is too old for your AltStable", "Update AltStable Companion.", HeadlineKind.Problem);
+        }
+        if (s.LastWritten is { Written.Count: > 0 } wrote && !s.UpdateSeen)
+        {
+            return new(wrote.Written.Count == 1 ? $"Portrait written: {Names(wrote.Written)}" : $"{Names(wrote.Written)} written",
+                restartNotice
+                    ? "Restart WoW once to see " + (wrote.Written.Count == 1 ? "it" : "them") + ": see below."
+                    : "If WoW is open, /reload to load " + (wrote.Written.Count == 1 ? "it." : "them."),
+                HeadlineKind.Info, Dismissable: true);
+        }
+        var rows = report.Portraits ?? [];
+        var attention = rows.Count(r => r.NeedsAttention);
+        if (attention > 0)
+        {
+            return new(attention == 1 ? "1 character needs attention" : $"{attention} characters need attention",
+                "See the list.", HeadlineKind.Attention);
+        }
+        if (report.Accounts == 0)
+        {
+            return new("No AltStable data yet", "Log in to WoW with the addon on, then /reload.", HeadlineKind.Info);
+        }
+        // Any screenshot newer than the records raises this, a hand-taken one too: it is a
+        // hint about what MAY have happened, and the step is only for who did capture.
+        if (report.Stale is not null)
+        {
+            return new("A capture may be waiting",
+                "If you just captured a portrait, /reload in WoW so the game saves it.", HeadlineKind.Info);
+        }
+        if (rows.Count == 0)
+        {
+            return new("No portraits yet", "In WoW: /alts portrait, then /reload.", HeadlineKind.Info);
+        }
+        // A screenshot still on its way is not a capture that is converted, and not the
+        // player's problem either: the next check looks again.
+        if (rows.Any(r => r.Outcome == CaptureOutcome.Writing))
+        {
+            return new("A capture is still being written", "The next check looks at it again.", HeadlineKind.Info);
+        }
+        return new("All captures are converted", s.Paused
+            ? "Watching is paused: new captures wait until you resume, or check once."
+            : "New captures are processed automatically while this app runs.", HeadlineKind.Good);
     }
+
+    /// <summary>
+    /// "20 portraits · 1 needs attention". A capture with no portrait is not a portrait, and a
+    /// file two characters share is one portrait, not two.
+    /// </summary>
+    public static string Count(IReadOnlyList<PortraitRow> rows)
+    {
+        var ready = rows.Where(r => r.Ready).Select(r => r.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var attention = rows.Count(r => r.NeedsAttention);
+        var line = ready == 1 ? "1 portrait" : $"{ready} portraits";
+        return attention == 0 ? line : $"{line} · {attention} " + (attention == 1 ? "needs attention" : "need attention");
+    }
+
+    public static string RowState(PortraitRow row) => row.Ready ? "Ready" : "No portrait";
+
+    /// <summary>
+    /// The line under a row's name. The portrait's time and the capture's time are said apart,
+    /// each as what it is: a capture that was rejected did not update the portrait.
+    /// </summary>
+    public static string RowDetail(PortraitRow row, DateTime today)
+    {
+        var parts = new List<string>();
+        if (row.Source == PortraitSource.File)
+        {
+            parts.Add(row.FileName ?? "");
+            if (row.FileModified is { } modified) parts.Add("file modified " + When(modified, today));
+        }
+        else
+        {
+            if (row.LatestCapture is { } captured) parts.Add("latest capture " + When(captured, today));
+            parts.Add(row.Outcome switch
+            {
+                CaptureOutcome.Converted => "converted",
+                CaptureOutcome.Unknown => "portrait from an earlier converter",
+                CaptureOutcome.NoScreenshots when row.Ready => "not converted: its screenshots are gone",
+                CaptureOutcome.NoScreenshots => (row.Note ?? "no screenshots") + " - capture again if they are gone",
+                CaptureOutcome.Writing => row.Note ?? "a screenshot is still being written",
+                _ => row.Note ?? "not converted",
+            });
+            if (row.Source == PortraitSource.ByName) parts.Add($"portrait found by name ({row.FileName})");
+            if (row.Ready && row.Outcome != CaptureOutcome.Converted && row.FileModified is { } modified)
+            {
+                parts.Add("file modified " + When(modified, today));
+            }
+        }
+        if (row.Ready && row.NearlySquare && row.Outcome is CaptureOutcome.Converted or CaptureOutcome.Unknown)
+        {
+            parts.Add("nearly square: something else may be in it - capture again");
+        }
+        if (row.ShowGuid && row.Guid is not null) parts.Add(row.Guid);
+        return string.Join(" · ", parts.Where(p => p.Length > 0));
+    }
+
+    // "today 12:13", "yesterday 09:05", else the date: for a row, where the minute is enough.
+    private static string When(DateTime t, DateTime today) => Stamp(t, today, "HH:mm");
 
     /// <summary>
     /// What the last pass did, and when - so that a pass which found nothing still shows that
@@ -106,7 +264,7 @@ public static class PassText
         var line = $"Last check {Time(pass.At, today)}: {what}.";
         if (pass.Written.Count == 0 && s.LastWritten is { Written.Count: > 0 } last)
         {
-            line += $" Last written: {Names(last.Written)}, at {Time(last.At, today)}.";
+            line += $" Last written: {Names(last.Written)}, {Time(last.At, today)}.";
         }
         return line;
     }
@@ -114,8 +272,17 @@ public static class PassText
     private static string Names(IReadOnlyList<string> names) =>
         names.Count == 1 ? names[0] : $"{names.Count} portraits";
 
-    private static string Time(DateTime t, DateTime today) => t.ToString(
-        t.Date == today.Date ? "HH:mm:ss" : "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+    // The same to the second, for the check line.
+    private static string Time(DateTime t, DateTime today) => Stamp(t, today, "HH:mm:ss");
+
+    // One rule for both: today and yesterday by name, any other day by its date.
+    private static string Stamp(DateTime t, DateTime today, string clock)
+    {
+        var time = t.ToString(clock, System.Globalization.CultureInfo.InvariantCulture);
+        if (t.Date == today.Date) return "today " + time;
+        if (t.Date == today.Date.AddDays(-1)) return "yesterday " + time;
+        return t.ToString("yyyy-MM-dd ", System.Globalization.CultureInfo.InvariantCulture) + time;
+    }
 
     /// <summary>The tray icon's tooltip: the app's name and, in a word, what it is doing.</summary>
     public static string TrayTip(ShellState s)
@@ -124,6 +291,7 @@ public static class PassText
         {
             { Stopping: true } => "finishing",
             { Install: null } => "no WoW folder",
+            { FirstStart: true } => "not started: open the window",
             { Converting: true } => "converting",
             { Paused: true } => "paused",
             _ => "watching",
@@ -148,24 +316,18 @@ public static class PassText
         return (what, report.Written.Count == 1 ? "Reload in game to see it." : "Reload in game to see them.");
     }
 
-    public static string StateLabel(CharacterState state) => state switch
+    /// <summary>
+    /// The window's top line, in its three parts: which game, whether the addon is in it, and
+    /// how many accounts have its data. Forever is the game this app is for and is called by
+    /// its name; any other flavour is called by its folder.
+    /// </summary>
+    public static (string Game, string Addon, string? Accounts) InstallSummary(WowInstall install, PassReport? report)
     {
-        CharacterState.Portrait => "Portrait",
-        CharacterState.Missing => "No screenshots",
-        CharacterState.Ambiguous => "Left alone",
-        CharacterState.Collided => "Capture again",
-        CharacterState.Rejected => "Not a portrait",
-        CharacterState.Failed => "Failed",
-        _ => state.ToString(),
-    };
-
-    /// <summary>The line under the path: what was found in the install.</summary>
-    public static string InstallDetail(WowInstall install, PassReport? report)
-    {
-        var addon = install.AltStableInstalled ? "AltStable: installed" : "AltStable: not installed";
-        if (report is null) return addon;
-        var accounts = report.Accounts == 1 ? "1 account" : $"{report.Accounts} accounts";
-        return $"{addon} - {accounts}";
+        var forever = string.Equals(install.Flavor, WowInstallLocator.DefaultFlavor, StringComparison.OrdinalIgnoreCase);
+        return (
+            forever ? "World of Warcraft Forever" : $"World of Warcraft ({install.Flavor})",
+            install.AltStableInstalled ? "AltStable detected" : "AltStable not installed",
+            report is null ? null : report.Accounts == 1 ? "1 account" : $"{report.Accounts} accounts");
     }
 
     /// <summary>The generated .toc says Interface 16001: only Forever reads it as current.</summary>
