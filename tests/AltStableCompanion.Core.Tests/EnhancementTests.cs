@@ -284,31 +284,43 @@ public class EnhancementPromptTests
     {
         var p = EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike);
         Assert.Contains("a Female Troll Warlock", p);
-        Assert.Contains("It is the authority", p);
+        // Who from the screenshot, how from the style: the words that undid version 1 are gone.
+        Assert.Contains("Use it to identify the character", p);
+        Assert.Contains("Create a fresh depiction in the requested style", p);
+        Assert.DoesNotContain("authority", p);
+        Assert.DoesNotContain("exactly as shown", p);
+        Assert.StartsWith("Use the built-in image_gen tool", p);
+        Assert.DoesNotContain("skill", p);
         Assert.Contains("two toes on each foot, three fingers on each hand", p);
         Assert.Contains("Troll anatomy", p);
-        Assert.Contains("TRANSPARENT background", p);
-        Assert.Contains("EXACTLY ONE image", p);
+        Assert.Contains("do not remove or alter clothing to expose it", p);
+        Assert.Contains("transparent background with an alpha channel", p);
+        Assert.Contains("exactly ONE image", p);
         Assert.Contains("ARTIFACT_PATH: ", p);
-        Assert.Contains("do not add weapons, magic effects, glows, pets", p);
-        // No gear words, no scenery, no crop talk: the reference carries the clothing.
-        Assert.DoesNotContain("gear", p, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("crop", p, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Background:", p);
+        Assert.Contains("do not invent a path", p);
+        Assert.Contains("Do not add weapons, shields, armour pieces, capes, ornaments, pets or magical effects", p);
+        Assert.Contains("at least 8% of the canvas left empty along EACH edge", p);
+        Assert.Contains("POSE", p);
+        Assert.Contains("The silhouette stays taller than it is wide", p);
+        // The style is named once, under its heading, before the identity list.
+        Assert.True(p.IndexOf("STYLE", StringComparison.Ordinal) < p.IndexOf("IDENTITY AND EQUIPMENT", StringComparison.Ordinal));
+        Assert.Equal(2, EnhancementPrompt.Version);
     }
 
     [Fact]
     public void Each_style_and_race_has_its_line_and_an_unknown_race_has_none()
     {
-        Assert.Contains("photorealistic", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
-        Assert.Contains("cartoon", EnhancementPrompt.Build(Troll, EnhanceStyles.Cartoonish));
-        Assert.Contains("World of Warcraft style", EnhancementPrompt.Build(Troll, "no such style"));
+        Assert.Contains("Photorealistic", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
+        Assert.Contains("stitching, buckles, rivets, engraving", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
+        Assert.Contains("animated-series", EnhancementPrompt.Build(Troll, EnhanceStyles.Cartoonish));
+        Assert.Contains("hand-painted World of Warcraft promotional character illustration", EnhancementPrompt.Build(Troll, "no such style"));
+        Assert.Contains("rather than an in-game render with improved shading", EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike));
         Assert.Contains("hooves", EnhancementPrompt.Anatomy("Tauren")!);
         Assert.Contains("green skin", EnhancementPrompt.Anatomy("orc")!);
         Assert.Contains("greyish undead", EnhancementPrompt.Anatomy("Scourge")!);
         Assert.Null(EnhancementPrompt.Anatomy("Pandaren"));
         var noRace = EnhancementPrompt.Build(Troll with { Race = null, Gender = null, Class = null }, EnhanceStyles.WowLike);
-        Assert.Contains("cutout of a character from", noRace);
+        Assert.Contains("character: a character.", noRace);
         Assert.DoesNotContain("anatomy", noRace);
         // The token is spelled as a reader would say it, and the client's display name wins.
         var elf = EnhancementPrompt.Build(Troll with { Race = "NightElf", RaceName = null }, EnhanceStyles.WowLike);

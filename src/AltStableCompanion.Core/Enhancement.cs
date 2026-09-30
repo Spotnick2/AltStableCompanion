@@ -116,8 +116,14 @@ public static class Eligibility
 /// </summary>
 public static class EnhancementPrompt
 {
-    /// <summary>Bumped when the words change enough that a picture made with the old ones is not this prompt's.</summary>
-    public const int Version = 1;
+    /// <summary>
+    /// Bumped when the words change enough that a picture made with the old ones is not this
+    /// prompt's; the version is in the signature, so every eligible character is made again.
+    /// 2 (2026-09-30): version 1 said "copy it faithfully" six times and named the style once,
+    /// and the pictures were the game model with better shading, realistic included. Now the
+    /// screenshot says WHO and the style says HOW, and the picture is made from scratch.
+    /// </summary>
+    public const int Version = 2;
 
     public static string Build(RosterCharacter c, string style)
     {
@@ -129,37 +135,57 @@ public static class EnhancementPrompt
         var cls = c.Class?.Trim() ?? "";
         var who = string.Join(" ", new[] { gender, raceWords, Class(cls) }.Where(w => w.Length > 0));
         if (who.Length == 0) who = "character";
+        // The shape (the tool named, not the skill; identity kept, rendering replaced; a bounded
+        // natural pose; margins the checks in Enhancement.Inspect will accept) was reviewed by
+        // Codex on 2026-09-30 after version 1's pictures came back as the game model.
         var sb = new StringBuilder();
-        sb.AppendLine("Use the imagegen skill (the built-in image_gen tool) to generate ONE image.");
+        sb.AppendLine("Use the built-in image_gen tool to generate exactly ONE image from the attached character reference, with a transparent background. Make one generation call; do not generate variants or retry.");
         sb.AppendLine();
-        sb.AppendLine($"The attached image is the character: a screenshot cutout of a {who} from World of Warcraft. " +
-                      "It is the authority for everything about them - copy it faithfully rather than inventing:");
-        sb.AppendLine("- skin colour exactly as shown, face, eye colour, expression;");
-        sb.AppendLine("- hair exactly as shown: colour, length and style, and how it sits with any headwear;");
-        sb.AppendLine("- jewellery, tattoos, war paint and markings as shown;");
-        sb.AppendLine("- the clothing and armour exactly as shown: the same garments, the same colours and patterns, the same amount of bare skin;");
-        sb.AppendLine("- what is in the hands as shown, and nothing more: do not add weapons, magic effects, glows, pets or anything the screenshot does not show;");
-        sb.AppendLine("- the standing pose, facing the viewer.");
+        sb.AppendLine($"Create a new full-body image of this World of Warcraft character: a {who}.");
+        sb.AppendLine();
+        sb.AppendLine("REFERENCE ROLE");
+        sb.AppendLine("The attachment is a small, low-resolution screenshot of a game model. Use it to identify the character and their equipment. Create a fresh depiction in the requested style; do not reproduce its low-resolution textures, polygonal surfaces, baked-in lighting or stiff model pose.");
+        sb.AppendLine();
+        sb.AppendLine("STYLE");
+        sb.AppendLine(Style(style));
+        sb.AppendLine();
+        sb.AppendLine("IDENTITY AND EQUIPMENT");
+        sb.AppendLine("Preserve the character's recognisable design:");
+        sb.AppendLine("- Skin colour, facial features, eye colour and expression, as far as visible.");
+        sb.AppendLine("- Hair colour, length, hairstyle and overall hair silhouette, including its relationship to headwear.");
+        sb.AppendLine("- Visible jewellery, tattoos, war paint and other markings.");
+        sb.AppendLine("- The same clothing and armour pieces, their shapes, colours, patterns and coverage. Keep bare skin exposed in the same locations. Do not add layers or enlarge armour.");
+        sb.AppendLine("- The same visible weapons and held objects: preserve their number, recognisable shape, colours, relative size and which hand holds each. Empty hands stay empty.");
+        sb.AppendLine("- Visible accessories elsewhere on the body as well.");
+        sb.AppendLine();
+        sb.AppendLine("Race and class provide context, not permission to invent equipment. Do not add weapons, shields, armour pieces, capes, ornaments, pets or magical effects. Where the screenshot is unclear, use a simple interpretation consistent with what is visible.");
         sb.AppendLine();
         if (Anatomy(race) is { } anatomy)
         {
-            sb.AppendLine($"{RaceWords(race)} anatomy, which the small screenshot may not make clear: {anatomy}.").AppendLine();
+            sb.AppendLine($"{RaceWords(race)} anatomy, which the small screenshot may not make clear: {anatomy}. This applies beneath the existing clothing and equipment: do not remove or alter clothing to expose it.").AppendLine();
         }
         else if (race.Length > 0)
         {
             // A race the model has never heard of (Forever's Skyborne): the picture is all there is.
             sb.AppendLine($"The {raceWords} may be a race you do not know: take its anatomy - ears, hands, feet, horns, wings, tail, tusks - exactly from the screenshot, and invent nothing.").AppendLine();
         }
-        sb.AppendLine(Style(style));
+        sb.AppendLine("POSE");
+        sb.AppendLine("A relaxed, confident standing pose with a small natural weight shift, both feet down, face and torso toward the viewer; the race's natural posture kept, including any hunch. Relax the screenshot's stiff arms while keeping held items in their original hands and their designs visible; arms and equipment reasonably close to the body. No action pose, lunge, crouch, jump, spread arms or extreme perspective. The silhouette stays taller than it is wide.");
         sb.AppendLine();
-        sb.AppendLine("Requirements:");
-        sb.AppendLine("- Vertical full-body portrait, 1024x1536 pixels.");
-        sb.AppendLine("- TRANSPARENT background: a PNG with an alpha channel, the character fully opaque, everything else fully transparent. No scenery, no floor, no ground shadow, no glow, no vignette.");
-        sb.AppendLine("- The whole character inside the frame - top of the head to feet - with visible margin on every side; nothing touches the edges.");
-        sb.AppendLine("- No text, no nameplate, no UI, no watermark.");
-        sb.AppendLine("- Produce EXACTLY ONE image.");
-        sb.AppendLine("- Do NOT edit, create, or modify any files.");
-        sb.AppendLine("- After generating, report on its own line the EXACT absolute path of the generated image, prefixed with \"ARTIFACT_PATH: \".");
+        sb.AppendLine("COMPOSITION AND OUTPUT");
+        sb.AppendLine("- One character, one view, one vertical 1024x1536 PNG.");
+        sb.AppendLine("- The complete character and all equipment, from the highest hair, headwear or weapon tip to the lowest foot or item tip.");
+        sb.AppendLine("- The complete silhouette centred, occupying about 80-84% of the canvas height, with at least 8% of the canvas left empty along EACH edge. The margins include hair strands, ears, shoulder pieces, clothing and weapons: nothing touches or crosses an edge.");
+        sb.AppendLine("- The character prominent, not a tiny figure in empty space. Fit broad equipment by adjusting the pose and the framing, without cropping, shrinking items or changing their design.");
+        sb.AppendLine("- A real transparent background with an alpha channel: empty space, including gaps between limbs and equipment, fully transparent; the character opaque, with normal antialiasing at the silhouette's edges.");
+        sb.AppendLine("- No scenery, backdrop, floor, ground shadow, reflection, haze, aura, glow around the figure, vignette, border or checkerboard pattern. Lighting and shadows describe the character's surfaces only.");
+        sb.AppendLine("- No text, nameplate, UI, watermark, extra views or duplicate figures.");
+        sb.AppendLine();
+        sb.AppendLine("EXECUTION AND DELIVERY");
+        sb.AppendLine("The image tool may create its normal output file; leave it where the tool put it. Do not otherwise create, edit, copy or modify files, and do not use scripts or external image-generation services.");
+        sb.AppendLine("After a successful generation, return this line with the actual absolute local path the tool reported:");
+        sb.AppendLine("ARTIFACT_PATH: <absolute path of the generated image>");
+        sb.AppendLine("If the generation fails or no local path is available, say so plainly; do not invent a path or emit an ARTIFACT_PATH line.");
         return sb.ToString();
     }
 
@@ -191,11 +217,12 @@ public static class EnhancementPrompt
         _ => null,
     };
 
+    // The style must be visible at thumbnail size: "subtle" was the owner's word for a failure.
     private static string Style(string style) => EnhanceStyles.Normalize(style) switch
     {
-        EnhanceStyles.Realistic => "Render them as a highly detailed photorealistic fantasy portrait with cinematic lighting: the same character seen as if real.",
-        EnhanceStyles.Cartoonish => "Render them as a stylized cartoon fantasy portrait: bold outlines, saturated colours, exaggerated but recognisable features: the same character, drawn.",
-        _ => "Render them as a World of Warcraft style fantasy portrait: semi-realistic, painterly, vibrant, heroic proportions, clean and detailed: the same character seen at higher quality.",
+        EnhanceStyles.Realistic => "Photorealistic: this character as a living person or fantasy being, photographed with studio-quality lighting. Preserve their race-specific anatomy and proportions, including nonhuman features. Real skin with pores and fine lines, real hair with individual strands, fabric weave, worn leather and scuffed metal; cinematic lighting with soft shadows on the figure itself. Make the existing costume and equipment look physically constructed, with visible craftsmanship - stitching, buckles, rivets, engraving - and honest wear. It must not look like a 3D game model, a painting, or a human dressed as a different race.",
+        EnhanceStyles.Cartoonish => "A polished animated-series character illustration: bold clean outlines, flat saturated colours and crisp cel shading. Simplify surface textures into clear graphic shapes while preserving the recognisable face, hairstyle, markings, costume patterns and equipment. Expressive, moderately exaggerated features, the race's recognisable proportions kept, a standing silhouette taller than it is wide. One finished full-body character in one view, with no turnaround panels or inset details.",
+        _ => "A finished, hand-painted World of Warcraft promotional character illustration: bold sculpted forms, expressive brushwork, rich colour, and dramatic light and shadow across the figure. Make the transformation obvious at thumbnail size through strong painted volumes and clear material separation, with dimensional cloth folds, substantial metal, textured leather and flowing locks of hair. Preserve the character's recognisable WoW race proportions and existing costume shapes. The result should read as polished fantasy key art, with visible painterly decisions throughout, rather than an in-game render with improved shading. Keep the original equipment design and colours.",
     };
 
     // The addon stores WoW's upper-case class token.

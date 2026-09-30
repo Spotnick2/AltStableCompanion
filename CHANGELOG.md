@@ -12,6 +12,9 @@ version's section, as it stands here, for the notes of its GitHub Release.
   PC, a better picture of each character of the chosen level or more, from its own portrait.
   The one exception to "no network": the Settings page says exactly what is sent and when
   it spends. Needs an AltStable Roster that knows enhanced textures.
+- The prompt, version 2: the screenshot says who the character is, the style says how the
+  picture looks, and the picture is made from scratch - version 1 gave back the game model
+  with better shading, "realistic" included. Every eligible character is made again.
 
 ## [0.1.0]
 
