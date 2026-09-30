@@ -283,59 +283,73 @@ public class EnhancementPromptTests
     public void The_reference_rules_and_the_prompt_says_only_what_it_cannot()
     {
         var p = EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Troll Warlock", p);
-        // Who from the screenshot, how from the style: the words that undid version 1 are gone.
-        Assert.Contains("Use it to identify the character", p);
-        Assert.Contains("Create a fresh depiction in the requested style", p);
-        Assert.DoesNotContain("authority", p);
+        Assert.Contains("The character is a Female Troll Warlock.", p);
+        // The design is preserved; the sculpt and the rendering are reinterpreted.
+        Assert.StartsWith("Use the built-in image_gen tool. Use the attached character as the design reference and generate a distinctly World of Warcraft cinematic interpretation.", p);
+        Assert.Contains("Preserve the recognizable character:", p);
+        Assert.Contains("Reinterpret the facial sculpt and rendering substantially.", p);
+        Assert.Contains("Keep the race's signature features - stature, ears, nose, tusks, horns, head-to-body proportions", p);
+        Assert.DoesNotContain("gnome", p, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("copy it faithfully", p);
         Assert.DoesNotContain("exactly as shown", p);
-        Assert.StartsWith("Use the built-in image_gen tool", p);
         Assert.DoesNotContain("skill", p);
         Assert.Contains("two toes on each foot, three fingers on each hand", p);
         Assert.Contains("Troll anatomy", p);
-        Assert.Contains("do not remove or alter clothing to expose it", p);
-        Assert.Contains("transparent background with an alpha channel", p);
-        Assert.Contains("exactly ONE image", p);
+        Assert.Contains("do not remove or alter them to show it", p);
+        Assert.Contains("apparent at thumbnail size", p);
+        Assert.Contains("Do not add armor, scars, dirt, or age.", p);
+        Assert.Contains("genuinely transparent background", p);
+        Assert.Contains("1024x1536", p);
         Assert.Contains("ARTIFACT_PATH: ", p);
         Assert.Contains("do not invent a path", p);
-        Assert.Contains("Do not add weapons, shields, armour pieces, capes, ornaments, pets or magical effects", p);
-        Assert.Contains("at least 120 pixels wide is left empty along the left edge", p);
-        Assert.Contains("POSE", p);
-        Assert.Contains("The silhouette stays taller than it is wide", p);
-        // The style is named once, under its heading, before the identity list.
-        Assert.True(p.IndexOf("STYLE", StringComparison.Ordinal) < p.IndexOf("IDENTITY AND EQUIPMENT", StringComparison.Ordinal));
+        // Preserve, then reinterpret, then the look, then the delivery.
+        Assert.True(p.IndexOf("Preserve the recognizable", StringComparison.Ordinal) < p.IndexOf("Reinterpret the facial", StringComparison.Ordinal));
+        Assert.True(p.IndexOf("Reinterpret the facial", StringComparison.Ordinal) < p.IndexOf("cinematic depth", StringComparison.Ordinal));
+        Assert.True(p.IndexOf("cinematic depth", StringComparison.Ordinal) < p.IndexOf("ARTIFACT_PATH", StringComparison.Ordinal));
         Assert.Equal(2, EnhancementPrompt.Version);
     }
 
     [Fact]
     public void Each_style_and_race_has_its_line_and_an_unknown_race_has_none()
     {
-        Assert.Contains("Photorealistic", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
-        Assert.Contains("stitching, buckles, rivets, engraving", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
-        Assert.Contains("animated-series", EnhancementPrompt.Build(Troll, EnhanceStyles.Cartoonish));
-        Assert.Contains("World of Warcraft cinematic trailers", EnhancementPrompt.Build(Troll, "no such style"));
-        Assert.Contains("not the in-game model and not a painting", EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike));
+        var real = EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic);
+        Assert.Contains("distinctly photorealistic, live-action interpretation", real);
+        Assert.Contains("Do not preserve cartoon geometry simply because it appears in the reference.", real);
+        Assert.Contains("Do not turn the character into an average-proportioned human.", real);
+        Assert.Contains("underlying bone, cartilage, muscle, and soft tissue", real);
+        Assert.Contains("folds caused by gravity", real);
+        Assert.Contains("photographic portrait lighting", real);
+        Assert.DoesNotContain("gnome", real, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TGA", real);
+        Assert.Contains("distinctly animated-feature interpretation", EnhancementPrompt.Build(Troll, EnhanceStyles.Cartoonish));
+        Assert.Contains("distinctly World of Warcraft cinematic interpretation", EnhancementPrompt.Build(Troll, "no such style"));
+        Assert.Contains("Blizzard's pre-rendered Warcraft cinematic aesthetic", EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike));
         Assert.Contains("hooves", EnhancementPrompt.Anatomy("Tauren")!);
         Assert.Contains("green skin", EnhancementPrompt.Anatomy("orc")!);
         Assert.Contains("greyish undead", EnhancementPrompt.Anatomy("Scourge")!);
         Assert.Null(EnhancementPrompt.Anatomy("Pandaren"));
         var noRace = EnhancementPrompt.Build(Troll with { Race = null, Gender = null, Class = null }, EnhanceStyles.WowLike);
-        Assert.Contains("character: a character.", noRace);
-        Assert.DoesNotContain("anatomy", noRace);
+        Assert.Contains("The character is a character.", noRace);
+        Assert.DoesNotContain("anatomy, which", noRace);
+        Assert.DoesNotContain("may be a race you do not know", noRace);
         // The token is spelled as a reader would say it, and the client's display name wins.
         var elf = EnhancementPrompt.Build(Troll with { Race = "NightElf", RaceName = null }, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Night Elf Warlock", elf);
+        Assert.Contains("The character is a Female Night Elf Warlock.", elf);
         Assert.Contains("Night Elf anatomy", elf);
         Assert.DoesNotContain("NightElf", elf);
         var undead = EnhancementPrompt.Build(Troll with { Race = "Scourge", RaceName = "Undead" }, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Undead Warlock", undead);
+        Assert.Contains("The character is a Female Undead Warlock.", undead);
         Assert.Contains("Undead anatomy", undead);
         Assert.DoesNotContain("Scourge", undead);
-        // Forever's own race: the model has never seen one, so the picture is the whole truth.
+        // Forever's own race: the model has never seen one, but the owner has - a high elf.
         var sky = EnhancementPrompt.Build(Troll with { Race = "Skyborne", RaceName = "Windshaper Skyborne" }, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Windshaper Skyborne Warlock", sky);
-        Assert.Contains("may be a race you do not know", sky);
-        Assert.DoesNotContain("anatomy, which", sky);
+        Assert.Contains("The character is a Female Windshaper Skyborne Warlock.", sky);
+        Assert.Contains("Skyborne anatomy, which the small reference may not make clear: a high elf's anatomy", sky);
+        Assert.DoesNotContain("may be a race you do not know", sky);
+        // A race nobody has seen: the picture is the whole truth.
+        var unknown = EnhancementPrompt.Build(Troll with { Race = "Pandaren", RaceName = null }, EnhanceStyles.WowLike);
+        Assert.Contains("may be a race you do not know", unknown);
+        Assert.DoesNotContain("anatomy, which", unknown);
         Assert.Contains("Death Knight", EnhancementPrompt.Build(Troll with { Class = "DEATHKNIGHT" }, EnhanceStyles.WowLike));
     }
 
