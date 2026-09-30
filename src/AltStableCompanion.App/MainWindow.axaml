@@ -214,14 +214,16 @@
    </StackPanel>
 
    <!-- Help is a page too: the four steps, the folder, the log, the warnings, the credit. -->
-   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0" VerticalAlignment="Top" IsVisible="{Binding ShowHelp}">
-    <Border Classes="pane">
+   <!-- The page fills the window so its content can scroll: the warnings have no bound. -->
+   <Border Grid.Row="1" Classes="pane" Margin="14,0" IsVisible="{Binding ShowHelp}">
+    <Grid RowDefinitions="Auto,*" RowSpacing="8">
+      <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
+        <Button Classes="link" Content="← Back" Command="{Binding ToggleHelp}" VerticalAlignment="Center"
+                ToolTip.Tip="Back to your portraits" />
+        <TextBlock Classes="heading" Text="Help" VerticalAlignment="Center" />
+      </StackPanel>
+      <ScrollViewer Grid.Row="1">
       <StackPanel Spacing="8">
-        <StackPanel Orientation="Horizontal" Spacing="12">
-          <Button Classes="link" Content="← Back" Command="{Binding ToggleHelp}" VerticalAlignment="Center"
-                  ToolTip.Tip="Back to your portraits" />
-          <TextBlock Classes="heading" Text="Help" VerticalAlignment="Center" />
-        </StackPanel>
         <TextBlock Text="How it works" FontWeight="SemiBold" Margin="0,6,0,0" />
         <ItemsControl ItemsSource="{Binding HowItWorks}">
           <ItemsControl.ItemTemplate>
@@ -249,8 +251,9 @@
         <TextBlock Classes="dim" Margin="0,6,0,0"
                    Text="World of Warcraft is a trademark or registered trademark of Blizzard Entertainment, Inc., in the U.S. and/or other countries." />
       </StackPanel>
-    </Border>
-   </StackPanel>
+      </ScrollViewer>
+    </Grid>
+   </Border>
 
    <!-- The dashboard: one container, hidden as one while a page has the window. -->
    <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" RowSpacing="10" IsVisible="{Binding ShowDashboard}">
