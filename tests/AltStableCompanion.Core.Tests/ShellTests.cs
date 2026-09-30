@@ -449,6 +449,13 @@ public class PassTextTests
         Assert.Null(PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Unusable, "identical shots", old), today));
         Assert.Null(PassText.RowSummary(Row(PortraitSource.None, CaptureOutcome.Writing, "a screenshot is in use - next pass"), today));
         Assert.Null(PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Converted) with { ShowGuid = true }, today));
+
+        // The tooltip: the detail when the line is not already it; the word about the
+        // picture when it could not be read - alone when the line says everything else.
+        Assert.Null(PassText.RowTooltip(null, "the detail", previewFailed: false));
+        Assert.Equal("the detail", PassText.RowTooltip("Captured today 12:13", "the detail", previewFailed: false));
+        Assert.Equal("the detail · " + PassText.PreviewUnavailable, PassText.RowTooltip("Captured today 12:13", "the detail", previewFailed: true));
+        Assert.Equal(PassText.PreviewUnavailable, PassText.RowTooltip(null, "the detail", previewFailed: true));
     }
 
     [Fact]

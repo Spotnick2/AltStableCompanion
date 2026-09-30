@@ -446,6 +446,29 @@ public class ConvertPassTests
     }
 
     [Fact]
+    public async Task A_cutout_somebody_is_reading_is_still_replaced()
+    {
+        // The window reads a cutout for its thumbnail for a few milliseconds. Windows will not
+        // replace a file that is open, so the writer waits it out.
+        using var t = new TempInstall();
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        f.WriteCutout("kaleid-sumner", TestData.Solid(4, 4, 1, 1, 1), new CutoutMeta { W = 4, H = 4, TexW = 4, TexH = 4 });
+        var path = Path.Combine(f.CutoutsDir, "kaleid-sumner.tga");
+        using var reading = new ManualResetEventSlim();
+        var reader = Task.Run(() =>
+        {
+            using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            reading.Set();
+            Thread.Sleep(150);
+        });
+        reading.Wait();
+        f.WriteCutout("kaleid-sumner", TestData.Solid(4, 4, 9, 9, 9), new CutoutMeta { W = 4, H = 4, TexW = 4, TexH = 4 });
+        await reader;
+        Assert.Equal(((byte)9, (byte)9, (byte)9, (byte)255), TgaCodec.Read(path)[0, 0]);
+        Assert.False(File.Exists(path + ".tmp"));
+    }
+
+    [Fact]
     public void A_screenshot_in_use_is_missing_for_now_not_gone()
     {
         using var t = new TempInstall();

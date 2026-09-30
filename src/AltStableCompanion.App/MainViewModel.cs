@@ -24,9 +24,8 @@ internal sealed record PortraitLine(string Name, string State, string Summary, s
     {
         var detail = PassText.RowDetail(row, today);
         var summary = PassText.RowSummary(row, today);
-        var tooltip = summary is null ? null : detail;
-        if (previewFailed) tooltip = (tooltip ?? detail) + " · " + PassText.PreviewUnavailable;
-        return new(row.Name, PassText.RowState(row), summary ?? detail, tooltip, row.Ready, row.NeedsAttention, thumbnail);
+        return new(row.Name, PassText.RowState(row), summary ?? detail, PassText.RowTooltip(summary, detail, previewFailed),
+            row.Ready, row.NeedsAttention, thumbnail);
     }
 }
 
@@ -45,6 +44,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
 
     private readonly Controller _controller;
     private readonly ThumbnailCache<Bitmap> _thumbnails = new(ThumbnailHeight, ToBitmap, b => b.Dispose());
+    private bool _wantThumbnails;
     private string _game = "";
     private string _addon = "";
     private string? _accounts;
@@ -99,6 +99,12 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public Command StartWatching { get; }
     public Command ToggleSettings { get; }
     public Command ToggleHelp { get; }
+
+    /// <summary>
+    /// Set once the window has been shown: until then the pictures are read for nobody. The
+    /// Refresh that shows the window reads them.
+    /// </summary>
+    public bool WantThumbnails { get => _wantThumbnails; set => _wantThumbnails = value; }
 
     public string RestartNoticeText => PassText.RestartNotice;
     public string FirstStartText => PassText.FirstStart;
@@ -308,7 +314,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Count = PassText.Count(rows);
         Attention = PassText.Attention(rows);
         // The pictures are read here, on the UI thread: a few hundred KB each, once per file.
-        var cutouts = shell.Install is null ? null : new CutoutFolder(shell.Install.CutoutAddonDir).CutoutsDir;
+        var cutouts = shell.Install is null || !_wantThumbnails ? null : new CutoutFolder(shell.Install.CutoutAddonDir).CutoutsDir;
         var lines = rows.Select(r =>
         {
             var failed = false;

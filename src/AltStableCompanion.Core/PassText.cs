@@ -202,6 +202,19 @@ public static class PassText
     public static string RowState(PortraitRow row) => row.Ready ? "Ready" : "No portrait";
 
     /// <summary>
+    /// The row's tooltip, from its <see cref="RowSummary"/> and <see cref="RowDetail"/>: the
+    /// detail when the line is not already it, plus a word when the picture could not be read
+    /// this time - and only that word when the line already says everything else. Null when
+    /// there is nothing to add.
+    /// </summary>
+    public static string? RowTooltip(string? summary, string detail, bool previewFailed)
+    {
+        var more = summary is null ? null : detail;
+        if (!previewFailed) return more;
+        return more is null ? PreviewUnavailable : more + " · " + PreviewUnavailable;
+    }
+
+    /// <summary>
     /// The short line under a row's name, for a row with nothing to act on: only when - the
     /// capture's time for a portrait made from it, else the file's, each called what it is.
     /// The rest of <see cref="RowDetail"/> is for the tooltip. Null when the row has no short
