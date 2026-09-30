@@ -80,6 +80,7 @@ internal sealed partial class App : Application
             Dispatcher.UIThread.Post(() =>
             {
                 _refreshQueued = false;
+                if (_quitting) return;
                 _viewModel?.Refresh();
                 _tray?.SetTip(Tip());
             }, DispatcherPriority.Background);
@@ -122,6 +123,7 @@ internal sealed partial class App : Application
             _window = new MainWindow { DataContext = _viewModel };
             _window.Closed += (_, _) => _window = null;
         }
+        _viewModel.WantThumbnails = true;
         _viewModel.Refresh();
         _window.Show();
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
@@ -155,9 +157,17 @@ internal sealed partial class App : Application
     private void Leave()
     {
         _quitting = true;
-        if (_window is not null) _window.Quitting = true;
+        // The window goes before the pictures it shows do.
+        if (_window is not null)
+        {
+            _window.Quitting = true;
+            _window.Close();
+            _window = null;
+        }
         _tray?.Dispose();
         _tray = null;
+        _viewModel?.Dispose();
+        _viewModel = null;
         _controller?.Dispose();
         Instance?.Dispose();
     }

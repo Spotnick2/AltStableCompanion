@@ -71,8 +71,27 @@ public sealed class CutoutFolder(string addonDir)
         var tga = Path.Combine(CutoutsDir, fileBase + ".tga");
         var tmp = tga + ".tmp";
         TgaCodec.Write(tmp, canvas);
-        File.Move(tmp, tga, overwrite: true);
+        Replace(tmp, tga);
         WriteAtomic(Path.Combine(CutoutsDir, fileBase + ".json"), JsonSerializer.Serialize(Sidecar.From(meta), Json));
+    }
+
+    // Windows refuses to replace a file somebody has open, whatever sharing they asked for -
+    // and the window reads a cutout for a few milliseconds when it draws its thumbnail. The
+    // replace is tried again for a moment before it is a failure.
+    private static void Replace(string tmp, string target)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(tmp, target, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 40)
+            {
+                Thread.Sleep(25);
+            }
+        }
     }
 
     /// <summary>The sidecar of a cutout, or null when it has none or it does not parse.</summary>

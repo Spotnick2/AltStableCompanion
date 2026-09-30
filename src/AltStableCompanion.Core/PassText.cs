@@ -76,6 +76,9 @@ public static class PassText
         + "Once a portrait is written, the two screenshots it was made from are deleted. "
         + "No other screenshot is ever touched.";
 
+    /// <summary>On a row whose picture could not be read this time. The portrait itself is not in question.</summary>
+    public const string PreviewUnavailable = "preview unavailable: the file could not be read just now";
+
     /// <summary>Always in view once watching has started: the one thing the player does.</summary>
     public const string AddHint = "To add one: in WoW, /alts portrait, then /reload.";
 
@@ -197,6 +200,19 @@ public static class PassText
     };
 
     public static string RowState(PortraitRow row) => row.Ready ? "Ready" : "No portrait";
+
+    /// <summary>
+    /// The row's tooltip, from its <see cref="RowSummary"/> and <see cref="RowDetail"/>: the
+    /// detail when the line is not already it, plus a word when the picture could not be read
+    /// this time - and only that word when the line already says everything else. Null when
+    /// there is nothing to add.
+    /// </summary>
+    public static string? RowTooltip(string? summary, string detail, bool previewFailed)
+    {
+        var more = summary is null ? null : detail;
+        if (!previewFailed) return more;
+        return more is null ? PreviewUnavailable : more + " · " + PreviewUnavailable;
+    }
 
     /// <summary>
     /// The short line under a row's name, for a row with nothing to act on: only when - the
