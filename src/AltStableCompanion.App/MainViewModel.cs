@@ -66,6 +66,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private bool _showSettings;
     private string _skin = Skins.Clear;
     private bool _showHelp;
+    private string _search = "";
+    private IReadOnlyList<PortraitRow> _rows = [];
     private IReadOnlyList<PortraitLine> _portraits = [];
     private IReadOnlyList<string> _warnings = [];
 
@@ -86,6 +88,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         StartWatching = new Command(controller.StartWatching);
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
         ToggleHelp = new Command(() => ShowHelp = !ShowHelp);
+        ClearSearch = new Command(() => Search = "");
         Refresh();
     }
 
@@ -99,6 +102,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public Command StartWatching { get; }
     public Command ToggleSettings { get; }
     public Command ToggleHelp { get; }
+    public Command ClearSearch { get; }
 
     /// <summary>
     /// Set once the window has been shown: until then the pictures are read for nobody. The
@@ -197,8 +201,23 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool HasPortraits => _portraits.Count > 0;
 
+    /// <summary>What an empty list says: nothing yet, or nothing by that name.</summary>
+    public string EmptyText => Searching ? "No character by that name." : "Nothing here yet.";
+
     // ---- settings
-    public bool ShowSettings { get => _showSettings; set => Set(ref _showSettings, value); }
+    // Settings and Help are pages: one at a time, and the dashboard while neither.
+    public bool ShowSettings
+    {
+        get => _showSettings;
+        set
+        {
+            if (!Set(ref _showSettings, value)) return;
+            if (value) ShowHelp = false;
+            Raise(nameof(ShowDashboard));
+        }
+    }
+
+    public bool ShowDashboard => !_showSettings && !_showHelp;
     public string InstallPath { get => _installPath; private set => Set(ref _installPath, value); }
     public bool CanChangeInstall { get => _canChangeInstall; private set => Set(ref _canChangeInstall, value); }
 
@@ -245,7 +264,31 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public bool IsFlat { get => _skin == Skins.Flat; set { if (value) _controller.SetSkin(Skins.Flat); } }
 
     // ---- help
-    public bool ShowHelp { get => _showHelp; set => Set(ref _showHelp, value); }
+    public bool ShowHelp
+    {
+        get => _showHelp;
+        set
+        {
+            if (!Set(ref _showHelp, value)) return;
+            if (value) ShowSettings = false;
+            Raise(nameof(ShowDashboard));
+        }
+    }
+
+    // ---- the search box above the list
+    public string Search
+    {
+        get => _search;
+        set
+        {
+            if (!Set(ref _search, value)) return;
+            Raise(nameof(Searching));
+            Raise(nameof(EmptyText));
+            ShowRows(DateTime.Now);
+        }
+    }
+
+    public bool Searching => _search.Trim().Length > 0;
 
     public IReadOnlyList<string> Warnings
     {
@@ -310,20 +353,10 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         if (Set(ref _paused, shell.Paused, nameof(Paused))) Raise(nameof(Automatic));
         Skin = now.Skin;
 
-        var rows = shell.Report?.Portraits ?? [];
-        Count = PassText.Count(rows);
-        Attention = PassText.Attention(rows);
-        // The pictures are read here, on the UI thread: a few hundred KB each, once per file.
-        var cutouts = shell.Install is null || !_wantThumbnails ? null : new CutoutFolder(shell.Install.CutoutAddonDir).CutoutsDir;
-        var lines = rows.Select(r =>
-        {
-            var failed = false;
-            var thumbnail = cutouts is null ? null : _thumbnails.Get(cutouts, r, out failed);
-            return PortraitLine.From(r, today, thumbnail, failed);
-        }).ToList();
-        if (!lines.SequenceEqual(_portraits)) Portraits = lines;
-        // Only now, with the rows that showed them replaced.
-        _thumbnails.Sweep();
+        _rows = shell.Report?.Portraits ?? [];
+        Count = PassText.Count(_rows);
+        Attention = PassText.Attention(_rows);
+        ShowRows(today);
 
         var warnings = new List<string>(shell.Report?.Warnings ?? []);
         if (now.SettingsProblem is not null) warnings.Insert(0, now.SettingsProblem);
@@ -340,6 +373,23 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Check.Enabled = usable && !shell.FirstStart;
         OpenCutouts.Enabled = usable;
         DetectAgain.Enabled = CanChangeInstall;
+    }
+
+    // The rows the list shows: the report's, narrowed by the search box. The pictures are
+    // read here, on the UI thread: a few hundred KB each, once per file.
+    private void ShowRows(DateTime today)
+    {
+        var install = _controller.Current.Shell.Install;
+        var cutouts = install is null || !_wantThumbnails ? null : new CutoutFolder(install.CutoutAddonDir).CutoutsDir;
+        var lines = PassText.Matching(_rows, _search).Select(r =>
+        {
+            var failed = false;
+            var thumbnail = cutouts is null ? null : _thumbnails.Get(cutouts, r, out failed);
+            return PortraitLine.From(r, today, thumbnail, failed);
+        }).ToList();
+        if (!lines.SequenceEqual(_portraits)) Portraits = lines;
+        // Only now, with the rows that showed them replaced.
+        _thumbnails.Sweep();
     }
 
     public void Dispose() => _thumbnails.Dispose();

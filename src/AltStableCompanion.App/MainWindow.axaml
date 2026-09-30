@@ -184,6 +184,7 @@
           <Button Classes="link" Content="← Back" Command="{Binding ToggleSettings}" VerticalAlignment="Center"
                   ToolTip.Tip="Back to your portraits" />
           <TextBlock Classes="heading" Text="Settings" VerticalAlignment="Center" />
+          <TextBlock Classes="dim" Text="Changes are saved as you go." VerticalAlignment="Center" />
         </StackPanel>
         <TextBlock Classes="dim" Text="World of Warcraft folder" Margin="0,6,0,0" />
         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
@@ -212,8 +213,47 @@
     </Border>
    </StackPanel>
 
-   <!-- The dashboard: one container, hidden as one while Settings has the window. -->
-   <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" RowSpacing="10" IsVisible="{Binding !ShowSettings}">
+   <!-- Help is a page too: the four steps, the folder, the log, the warnings, the credit. -->
+   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0" VerticalAlignment="Top" IsVisible="{Binding ShowHelp}">
+    <Border Classes="pane">
+      <StackPanel Spacing="8">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <Button Classes="link" Content="← Back" Command="{Binding ToggleHelp}" VerticalAlignment="Center"
+                  ToolTip.Tip="Back to your portraits" />
+          <TextBlock Classes="heading" Text="Help" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Text="How it works" FontWeight="SemiBold" Margin="0,6,0,0" />
+        <ItemsControl ItemsSource="{Binding HowItWorks}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="dim" Text="{Binding}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <WrapPanel Margin="0,4,0,0">
+          <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}" Margin="0,0,8,0"
+                  ToolTip.Tip="The AltStableCutouts addon folder, where the portraits are written" />
+          <Button Content="Open log" Command="{Binding OpenLog}"
+                  ToolTip.Tip="What every check did, in detail (its folder, before the first)" />
+        </WrapPanel>
+        <StackPanel Spacing="3" IsVisible="{Binding HasWarnings}">
+          <TextBlock Text="Warnings" FontWeight="SemiBold" />
+          <ItemsControl ItemsSource="{Binding Warnings}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Classes="warn" Text="{Binding}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <TextBlock Classes="dim" Margin="0,6,0,0"
+                   Text="World of Warcraft is a trademark or registered trademark of Blizzard Entertainment, Inc., in the U.S. and/or other countries." />
+      </StackPanel>
+    </Border>
+   </StackPanel>
+
+   <!-- The dashboard: one container, hidden as one while a page has the window. -->
+   <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto" RowSpacing="10" IsVisible="{Binding ShowDashboard}">
    <StackPanel Grid.Row="0" Spacing="10" Margin="14,0">
 
     <!-- Which game, is the addon in it, how many accounts -->
@@ -297,7 +337,7 @@
 
     <!-- The collection -->
     <Border Classes="pane" Padding="14,6" IsVisible="{Binding Started}">
-      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="2">
+      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="2">
         <TextBlock Grid.Row="0" Grid.Column="0" Classes="heading" VerticalAlignment="Center">
           <Run Text="Your portraits · " /><Run Text="{Binding Count}" />
         </TextBlock>
@@ -305,6 +345,12 @@
                 ToolTip.Tip="Look now, whether or not automatic processing is on" />
         <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="warn" Text="{Binding Attention}" IsVisible="{Binding HasAttention}" />
         <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Classes="dim" Text="{Binding AddHint}" />
+        <!-- Find a character by name; the count above stays the whole collection's. -->
+        <Grid Grid.Row="3" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,6,0,2">
+          <TextBox Grid.Column="0" Text="{Binding Search}" PlaceholderText="Find a character" />
+          <Button Grid.Column="1" Classes="link" Content="Clear" Command="{Binding ClearSearch}"
+                  IsVisible="{Binding Searching}" ToolTip.Tip="Show every portrait again" />
+        </Grid>
       </Grid>
     </Border>
    </StackPanel>
@@ -312,7 +358,7 @@
     <Border Grid.Row="1" Classes="data" IsVisible="{Binding Started}" ClipToBounds="True" Margin="14,0">
       <Panel>
         <TextBlock Classes="dim" IsVisible="{Binding !HasPortraits}" Margin="14"
-                   Text="Nothing here yet." />
+                   Text="{Binding EmptyText}" />
         <ScrollViewer IsVisible="{Binding HasPortraits}">
           <ItemsControl ItemsSource="{Binding Portraits}">
             <ItemsControl.ItemTemplate>
@@ -342,42 +388,8 @@
       </Panel>
     </Border>
 
-    <!-- Help: how it works, where the files are, what was left out and why -->
+    <!-- The footer: what the window is, and the way to Help -->
    <StackPanel Grid.Row="2" Spacing="10" Margin="14,0">
-    <Border Classes="pane" IsVisible="{Binding ShowHelp}">
-     <ScrollViewer MaxHeight="260">
-      <StackPanel Spacing="8">
-        <TextBlock Text="How it works" FontWeight="SemiBold" />
-        <ItemsControl ItemsSource="{Binding HowItWorks}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="x:String">
-              <TextBlock Classes="dim" Text="{Binding}" />
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <!-- A row that takes another button (issue #2: "Save diagnostics...") -->
-        <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
-          <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}"
-                  ToolTip.Tip="The AltStableCutouts addon folder, where the portraits are written" />
-          <Button Content="Open log" Command="{Binding OpenLog}"
-                  ToolTip.Tip="What every check did, in detail (its folder, before the first)" />
-        </WrapPanel>
-        <StackPanel Spacing="3" IsVisible="{Binding HasWarnings}">
-          <TextBlock Text="Warnings" FontWeight="SemiBold" />
-          <ItemsControl ItemsSource="{Binding Warnings}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="x:String">
-                <TextBlock Classes="warn" Text="{Binding}" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-        <TextBlock Classes="dim" Margin="0,6,0,0"
-                   Text="World of Warcraft is a trademark or registered trademark of Blizzard Entertainment, Inc., in the U.S. and/or other countries." />
-      </StackPanel>
-     </ScrollViewer>
-    </Border>
-
     <Border Classes="pane" Padding="14,4">
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
         <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" />

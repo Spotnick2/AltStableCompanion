@@ -426,6 +426,18 @@ public class PassTextTests
     }
 
     [Fact]
+    public void The_search_box_narrows_the_list_by_name_and_nothing_narrows_nothing()
+    {
+        var rows = new[] { Ready("Kaleid Sumner"), Ready("Karuzo Elegia"), Rejected("Zoru") };
+        Assert.Same(rows, PassText.Matching(rows, null));
+        Assert.Same(rows, PassText.Matching(rows, "  "));
+        Assert.Equal(["Kaleid Sumner", "Karuzo Elegia"], PassText.Matching(rows, "ka").Select(r => r.Name));
+        Assert.Equal(["Karuzo Elegia"], PassText.Matching(rows, " ELEG ").Select(r => r.Name));
+        Assert.Equal(["Zoru"], PassText.Matching(rows, "zor").Select(r => r.Name));
+        Assert.Empty(PassText.Matching(rows, "nobody"));
+    }
+
+    [Fact]
     public void A_row_with_nothing_to_act_on_says_only_when_and_what_that_time_is()
     {
         var today = new DateTime(2026, 9, 29, 18, 0, 0);
@@ -437,11 +449,11 @@ public class PassTextTests
 
         // The capture's time is the capture's, the file's time is the file's: neither is "updated".
         Assert.Equal("Captured today 12:13", PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Converted), today));
-        Assert.Equal("File modified 2026-09-26 01:50", PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Unknown, null, old), today));
+        Assert.Equal("Updated 2026-09-26 01:50", PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.Unknown, null, old), today));
         // An older portrait whose newer capture is gone: the portrait's time, not the capture's.
-        Assert.Equal("File modified 2026-09-26 01:50",
+        Assert.Equal("Updated 2026-09-26 01:50",
             PassText.RowSummary(Row(PortraitSource.ByGuid, CaptureOutcome.NoScreenshots, "no screenshots for this capture on disk", old), today));
-        Assert.Equal("File modified 2026-09-26 01:50", PassText.RowSummary(
+        Assert.Equal("Updated 2026-09-26 01:50", PassText.RowSummary(
             new PortraitRow("Karuzo Elegia", null, "karuzo-elegia.tga", PortraitSource.File, old, null, CaptureOutcome.None, null), today));
 
         // The lines that are the thing to read stay whole: attention, a screenshot on its way,
