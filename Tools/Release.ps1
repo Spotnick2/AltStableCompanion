@@ -40,14 +40,29 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Out) { $Out = Join-Path $RepoRoot "publish\release" }
 $Out = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
 
-# ---- the output folder: emptied, so never the repo, a folder holding it, or its own home
-function Full([string]$p) { [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($p)) }
-$outFull = Full $Out
-$repoFull = Full $RepoRoot
-$sep = [IO.Path]::DirectorySeparatorChar
-if ([string]::Equals($outFull, $repoFull, [StringComparison]::OrdinalIgnoreCase) -or
-    $repoFull.StartsWith($outFull + $sep, [StringComparison]::OrdinalIgnoreCase)) {
+# ---- the output folder: emptied, so never a root, the repo, or a folder holding it
+$outFull = [IO.Path]::GetFullPath($Out)
+$repoFull = [IO.Path]::GetFullPath($RepoRoot)
+# A drive or share root keeps its trailing separator through every normalisation, so it is
+# named for what it is rather than compared as a prefix.
+if ([IO.Path]::GetPathRoot($outFull) -eq [IO.Path]::TrimEndingDirectorySeparator($outFull) -or
+    [IO.Path]::GetPathRoot($outFull) -eq $outFull) {
+    throw "-Out '$Out' is a drive or share root; it would be emptied. Name a folder of its own."
+}
+# The ancestor test wants both sides with exactly one trailing separator.
+function WithSep([string]$p) { [IO.Path]::TrimEndingDirectorySeparator($p) + [IO.Path]::DirectorySeparatorChar }
+if ((WithSep $repoFull).StartsWith((WithSep $outFull), [StringComparison]::OrdinalIgnoreCase)) {
     throw "-Out '$Out' is the repository or a folder above it; it would be emptied. Name a folder of its own."
+}
+# And only a folder that is empty, or holds nothing but what this script left there before:
+# a folder named by mistake keeps whatever it has.
+if (Test-Path -LiteralPath $outFull) {
+    $foreign = @(Get-ChildItem -LiteralPath $outFull -Force | Where-Object {
+        $_.Name -notin @("notes.md", "SHA256SUMS", "stage") -and $_.Name -notlike "AltStableCompanion-*-win-x64.exe"
+    })
+    if ($foreign.Count -gt 0) {
+        throw "-Out '$Out' holds things that are not this script's ($($foreign[0].Name)$(if ($foreign.Count -gt 1) { ', ...' })); it would be emptied. Name an empty folder, or one only this script has used."
+    }
 }
 
 # ---- 1. the version, and the tag that names it
