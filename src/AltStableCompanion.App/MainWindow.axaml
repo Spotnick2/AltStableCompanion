@@ -272,7 +272,7 @@
           <TextBlock Text="{Binding FirstStartText}" />
           <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep original capture screenshots" />
           <Button Content="Start watching" Command="{Binding StartWatching}" HorizontalAlignment="Right"
-                  ToolTip.Tip="Convert the captures that are there, and every new one from now on" />
+                  ToolTip.Tip="Convert the captures that are there now, and new ones as they come while automatic processing is on" />
         </StackPanel>
 
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
