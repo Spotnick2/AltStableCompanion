@@ -138,7 +138,11 @@ public sealed class Updater(UpdateHooks hooks, Action<string>? log = null, Func<
     public const string Repository = "Spotnick2/AltStableCompanion";
     public const string ReleasesApi = "https://api.github.com/repos/" + Repository + "/releases?per_page=20";
     public static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(30);
-    public static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(10);
+    /// <summary>
+    /// For the whole download, body included: HttpClient's own timeout ends when the headers
+    /// are in, and the body is read with only this. Settable for the tests.
+    /// </summary>
+    public TimeSpan DownloadTimeout { get; init; } = TimeSpan.FromMinutes(10);
     /// <summary>A downloaded exe larger than this is not ours.</summary>
     public const long MaxExeBytes = 200L * 1024 * 1024;
     /// <summary>The suffixes beside the running exe: the download in progress, the one checked, the one replaced.</summary>
@@ -286,12 +290,17 @@ public sealed class Updater(UpdateHooks hooks, Action<string>? log = null, Func<
         cts?.Cancel();
     }
 
-    private async Task DownloadCoreAsync(Release release, CancellationToken ct)
+    private async Task DownloadCoreAsync(Release release, CancellationToken stop)
     {
         Changed?.Invoke();
         UpdateState next;
         var exe = hooks.ExePath;
         var part = exe + PartSuffix;
+        // One deadline over the sums, the headers and every read of the body; the player's
+        // Cancel is the other way out, and is told apart from it below.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        deadline.CancelAfter(DownloadTimeout);
+        var ct = deadline.Token;
         try
         {
             if (string.IsNullOrEmpty(exe)) throw new InvalidOperationException("the running exe's path is not known");
@@ -316,8 +325,9 @@ public sealed class Updater(UpdateHooks hooks, Action<string>? log = null, Func<
             or IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             TryDelete(part);
-            var why = ex is OperationCanceledException && ct.IsCancellationRequested ? "the download was stopped"
-                : ex is TaskCanceledException ? "GitHub did not answer in time" : ex.Message;
+            var why = ex is OperationCanceledException && stop.IsCancellationRequested ? "the download was stopped"
+                : ex is OperationCanceledException ? $"the download did not finish within {DownloadTimeout.TotalMinutes:0} minutes"
+                : ex.Message;
             next = new UpdateState(UpdateStage.Failed, release, Problem: why, CheckedAt: State.CheckedAt);
             log?.Invoke($"update: the download failed: {why}");
         }

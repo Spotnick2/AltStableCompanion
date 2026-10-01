@@ -425,6 +425,56 @@ public class UpdaterTests
     }
 }
 
+public class StalledDownloadTests
+{
+    /// <summary>A body whose first read never returns until the token says so: a connection that went quiet.</summary>
+    private sealed class StalledStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task A_body_that_stops_coming_after_the_headers_is_given_up_on_at_the_deadline()
+    {
+        using var t = new TempInstall();
+        var exe = Path.Combine(t.Root, "AltStableCompanion.exe");
+        File.WriteAllText(exe, "old");
+        var gh = new FakeGitHub();
+        gh.Respond = r =>
+        {
+            var url = r.RequestUri!.ToString();
+            if (url == Updater.ReleasesApi) return FakeGitHub.Json(FakeGitHub.List(FakeGitHub.Release("v0.2.0", size: 5000)));
+            if (url.EndsWith("/SHA256SUMS", StringComparison.Ordinal)) return FakeGitHub.Text("abcd  AltStableCompanion-0.2.0-win-x64.exe\n");
+            // The headers at once, the body never.
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledStream()) };
+        };
+        var u = new Updater(gh.Hooks("0.1.0", exe)) { DownloadTimeout = TimeSpan.FromMilliseconds(300) };
+        await u.CheckAsync();
+        var download = u.DownloadAsync();
+        var finished = await Task.WhenAny(download, Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.Same(download, finished);
+        Assert.Equal(UpdateStage.Failed, u.State.Stage);
+        Assert.Equal("the download did not finish within 0 minutes", u.State.Problem);
+        Assert.False(File.Exists(exe + Updater.PartSuffix));
+        // And the buttons are back: the next press starts another download.
+        Assert.NotNull(u.State.Release);
+    }
+}
+
 public class UpdateControllerTests
 {
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
