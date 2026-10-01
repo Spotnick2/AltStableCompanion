@@ -37,6 +37,52 @@ public sealed partial class Controller
     private bool _reprobeCodex;
     private int _sweptGeneration = -1;                       // the install whose open records were closed
     private string? _enhanceRefused;                         // why nobody is eligible right now, logged once
+    // The pictures the player asked for again: the SIGNATURES that were held at the click - a
+    // character, a capture, a combination - and nothing else. Kept in the data dir, so a batch
+    // the app did not live to finish goes on after a restart; a signature leaves the set once
+    // it is in the history. No settings change can widen it: another combination is another
+    // signature, held until asked.
+    private readonly HashSet<string> _remakeAllowed = new(StringComparer.Ordinal);
+    private IReadOnlyList<(string Name, string Signature)> _held = [];   // what the window offers, as of the last look
+    private Placement? _batch;                                           // this wake's placement, reused across its launches
+
+    /// <summary>One wake's placement of the candidates: who is to launch, under which settings.</summary>
+    private sealed record Placement((string Style, string Model, string Effort, int Level) Settings, int Generation,
+        List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)> Launch, int Done)
+    {
+        public int Launched;
+    }
+
+    private string RemakePath => Path.Combine(_dataDir, "remake.json");
+
+    private void LoadRemake()
+    {
+        try
+        {
+            if (!File.Exists(RemakePath)) return;
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(File.ReadAllText(RemakePath));
+            lock (_gate) { foreach (var sig in list ?? []) if (!string.IsNullOrWhiteSpace(sig)) _remakeAllowed.Add(sig); }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            _log?.Write($"enhance: {RemakePath} could not be read: {ex.Message}");
+        }
+    }
+
+    // Under _gate.
+    private void SaveRemake()
+    {
+        try
+        {
+            if (_remakeAllowed.Count == 0) { if (File.Exists(RemakePath)) File.Delete(RemakePath); return; }
+            Directory.CreateDirectory(_dataDir);
+            File.WriteAllText(RemakePath, System.Text.Json.JsonSerializer.Serialize(_remakeAllowed.Order(StringComparer.Ordinal).ToList()));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log?.Write($"enhance: {RemakePath} could not be written: {ex.Message}");
+        }
+    }
 
     /// <summary>How long the CLI's presence and sign-in are taken on trust while enhancing.</summary>
     public static readonly TimeSpan ProbeAgain = TimeSpan.FromMinutes(5);
@@ -57,6 +103,7 @@ public sealed partial class Controller
         // Job folders are this run's; whatever a run that did not end left is a copy of a
         // portrait nobody needs.
         TryDeleteDir(Path.Combine(_dataDir, "enhance"));
+        LoadRemake();
         _enhanceLoop = Task.Run(EnhanceLoopAsync);
         WakeEnhancer();
     }
@@ -70,6 +117,7 @@ public sealed partial class Controller
                 await _enhanceWake.WaitAsync();
                 lock (_gate) { if (_stopping) return; }
                 await ProbeCodexAsync();
+                _batch = null;   // a wake looks at everyone again; the launches of one wake share that look
                 while (true)
                 {
                     var job = PrepareEnhancement();
@@ -180,17 +228,45 @@ public sealed partial class Controller
 
             var folder = new CutoutFolder(install.CutoutAddonDir);
             if (!folder.Exists) return Idle("no portraits yet");
-            var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
-            var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
-            if (eligible.Refused is { } refused) return Idle(refused);
-
-            var candidates = eligible.Candidates;
-            for (var i = 0; i < candidates.Count; i++)
+            var batch = _batch;
+            var under = (settings.EnhanceStyle, settings.EnhanceModel, settings.EnhanceEffort, settings.EnhanceMinLevel);
+            // A wake that arrived during the last generation - a pass after a roster or file
+            // change, a setting - means the look is stale: a character hidden meanwhile, or an
+            // account that can no longer be read, must not be sent from the old list.
+            if (_enhanceWake.CurrentCount > 0) batch = null;
+            if (batch is null || batch.Settings != under || batch.Generation != generation)
             {
-                var c = candidates[i];
-                var primary = Path.Combine(folder.CutoutsDir, c.FileBase + ".tga");
+                // The look: everyone placed - to launch, held, or done - once per wake, so the
+                // held are offered together and the batch does not hash the roster for every launch.
+                batch = _batch = Place(folder, install, settings, generation, under);
+                if (batch is null) return null;
+            }
+
+            while (batch.Launched < batch.Launch.Count)
+            {
+                var (c, placedMeta, primary, placed) = batch.Launch[batch.Launched++];
+                // The placement is a wake old, and a wake comes two seconds after the roster
+                // changed on disk: the roster is read again for the one being launched. Hidden
+                // since, below the level, another portrait, another race or class - or an
+                // account that can no longer be read, which refuses everyone - and the look is
+                // done again rather than spending on the old one.
+                var fresh = Eligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)),
+                    settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
+                if (fresh.Refused is { } refusedNow) { _batch = null; return Idle(refusedNow); }
+                var still = fresh.Candidates.FirstOrDefault(e => e.Guid == c.Guid);
+                if (still is null || still.Character != c.Character || still.FileBase != c.FileBase)
+                {
+                    _batch = null;
+                    return PrepareEnhancement();
+                }
+                // The portrait, its sidecar and the history, likewise: a capture since (the same
+                // pixels with a new epoch included) or a record since would make it another picture.
                 var meta = folder.ReadMeta(c.FileBase);
-                if (meta?.Guid != c.Guid || !File.Exists(primary)) continue;
+                if (meta is null || meta.Guid != c.Guid || meta.Epoch != placedMeta.Epoch || meta.W != placedMeta.W || meta.H != placedMeta.H)
+                {
+                    _batch = null;
+                    return PrepareEnhancement();
+                }
                 string sourceHash;
                 RgbaImage canvas;
                 try
@@ -205,6 +281,7 @@ public sealed partial class Controller
                 }
                 var signature = EnhancementSignature.Compute(c.Guid, meta.Epoch, sourceHash, c.Character,
                     settings.EnhanceStyle, settings.EnhanceModel, settings.EnhanceEffort);
+                if (signature != placed) { _batch = null; return PrepareEnhancement(); }
                 AttemptHistory history;
                 try
                 {
@@ -254,7 +331,8 @@ public sealed partial class Controller
                 lock (_gate)
                 {
                     _enhanceRefused = null;
-                    _current = _current with { Shell = _current.Shell with { Enhancing = $"{c.Character.Name} ({i + 1} of {candidates.Count})" } };
+                    // Counted through the batch, the ones already made included: "B (2 of 3)".
+                    _current = _current with { Shell = _current.Shell with { Enhancing = $"{c.Character.Name} ({batch.Done + batch.Launched} of {batch.Done + batch.Launch.Count})" } };
                 }
                 // The row says "Enhancing" from now: the record is open.
                 RefreshAfterEnhancement(folder, generation, null);
@@ -263,12 +341,91 @@ public sealed partial class Controller
                 return new EnhanceJob(c.Guid, c.FileBase, c.Character.Name, signature, sourceHash, meta, settings.EnhanceStyle,
                     dir, codexJob, generation, install.CutoutAddonDir);
             }
-            return Idle(null);
+            return Idle(null, keepHeld: true);
         }
     }
 
-    // Nothing to do, and why - said once in the log when it is a reason.
-    private EnhanceJob? Idle(string? because)
+    // Under _passGate. Everyone eligible, placed: to launch (in roster order), held (offered to
+    // the window, by name, sorted), or done. Null when the roster refuses.
+    private Placement? Place(CutoutFolder folder, WowInstall install, Settings settings, int generation,
+        (string Style, string Model, string Effort, int Level) under)
+    {
+        var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
+        var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
+        if (eligible.Refused is { } refused) { Idle(refused); return null; }
+
+        HashSet<string> allowed;
+        lock (_gate) { allowed = [.. _remakeAllowed]; }
+        var held = new List<(string Name, string Signature)>();
+        var launch = new List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)>();
+        var done = 0;
+        var inHistory = new List<string>();
+        foreach (var c in eligible.Candidates)
+        {
+            var primary = Path.Combine(folder.CutoutsDir, c.FileBase + ".tga");
+            var meta = folder.ReadMeta(c.FileBase);
+            if (meta?.Guid != c.Guid || !File.Exists(primary)) continue;
+            string sourceHash;
+            try
+            {
+                sourceHash = EnhancementSignature.HashOf(primary);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _log?.Write($"enhance: {c.FileBase}.tga could not be read this time: {ex.Message}");
+                continue;
+            }
+            var signature = EnhancementSignature.Compute(c.Guid, meta.Epoch, sourceHash, c.Character,
+                settings.EnhanceStyle, settings.EnhanceModel, settings.EnhanceEffort);
+            AttemptHistory history;
+            try
+            {
+                history = AttemptHistory.Load(folder.EnhancedDir, c.Guid);
+            }
+            catch (AttemptHistoryException ex)
+            {
+                _log?.Write($"enhance: {c.Character.Name} skipped: {ex.Message}");
+                continue;
+            }
+            if (!history.MayLaunch(signature))
+            {
+                done++;
+                if (allowed.Contains(signature)) inHistory.Add(signature);
+                continue;
+            }
+            // A picture made from THIS portrait, with other settings or wording, stays until the
+            // player asks for it: a style change or an app update is not a decision to spend. A
+            // new capture (another epoch or other bytes) or no picture at all is.
+            var made = history.LastWritten;
+            if (!allowed.Contains(signature) && made is not null && made.Epoch == meta.Epoch && made.SourceHash == sourceHash
+                && File.Exists(Path.Combine(folder.EnhancedDir, c.FileBase + ".tga")))
+            {
+                held.Add((c.Character.Name, signature));
+                continue;
+            }
+            launch.Add((c, meta, primary, signature));
+        }
+        held.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
+        var names = held.Select(h => h.Name).ToList();
+        var changed = false;
+        lock (_gate)
+        {
+            _held = held;
+            // A permission that is in the history has been used: the set shrinks to nothing, and the file with it.
+            if (inHistory.Count > 0) { _remakeAllowed.ExceptWith(inHistory); SaveRemake(); }
+            if (!(_current.Shell.EnhanceHeld ?? []).SequenceEqual(names))
+            {
+                _current = _current with { Shell = _current.Shell with { EnhanceHeld = names.Count == 0 ? null : names } };
+                changed = true;
+            }
+        }
+        if (changed) Changed?.Invoke();
+        return new Placement(under, generation, launch, done);
+    }
+
+    // Nothing to do, and why - said once in the log when it is a reason. Before the look, the
+    // hold is cleared: the names the window offers are the last look's, and there was none.
+    private EnhanceJob? Idle(string? because, bool keepHeld = false)
     {
         var changed = false;
         lock (_gate)
@@ -277,6 +434,12 @@ public sealed partial class Controller
             if (_current.Shell.Enhancing is not null)
             {
                 _current = _current with { Shell = _current.Shell with { Enhancing = null } };
+                changed = true;
+            }
+            if (!keepHeld && (_current.Shell.EnhanceHeld is not null || _held.Count > 0))
+            {
+                _held = [];
+                _current = _current with { Shell = _current.Shell with { EnhanceHeld = null } };
                 changed = true;
             }
         }
@@ -402,7 +565,14 @@ public sealed partial class Controller
     {
         try
         {
-            AttemptHistory.Load(folder.EnhancedDir, job.Guid).End(job.Signature, outcome, _clock(), outputHash);
+            var history = AttemptHistory.Load(folder.EnhancedDir, job.Guid);
+            history.End(job.Signature, outcome, _clock(), outputHash);
+            // A permission is used up once the history refuses the signature (made, refused,
+            // failed, or cancelled twice); a cancel the history would try once more keeps it.
+            if (!history.MayLaunch(job.Signature))
+            {
+                lock (_gate) { if (_remakeAllowed.Remove(job.Signature)) SaveRemake(); }
+            }
         }
         catch (AttemptHistoryException ex)
         {
@@ -474,10 +644,30 @@ public sealed partial class Controller
             Write();
             if (!on || before.EnhanceStyle != after.EnhanceStyle) { cancel = _jobCts; _jobCts = null; }
             _reprobeCodex = on;
+            _batch = null;
             _current = _current with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
         }
         cancel?.Cancel();
         Changed?.Invoke();
+        WakeEnhancer();
+    }
+
+    /// <summary>
+    /// The player asked for the pictures the window offered: exactly those - each a character,
+    /// a capture and the settings of the last look - may be made. Nothing else is allowed by it.
+    /// </summary>
+    public void RemakeEnhanced()
+    {
+        int count;
+        lock (_gate)
+        {
+            count = _held.Count;
+            foreach (var h in _held) _remakeAllowed.Add(h.Signature);
+            if (count > 0) SaveRemake();
+            _batch = null;
+        }
+        if (count == 0) return;
+        _log?.Write($"enhance: {count} held picture(s) may be made again with the current settings");
         WakeEnhancer();
     }
 

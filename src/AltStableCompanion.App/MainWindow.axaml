@@ -219,6 +219,12 @@
             <TextBlock Classes="warn" Margin="28,-6,0,0" Text="{Binding EnhanceUnavailable}" IsVisible="{Binding HasEnhanceUnavailable}" />
             <TextBlock Margin="28,-6,0,0" Text="{Binding EnhanceStatus}" IsVisible="{Binding HasEnhanceStatus}" />
             <TextBlock Classes="dim" Margin="28,-4,0,0" Text="{Binding EnhanceExplanation}" />
+            <!-- A settings change never spends on its own: the pictures it would remake are held, and offered. -->
+            <StackPanel Margin="28,0,0,0" Spacing="6" IsVisible="{Binding HasEnhanceHeld}">
+              <TextBlock Classes="warn" Text="{Binding EnhanceHeld}" TextWrapping="Wrap" />
+              <Button Content="{Binding EnhanceHeldButton}" Command="{Binding RemakeEnhanced}" HorizontalAlignment="Left"
+                      ToolTip.Tip="Make the held pictures again with the settings as they are now; a later change holds them again" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0">
               <TextBlock Text="From level" VerticalAlignment="Center" />
               <!-- Applied when the box is left or Enter is pressed, never per keystroke: see MainViewModel.EnhanceMinLevel. -->

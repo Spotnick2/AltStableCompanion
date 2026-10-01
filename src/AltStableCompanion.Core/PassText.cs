@@ -65,6 +65,11 @@ public sealed record ShellState(
     /// <summary>"Kaleid Sumner (2 of 5)" while a picture is being made; null otherwise.</summary>
     string? Enhancing = null,
     /// <summary>
+    /// Characters whose enhanced picture was made from the portrait they still have, with other
+    /// settings or wording: kept as they are until the player asks for them again.
+    /// </summary>
+    IReadOnlyList<string>? EnhanceHeld = null,
+    /// <summary>
     /// The very first start: nothing is converted until the player has read what happens to
     /// their screenshots and said "Start watching".
     /// </summary>
@@ -116,8 +121,9 @@ public static class PassText
         return $"When on, the Codex CLI on this PC is asked for a new picture of each character of level {minLevel} or more that has a portrait "
             + "and is not hidden - the existing ones too, all of them, when you turn this on. What is sent: the portrait's cropped image and "
             + $"the character's race, gender and class, plus any instructions your Codex CLI is configured with, to {signedIn}. "
-            + "One automatic attempt for each new combination of capture, style, model and prompt wording (an app update may change the wording, "
-            + "and then every eligible character is made again); an attempt uses Codex usage whether or not a "
+            + "A picture is made on its own only for a character who has none yet, or whose portrait was captured again; when only the "
+            + "style, the model, the effort or the app's wording changed (an update may change the wording), the pictures already made stay "
+            + "and this page offers to make them again. One attempt for each combination of capture, style, model, effort and wording; an attempt uses Codex usage whether or not a "
             + "picture comes back, and a picture that was refused or failed is not tried again for that combination. Turning this off "
             + "stops new attempts and cancels the one running (that one is tried once more when this is on again); pictures already "
             + "made stay, and the addon keeps showing them.";
@@ -390,6 +396,19 @@ public static class PassText
         if (t.Date == today.Date.AddDays(-1)) return "yesterday " + time;
         return t.ToString("yyyy-MM-dd ", System.Globalization.CultureInfo.InvariantCulture) + time;
     }
+
+    /// <summary>The pictures held back by a settings change, and the offer; null when none.</summary>
+    public static string? EnhanceHeld(IReadOnlyList<string>? held)
+    {
+        if (held is not { Count: > 0 }) return null;
+        return held.Count == 1
+            ? $"{held[0]}'s enhanced portrait was made with other settings. It stays as it is until you ask."
+            : $"{held.Count} enhanced portraits ({Names(held)}) were made with other settings. They stay as they are until you ask.";
+    }
+
+    /// <summary>The button beside <see cref="EnhanceHeld"/>: what it spends.</summary>
+    public static string EnhanceHeldButton(IReadOnlyList<string>? held) =>
+        held is { Count: > 1 } ? $"Make them again ({held.Count} generations)" : "Make it again (1 generation)";
 
     /// <summary>The tray icon's tooltip: the app's name and, in a word, what it is doing.</summary>
     public static string TrayTip(ShellState s)
