@@ -16,7 +16,11 @@ public sealed record Snapshot(
     /// <summary>How the Codex CLI is signed in ("Logged in using ChatGPT"), "installed", or null: not on this PC.</summary>
     string? CodexStatus = null,
     /// <summary>Whether the CLI has been looked for yet: it is, once the setting is on.</summary>
-    bool CodexProbed = false);
+    bool CodexProbed = false,
+    /// <summary>Where a newer release stands: nothing looked for, found, downloaded, or ready.</summary>
+    UpdateState? Update = null,
+    /// <summary>The player asked for a check whenever the window opens.</summary>
+    bool CheckUpdatesOnOpen = false);
 
 /// <summary>
 /// Everything a shell does that is not drawing: which install, the watcher, the passes, the
@@ -48,7 +52,7 @@ public sealed record Snapshot(
 /// </list>
 /// </summary>
 public sealed partial class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
-    Func<DateTime>? clock = null, EnhanceHooks? enhance = null) : IDisposable
+    Func<DateTime>? clock = null, EnhanceHooks? enhance = null, UpdateHooks? update = null) : IDisposable
 {
     private readonly Func<DateTime> _clock = clock ?? (() => DateTime.Now);
     // The way to Codex, or none: a controller made without one never enhances. The app hands
@@ -116,6 +120,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                 Enhance = _settings.Enhance,
                 EnhanceMinLevel = _settings.EnhanceMinLevel,
                 EnhanceStyle = _settings.EnhanceStyle,
+                CheckUpdatesOnOpen = _settings.CheckUpdatesOnOpen,
                 SettingsProblem = Problem(),
                 Shell = new ShellState(Paused: _settings.Paused, FirstStart: !_settings.Started),
             };
@@ -125,6 +130,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
             Use(null, "The WoW folder could not be set up - see the log");
         }
         StartEnhancer();
+        StartUpdater();
     }
 
     /// <summary>The player picked a folder. False when it is not a WoW folder: nothing changes.</summary>
@@ -247,6 +253,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         }
         watcher?.Dispose();
         StopEnhancer();
+        StopUpdater();
         Changed?.Invoke();
         return Task.Run(async () =>
         {
@@ -479,5 +486,6 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         }
         watcher?.Dispose();
         StopEnhancer();
+        StopUpdater();
     }
 }

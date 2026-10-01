@@ -203,6 +203,9 @@
         <CheckBox IsChecked="{Binding KeepScreenshots}" Content="Keep original capture screenshots" />
         <TextBlock Classes="dim" Margin="28,-6,0,0"
                    Text="Otherwise those two files are deleted once the portrait is written. No other screenshot is ever touched." />
+        <CheckBox IsChecked="{Binding CheckUpdatesOnOpen}" Content="{Binding CheckUpdatesOnOpenText}"
+                  ToolTip.Tip="Ask GitHub for the list of releases each time the window opens, at most once an hour; a download is always a button press" />
+        <TextBlock Classes="dim" Margin="28,-6,0,0" Text="{Binding CheckUpdatesExplanation}" TextWrapping="Wrap" />
         <TextBlock Classes="dim" Text="Look" Margin="0,6,0,0" />
         <StackPanel Orientation="Horizontal" Spacing="14">
           <RadioButton GroupName="skin" Content="Clear glass" IsChecked="{Binding IsClear}" />
@@ -278,8 +281,41 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </StackPanel>
-        <TextBlock Classes="dim" Margin="0,6,0,0"
-                   Text="World of Warcraft is a trademark or registered trademark of Blizzard Entertainment, Inc., in the U.S. and/or other countries." />
+
+        <!-- About: which build this is, a newer one if there is one, and the links. The words
+             are Core's (PassText); the browser does the opening. -->
+        <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="About" FontWeight="SemiBold" />
+            <TextBlock Text="AltStable Companion" FontWeight="SemiBold" FontSize="15" />
+            <TextBlock Text="{Binding VersionLine}" />
+            <TextBlock Classes="dim" Text="{Binding AboutText}" TextWrapping="Wrap" />
+            <!-- Updates: nothing leaves the PC until a button is pressed, or the Settings box says the window may check. -->
+            <WrapPanel Margin="0,2,0,0">
+              <Button Content="Check for updates" Command="{Binding CheckUpdates}" Margin="0,0,8,6"
+                      ToolTip.Tip="Ask GitHub for the list of releases, and nothing else" />
+              <Button Content="{Binding DownloadUpdateText}" Command="{Binding DownloadUpdate}" Margin="0,0,8,6"
+                      IsVisible="{Binding CanDownloadUpdate}"
+                      ToolTip.Tip="Download the newer release beside this one and check it against its SHA256SUMS; nothing changes until you restart" />
+              <Button Content="Restart now" Command="{Binding RestartToUpdate}" Margin="0,0,8,6"
+                      IsVisible="{Binding CanRestartToUpdate}"
+                      ToolTip.Tip="Finish the portraits in hand, put the new version in place of this file, and start it" />
+              <Button Classes="link" Content="Release page" Command="{Binding OpenReleasePage}" Margin="0,0,8,6"
+                      IsVisible="{Binding HasReleasePage}" ToolTip.Tip="The release's notes and files, in the browser" />
+            </WrapPanel>
+            <TextBlock Text="{Binding UpdateLine}" IsVisible="{Binding HasUpdateLine}" TextWrapping="Wrap"
+                       Classes.warn="{Binding UpdateFailed}" />
+            <ItemsControl ItemsSource="{Binding AboutLinks}" Margin="0,4,0,0">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="app:AboutLink">
+                  <Button Classes="link" Content="{Binding Label}" Command="{Binding Open}" ToolTip.Tip="{Binding Tip}"
+                          HorizontalAlignment="Left" Padding="0,2" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="dim" Margin="0,6,0,0" Text="{Binding BlizzardCredit}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
       </StackPanel>
       </ScrollViewer>
     </Grid>
@@ -425,12 +461,16 @@
     <!-- The footer: what the window is, and the way to Help -->
    <StackPanel Grid.Row="2" Spacing="10" Margin="14,0">
     <Border Classes="pane" Padding="14,4">
-      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
         <Ellipse Grid.Column="0" Classes="dot" Fill="{DynamicResource GoodBrush}" />
         <TextBlock Grid.Column="1" Classes="dim" VerticalAlignment="Center"
                    Text="Runs in the background: closing this window leaves it in the tray." />
-        <Button Grid.Column="2" Classes="link" Content="Help" Command="{Binding ToggleHelp}"
-                ToolTip.Tip="How it works, the folder, the log, and any warnings" />
+        <!-- A newer release was found (by a press, or by the window opening): the way to it is under Help. -->
+        <Button Grid.Column="2" Classes="link" Content="{Binding UpdateOffer}" Command="{Binding ToggleHelp}"
+                IsVisible="{Binding HasUpdateOffer}" Foreground="{DynamicResource AttentionBrush}"
+                ToolTip.Tip="A newer release: update it under Help, About" />
+        <Button Grid.Column="3" Classes="link" Content="Help" Command="{Binding ToggleHelp}"
+                ToolTip.Tip="How it works, the folder, the log, about, and any warnings" />
       </Grid>
     </Border>
    </StackPanel>

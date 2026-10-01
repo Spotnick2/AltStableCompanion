@@ -6,6 +6,19 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- An About section under Help: the version and build this is, what the app is, and links
+  to the project, its issues page (for reports; **Open log** is beside it), the addon, the
+  licence and Blizzard's trademark terms. The browser opens them.
+- **Check for updates**, under About: the app asks GitHub for the list of releases and
+  says whether a newer one exists. **Update now** downloads it beside the running file and
+  checks it against the release's `SHA256SUMS`; **Restart now** finishes the portraits in
+  hand, puts the new file in place of the old one (kept as `.old` until the next start) and
+  starts it. A beta sees betas and releases; a release sees only releases.
+- A Settings box, off by default: **Check for updates when the window opens** (at most once
+  an hour). A download is always a button press.
+
 ## [0.1.0-beta.1]
 
 The first release, a beta: everything below is new, and so far only the owner has run it

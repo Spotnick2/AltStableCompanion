@@ -35,14 +35,16 @@ internal sealed partial class App : Application
             desktop.Exit += (_, _) => Leave();
 
             // The real way to Codex: the CLI on PATH, its own home, its own sign-in. The
-            // controller never uses it unless the player turned enhancement on.
-            _controller = new Controller(Options, enhance: EnhanceHooks.Real());
+            // controller never uses it unless the player turned enhancement on. The real way
+            // to GitHub: this exe, its stamped version, and the network - used on a press.
+            _controller = new Controller(Options, enhance: EnhanceHooks.Real(), update: UpdateHooks.Real());
             // Subscribed BEFORE Start: the first pass begins inside it.
             _controller.Changed += QueueRefresh;
             _controller.PassCompleted += report => Dispatcher.UIThread.Post(() => Announce(report));
             _controller.EnhanceCompleted += result => Dispatcher.UIThread.Post(() => Announce(result));
             _controller.Start();
             _viewModel = new MainViewModel(_controller);
+            _viewModel.RestartRequested += Restart;
 
             _icon = Asset("avares://AltStableCompanion/Assets/tray.ico");
             _busyIcon = Asset("avares://AltStableCompanion/Assets/tray-busy.ico");
@@ -151,7 +153,58 @@ internal sealed partial class App : Application
         _window.Show();
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
         _window.Activate();
+        // With the setting on, the window opening is when a check runs.
+        _controller?.WindowOpened();
         return true;
+    }
+
+    // "Restart now" with an update ready: the same leaving as Quit - the pass in hand is
+    // waited for - then the new exe goes in place of this one and is started. When the swap
+    // fails the running file is still there, so that is what starts; the log says why.
+    private async void Restart()
+    {
+        if (_quitting || _controller is null) return;
+        _quitting = true;
+        string? exe = null;
+        string? problem = null;
+        try
+        {
+            if (_window is not null)
+            {
+                _window.Quitting = true;
+                _window.Close();
+            }
+            await _controller.StopAsync();
+            (exe, problem) = _controller.InstallUpdate();
+        }
+        catch (Exception ex)
+        {
+            problem ??= ex.Message;
+        }
+        // The lock goes with Leave: the instance started next must find it free.
+        Leave();
+        var start = exe ?? Environment.ProcessPath;
+        if (problem is not null)
+        {
+            NativeMethods.MessageBoxW(0, "The update could not be put in place: " + problem
+                + "\n\nThe version you had is starting again.", "AltStable Companion", NativeMethods.MB_ICONERROR);
+        }
+        if (start is not null)
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo(start) { UseShellExecute = false };
+                if (Options.WowDir is not null) { psi.ArgumentList.Add("--wow-dir"); psi.ArgumentList.Add(Options.WowDir); }
+                if (Options.DataDir is not null) { psi.ArgumentList.Add("--data-dir"); psi.ArgumentList.Add(Options.DataDir); }
+                System.Diagnostics.Process.Start(psi)?.Dispose();
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+            {
+                NativeMethods.MessageBoxW(0, $"AltStable Companion could not be started again: {ex.Message}\n\nStart it yourself: {start}",
+                    "AltStable Companion", NativeMethods.MB_ICONERROR);
+            }
+        }
+        _desktop?.Shutdown();
     }
 
     // Quit waits for the pass in hand - a pass cut short has written cutouts its manifest

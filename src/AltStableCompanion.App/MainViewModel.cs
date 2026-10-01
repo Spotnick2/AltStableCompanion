@@ -31,6 +31,12 @@ internal sealed record PortraitLine(string Name, string State, string Summary, s
     }
 }
 
+/// <summary>A link under About: the browser opens it.</summary>
+internal sealed record AboutLink(string Label, string Url, string Tip)
+{
+    public Command Open { get; } = new(() => MainViewModel.OpenUrl(Url));
+}
+
 /// <summary>
 /// The window's state, read from the controller's snapshot. Always on the UI thread: the
 /// snapshot is read when the update RUNS, not when it was asked for, so a report from an
@@ -74,6 +80,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private bool _rosterCapable;
     private bool _codexProbed;
     private bool _showHelp;
+    private bool _checkUpdatesOnOpen;
+    private UpdateState _update = new();
     private string _search = "";
     private IReadOnlyList<PortraitRow> _rows = [];
     private IReadOnlyList<PortraitLine> _portraits = [];
@@ -98,6 +106,12 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
         ToggleHelp = new Command(() => ShowHelp = !ShowHelp);
         ClearSearch = new Command(() => Search = "");
+        CheckUpdates = new Command(controller.CheckForUpdates);
+        DownloadUpdate = new Command(controller.DownloadUpdate);
+        RestartToUpdate = new Command(() => RestartRequested?.Invoke());
+        OpenReleasePage = new Command(() => OpenUrl(_update.Release?.Page));
+        AboutLinks = [.. PassText.AboutLinks.Select(l => new AboutLink(l.Label, l.Url, l.Tip))];
+        VersionLine = PassText.VersionLine(controller.Version);
         Refresh();
     }
 
@@ -112,6 +126,13 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public Command ToggleSettings { get; }
     public Command ToggleHelp { get; }
     public Command ClearSearch { get; }
+    public Command CheckUpdates { get; }
+    public Command DownloadUpdate { get; }
+    public Command RestartToUpdate { get; }
+    public Command OpenReleasePage { get; }
+
+    /// <summary>"Restart now" was pressed with an update ready: the app's to do, not the window's.</summary>
+    public event Action? RestartRequested;
 
     /// <summary>
     /// Set once the window has been shown: until then the pictures are read for nobody. The
@@ -356,6 +377,51 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ---- about, and updates
+    public string VersionLine { get; }
+    public string AboutText => PassText.About;
+    public string BlizzardCredit => PassText.BlizzardCredit;
+    public IReadOnlyList<AboutLink> AboutLinks { get; }
+    public string CheckUpdatesOnOpenText => PassText.CheckUpdatesOnOpen;
+    public string CheckUpdatesExplanation => PassText.CheckUpdatesExplanation;
+
+    public bool CheckUpdatesOnOpen
+    {
+        get => _checkUpdatesOnOpen;
+        set { if (Set(ref _checkUpdatesOnOpen, value)) _controller.SetCheckUpdatesOnOpen(value); }
+    }
+
+    public string UpdateLine => PassText.UpdateLine(_update, DateTime.Now) ?? "";
+    public bool HasUpdateLine => UpdateLine.Length > 0;
+    public bool UpdateFailed => _update.Stage == UpdateStage.Failed;
+    /// <summary>Found, or on its way, or ready: the dashboard's footer points at Help.</summary>
+    public bool HasUpdateOffer => _update.Stage is UpdateStage.Available or UpdateStage.Downloading or UpdateStage.Ready;
+    public string UpdateOffer => _update.Release is { } r ? $"{r.Version.Text} is out" : "";
+    public bool CanDownloadUpdate => _update.Release is not null && _update.Stage is (UpdateStage.Available or UpdateStage.Failed);
+    public string DownloadUpdateText => _update.Stage == UpdateStage.Failed ? "Try again" : "Update now";
+    public bool CanRestartToUpdate => _update.Stage == UpdateStage.Ready;
+    public bool HasReleasePage => _update.Release is not null;
+
+    private void ShowUpdate(Snapshot now)
+    {
+        var update = now.Update ?? new UpdateState();
+        var was = _update;
+        _update = update;
+        Set(ref _checkUpdatesOnOpen, now.CheckUpdatesOnOpen, nameof(CheckUpdatesOnOpen));
+        CheckUpdates.Enabled = update.Stage is not (UpdateStage.Checking or UpdateStage.Downloading or UpdateStage.Ready);
+        DownloadUpdate.Enabled = CanDownloadUpdate;
+        RestartToUpdate.Enabled = CanRestartToUpdate;
+        if (was == update) return;
+        foreach (var name in new[]
+                 {
+                     nameof(UpdateLine), nameof(HasUpdateLine), nameof(UpdateFailed), nameof(HasUpdateOffer), nameof(UpdateOffer),
+                     nameof(CanDownloadUpdate), nameof(DownloadUpdateText), nameof(CanRestartToUpdate), nameof(HasReleasePage),
+                 })
+        {
+            Raise(name);
+        }
+    }
+
     // ---- the search box above the list
     public string Search
     {
@@ -453,6 +519,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(EnhanceExplanation)); Raise(nameof(EnhanceUnavailable)); Raise(nameof(CanEnhance)); Raise(nameof(HasEnhanceUnavailable)); Raise(nameof(EnhanceUsable));
         Raise(nameof(EnhanceStatus)); Raise(nameof(HasEnhanceStatus));
         Raise(nameof(EnhanceHeld)); Raise(nameof(HasEnhanceHeld)); Raise(nameof(EnhanceHeldButton));
+        ShowUpdate(now);
 
         _rows = shell.Report?.Portraits ?? [];
         Count = PassText.Count(_rows);
@@ -522,6 +589,13 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         var dir = install.CutoutAddonDir;
         while (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) dir = Path.GetDirectoryName(dir);
         return dir;
+    }
+
+    /// <summary>A web address, to the browser. The one place the app hands a URL to the shell.</summary>
+    internal static void OpenUrl(string? url)
+    {
+        if (string.IsNullOrEmpty(url) || !url.StartsWith("https://", StringComparison.Ordinal)) return;
+        Open(url);
     }
 
     private static void Open(string? path)

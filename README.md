@@ -33,9 +33,9 @@ for it in the CLI, and the Codex desktop app is the same tool with a window. No 
 key is used, needed, or read.
 
 Closing the window leaves the app running in the tray; **Quit** is in the tray icon's menu.
-It does not start with Windows: start it again after logging in. To upgrade, quit the old
-one, then run the new file - starting a second copy only brings the running one's window
-forward.
+It does not start with Windows: start it again after logging in. To upgrade, press **Check
+for updates** under Help → About (see below), or quit the old one and run the new file -
+starting a second copy only brings the running one's window forward.
 
 Settings (`settings.json`) and the log (`log.txt`) live in `%APPDATA%\AltStableCompanion`.
 Work on the app is tracked in [AltStable#89](https://github.com/Spotnick2/AltStable/issues/89).
@@ -59,12 +59,13 @@ in the addon's repository.
 ## Shape
 
 .NET 10 and Avalonia; a single self-contained Windows executable; no network access
-at all - except the enhanced portraits below, which you switch on. It only touches
+at all - except the two things below that you ask for: the enhanced portraits, which you
+switch on, and the update check, which is a button (or a box you tick). It only touches
 screenshots it matched to a capture, the `AltStableCutouts` folder and its own settings in
 `%APPDATA%\AltStableCompanion` (and, for enhanced portraits, Codex's own `generated_images`,
 read only). The file on the releases
 page is built by GitHub Actions from the tagged commit (`.github/workflows/release.yml`),
-with a `SHA256SUMS` beside it; nothing in the app fetches anything.
+with a `SHA256SUMS` beside it; nothing in the app fetches anything unless you press.
 
 One exception, which is .NET's and not the app's: a single-file executable unpacks the
 native libraries it carries (Skia, HarfBuzz, ANGLE) into `%TEMP%\.net\AltStableCompanion`
@@ -96,6 +97,28 @@ every picture under its `generated_images` folder; the app reads it and never cl
 To take an enhanced picture back, delete `Cutouts\Enhanced\<name>.tga`: the plain portrait
 is drawn again, and that picture is not made again until you capture again or change the
 style.
+
+## Updates
+
+Under Help → About the window says which version and build this is, and **Check for
+updates** asks GitHub for the list of this project's releases - that one request, nothing
+else leaves the PC. When a newer release exists, the About section says so and the
+dashboard's footer points at it. Nothing is downloaded until you press **Update now**: the
+new exe then lands beside the running one (as `<the file>.update`), is checked against the
+release's `SHA256SUMS`, and waits. **Restart now** finishes the portraits in hand, renames
+the running file to `<the file>.old`, moves the new one into its place - same path, same
+name, so a shortcut keeps working - and starts it; the `.old` file is deleted at that next
+start. If the swap fails, the version you had starts again, and the log says why. A file
+the app downloads itself is not marked as from the internet, so Windows does not show the
+"protected your PC" screen for it.
+
+A beta is offered betas and releases; a release is offered only releases. The Settings box
+**Check for updates when the window opens** (off by default) runs the check by itself, at
+most once an hour - still only the list of releases; a download is always your press.
+
+The running file keeps its name: if you kept the release's name
+(`AltStableCompanion-0.1.0-beta.1-win-x64.exe`), it will carry an older version in its
+name than the one it is. The Help page is the authority on what is running.
 
 ## Command line
 
