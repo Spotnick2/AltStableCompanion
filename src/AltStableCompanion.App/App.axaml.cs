@@ -40,15 +40,13 @@ internal sealed partial class App : Application
             // Subscribed BEFORE Start: the first pass begins inside it.
             _controller.Changed += QueueRefresh;
             _controller.PassCompleted += report => Dispatcher.UIThread.Post(() => Announce(report));
+            _controller.EnhanceCompleted += result => Dispatcher.UIThread.Post(() => Announce(result));
             _controller.Start();
             _viewModel = new MainViewModel(_controller);
 
-            using (var ico = AssetLoader.Open(new Uri("avares://AltStableCompanion/Assets/tray.ico")))
-            using (var bytes = new MemoryStream())
-            {
-                ico.CopyTo(bytes);
-                _tray = new Win32TrayIcon(bytes.ToArray(), Tip(), Menu);
-            }
+            _icon = Asset("avares://AltStableCompanion/Assets/tray.ico");
+            _busyIcon = Asset("avares://AltStableCompanion/Assets/tray-busy.ico");
+            _tray = new Win32TrayIcon(_icon, Tip(), Menu);
             _tray.Activated += () => ShowWindow();
             _controller.Note(_tray.Present ? "tray icon added" : "tray icon could not be added - trying again");
             // No icon means no way in: a window that started hidden has to come out.
@@ -85,11 +83,34 @@ internal sealed partial class App : Application
                 if (_quitting) return;
                 _viewModel?.Refresh();
                 _tray?.SetTip(Tip());
+                // The shield wears a dot while a picture is being made: a glance at the tray says so.
+                _tray?.SetIcon(_controller?.Current.Shell.Enhancing is null ? _icon! : _busyIcon!);
             }, DispatcherPriority.Background);
         });
     }
 
+    private byte[]? _icon;
+    private byte[]? _busyIcon;
+
+    private static byte[] Asset(string uri)
+    {
+        using var stream = AssetLoader.Open(new Uri(uri));
+        using var bytes = new MemoryStream();
+        stream.CopyTo(bytes);
+        return bytes.ToArray();
+    }
+
     private string Tip() => PassText.TrayTip(_controller?.Current.Shell ?? new ShellState());
+
+    private void Announce(EnhanceResult result)
+    {
+        if (_quitting) return;
+        if (PassText.EnhanceBalloon(result) is not { } balloon) return;
+        var taken = _tray?.ShowBalloon(balloon.Title, balloon.Text) ?? false;
+        _controller?.Note(taken
+            ? $"balloon handed to Windows: {balloon.Title}"
+            : $"no balloon, there is no tray icon: {balloon.Title}");
+    }
 
     private void Announce(PassReport report)
     {

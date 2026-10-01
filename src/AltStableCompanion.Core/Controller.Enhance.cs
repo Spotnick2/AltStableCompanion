@@ -23,6 +23,9 @@ public sealed record EnhanceHooks(
 
 public sealed partial class Controller
 {
+    /// <summary>A generation ended - written, refused, failed or cancelled - on whatever thread it ended on.</summary>
+    public event Action<EnhanceResult>? EnhanceCompleted;
+
     private readonly SemaphoreSlim _enhanceWake = new(0, 1);
     // The generation in flight, if any. Never disposed: whoever cancels it (the window, quit,
     // Browse) does so outside the gate, after the worker may have let go of it.
@@ -297,6 +300,8 @@ public sealed partial class Controller
                     _enhanceRefused = null;
                     _current = _current with { Shell = _current.Shell with { Enhancing = $"{c.Character.Name} ({i + 1} of {launch.Count})" } };
                 }
+                // The row says "Enhancing" from now: the record is open.
+                RefreshAfterEnhancement(folder, generation, null);
                 Changed?.Invoke();
                 _log?.Write($"enhance: {c.Character.Name} ({c.FileBase}), {settings.EnhanceStyle}, {settings.EnhanceModel} {settings.EnhanceEffort}");
                 return new EnhanceJob(c.Guid, c.FileBase, c.Character.Name, signature, sourceHash, meta, settings.EnhanceStyle,
@@ -326,15 +331,28 @@ public sealed partial class Controller
     // The job never ran: the record it left says so.
     private void AbandonJob(EnhanceJob job, string why)
     {
-        try
+        var outcome = Attempt.Cancelled + ": " + why;
+        var folder = new CutoutFolder(job.InstallDir);
+        lock (_passGate)
         {
-            AttemptHistory.Load(new CutoutFolder(job.InstallDir).EnhancedDir, job.Guid).End(job.Signature, Attempt.Cancelled + ": " + why, _clock());
-        }
-        catch (AttemptHistoryException ex)
-        {
-            _log?.Write($"enhance: {ex.Message}");
+            Record(folder, job, outcome, null);
+            RefreshAfterEnhancement(folder, job.Generation, null);
         }
         TryDeleteDir(job.Dir);
+        Ended(job, outcome);
+    }
+
+    // How it ended, for the status line, the tooltip and the balloon.
+    private void Ended(EnhanceJob job, string outcome)
+    {
+        var result = new EnhanceResult(_clock(), job.Name, outcome);
+        lock (_gate)
+        {
+            // The activity ends with the job, not with the next look for one.
+            _current = _current with { Shell = _current.Shell with { Enhancing = null, LastEnhanceResult = job.Generation == _generation ? result : _current.Shell.LastEnhanceResult } };
+        }
+        Changed?.Invoke();
+        EnhanceCompleted?.Invoke(result);
     }
 
     /// <summary>
@@ -421,7 +439,7 @@ public sealed partial class Controller
             RefreshAfterEnhancement(folder, job.Generation, outcome == Attempt.Written ? job.Name : null);
         }
         TryDeleteDir(job.Dir);
-        Changed?.Invoke();
+        Ended(job, outcome);
     }
 
     private void Record(CutoutFolder folder, EnhanceJob job, string outcome, string? outputHash)
@@ -456,7 +474,7 @@ public sealed partial class Controller
         lock (_gate)
         {
             if (generation != _generation || _current.Shell.Report is not { } report) return;
-            var rows = Collection.Build(entries, report.Characters, times, folder.EnhanceNote);
+            var rows = Collection.Build(entries, report.Characters, times, folder.EnhanceState);
             var shell = _current.Shell;
             EnhancedNote? note = null;
             if (written is not null)

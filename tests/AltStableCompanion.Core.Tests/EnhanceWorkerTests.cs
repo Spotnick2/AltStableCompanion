@@ -293,6 +293,8 @@ public class EnhanceWorkerTests
         var row = c.Current.Shell.Report!.Portraits!.Single();
         Assert.Equal("enhanced (wow-like)", row.EnhanceNote);
         Assert.Equal(Path.Combine("Enhanced", "kaleid-sumner.tga"), row.ThumbnailFile);
+        Assert.NotNull(row.EnhancedModified);
+        Assert.Equal(row.EnhancedModified, row.LastActivity);
         // Beside the pass's own note, not instead of it: the status line keeps "Last written".
         Assert.Equal(["Kaleid Sumner"], c.Current.Shell.LastEnhanced!.Names);
         Assert.Equal(["Kaleid Sumner"], c.Current.Shell.LastWritten!.Written);
@@ -357,6 +359,32 @@ public class EnhanceWorkerTests
         Assert.Equal([EnhanceStyles.WowLike, EnhanceStyles.Realistic, EnhanceStyles.Cartoonish], attempts.Select(a => a.Style));
         Assert.NotEqual(attempts[1].SourceHash, attempts[2].SourceHash);
         Assert.NotEqual(attempts[1].Epoch, attempts[2].Epoch);
+    }
+
+    [Fact]
+    public void A_character_with_an_earlier_picture_still_says_Enhancing_while_the_next_is_made()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake();
+        using var c = Started(t, fake);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the first picture");
+        Until(() => c.Current.Shell.Enhancing is null, "the first job over");
+        // Another style, held in flight: the note says both, the row says Enhancing, and sits first.
+        fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "the hold");
+        c.RemakeEnhanced();
+        Until(() => fake.Calls == 2, "the second launch");
+        Until(() => c.Current.Shell.Report?.Portraits?.Single().Enhancing == true, "the row in flight");
+        var row = c.Current.Shell.Report!.Portraits!.Single();
+        Assert.Equal("enhanced (wow-like); realistic enhancing", row.EnhanceNote);
+        Assert.Equal("Enhancing", PassText.RowState(row));
+        Assert.Equal(("enhanced (wow-like); realistic enhancing", true), folder.EnhanceState(Guid1));
+        fake.Hold.SetResult(true);
+        Until(() => c.Current.Shell.Report?.Portraits?.Single() is { Enhancing: false, EnhanceNote: "enhanced (realistic)" }, "the second picture");
     }
 
     [Fact]
@@ -536,17 +564,32 @@ public class EnhanceWorkerTests
         Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
         CapableRoster(t);
         var fake = new Fake { Hold = new TaskCompletionSource<bool>() };
-        using var c = Started(t, fake);
+        // Off until the first pass has built the rows: the launch alone must then make the row say so.
+        using var c = Started(t, fake, enhance: false);
+        Until(() => c.Current.Shell.Report is not null && !c.Current.Shell.Converting, "the first pass");
+        Settle(2500);  // and the rerun the pass's own deletions queue: no pass may rebuild the rows after the launch
+        c.SetEnhance(true, 10, EnhanceStyles.WowLike);
         Until(() => fake.Calls == 1, "the launch");
         Until(() => c.Current.Shell.Enhancing is not null, "the activity");
         Assert.Contains("Kaleid Sumner (1 of 1)", c.Current.Shell.Enhancing);
         Assert.StartsWith("Enhancing Kaleid Sumner", PassText.Activity(c.Current.Shell, T0));
+        // The row says so from the launch, and the tray.
+        Until(() => c.Current.Shell.Report?.Portraits?.Single().Enhancing == true, "the row's state");
+        Assert.Equal("Enhancing", PassText.RowState(c.Current.Shell.Report!.Portraits!.Single()));
+        Assert.EndsWith("enhancing Kaleid Sumner (1 of 1)", PassText.TrayTip(c.Current.Shell));
+        var ended = new List<EnhanceResult>();
+        c.EnhanceCompleted += ended.Add;
         c.SetEnhance(false, 10, EnhanceStyles.WowLike);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
         Until(() => AttemptHistoryReady(folder), "the record");
         Assert.Equal(Attempt.Cancelled, AttemptHistory.Load(folder.EnhancedDir, Guid1).Last!.Outcome);
         Assert.False(File.Exists(Path.Combine(folder.EnhancedDir, "kaleid-sumner.tga")));
         Until(() => c.Current.Shell.Enhancing is null, "the activity line cleared");
+        // The end is announced once, and stays under the switch.
+        Until(() => ended.Count == 1, "the event");
+        Assert.Equal(("Kaleid Sumner", Attempt.Cancelled), (ended[0].Name, ended[0].Outcome));
+        Assert.Equal("Last: Kaleid Sumner cancelled, " + PassText.EnhanceStatus(c.Current.Shell, DateTime.Now)!.Split(", ")[1], PassText.EnhanceStatus(c.Current.Shell, DateTime.Now));
+        Assert.False(c.Current.Shell.Report!.Portraits!.Single().Enhancing);
         // On again: the cancelled picture is tried once more - and, cancelled again, no more.
         fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         c.SetEnhance(true, 10, EnhanceStyles.WowLike);

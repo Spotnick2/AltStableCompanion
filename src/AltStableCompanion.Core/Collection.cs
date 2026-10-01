@@ -58,8 +58,16 @@ public sealed record PortraitRow(
     /// <summary>The enhanced picture attached to this portrait, if one is: what the game draws, and the thumbnail shows.</summary>
     EnhancedTexture? Enhanced = null,
     /// <summary>What the enhancer last did for this character, in a few words, or null.</summary>
-    string? EnhanceNote = null)
+    string? EnhanceNote = null,
+    /// <summary>When the enhanced picture was written, if one is attached.</summary>
+    DateTime? EnhancedModified = null,
+    /// <summary>A picture of this character is being made right now - a fact of its own, whatever the note says.</summary>
+    bool Enhancing = false)
 {
+
+    /// <summary>The latest thing that happened to this character - a capture, a portrait, an enhanced picture - for the list's order.</summary>
+    public DateTime? LastActivity => new[] { FileModified, EnhancedModified, LatestCapture }.Max();
+
     /// <summary>The file the thumbnail is made from: the enhanced picture when there is one.</summary>
     public string? ThumbnailFile => Enhanced is null ? FileName : FileName is null ? null : Path.Combine("Enhanced", FileName);
     public (int W, int H)? ThumbnailSize => Enhanced is { } e ? (e.W, e.H) : Size;
@@ -97,7 +105,7 @@ public static class Collection
         IReadOnlyList<ManifestEntry> entries,
         IReadOnlyList<CharacterStatus> captures,
         IReadOnlyDictionary<string, DateTime> fileTimes,
-        Func<string, string?>? enhanceNote = null)
+        Func<string, (string? Note, bool InFlight)>? enhanceState = null)
     {
         var byKey = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
         foreach (var e in entries) byKey.TryAdd(e.Key, e);
@@ -115,7 +123,9 @@ public static class Collection
                 NearlySquare: c.NearlySquare,
                 Size: entry is null ? null : (entry.W, entry.H),
                 Enhanced: entry?.Enhanced,
-                EnhanceNote: enhanceNote?.Invoke(c.Guid)));
+                EnhanceNote: enhanceState?.Invoke(c.Guid).Note,
+                EnhancedModified: entry is null ? null : EnhancedModified(fileTimes, entry),
+                Enhancing: enhanceState?.Invoke(c.Guid).InFlight ?? false));
         }
 
         foreach (var e in entries.Where(e => !claimed.Contains(e)))
@@ -123,7 +133,9 @@ public static class Collection
             rows.Add(new PortraitRow(
                 Label(Path.GetFileNameWithoutExtension(e.FileName)), e.Guid, e.FileName, PortraitSource.File,
                 Modified(fileTimes, e), null, CaptureOutcome.None, null, Size: (e.W, e.H),
-                Enhanced: e.Enhanced, EnhanceNote: e.Guid is null ? null : enhanceNote?.Invoke(e.Guid)));
+                Enhanced: e.Enhanced, EnhanceNote: e.Guid is null ? null : enhanceState?.Invoke(e.Guid).Note,
+                EnhancedModified: EnhancedModified(fileTimes, e),
+                Enhancing: e.Guid is not null && (enhanceState?.Invoke(e.Guid).InFlight ?? false)));
         }
 
         // Namesakes are told apart by the one thing that is theirs alone.
@@ -133,9 +145,13 @@ public static class Collection
             .Select(g => g.Key)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // The one being worked on first, then the latest activity first, then the name: what
+        // just happened is at the top, where a glance lands.
         return [.. rows
             .Select(r => r.Guid is not null && shared.Contains(r.Name) ? r with { ShowGuid = true } : r)
-            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(r => r.Enhancing)
+            .ThenByDescending(r => r.LastActivity ?? DateTime.MinValue)
+            .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(r => r.Guid, StringComparer.Ordinal)
             .ThenBy(r => r.FileName, StringComparer.OrdinalIgnoreCase)];
     }
@@ -163,6 +179,9 @@ public static class Collection
 
     private static DateTime? Modified(IReadOnlyDictionary<string, DateTime> times, ManifestEntry e) =>
         times.TryGetValue(e.FileName, out var t) ? t : null;
+
+    private static DateTime? EnhancedModified(IReadOnlyDictionary<string, DateTime> times, ManifestEntry e) =>
+        e.Enhanced is not null && times.TryGetValue(CutoutFolder.EnhancedKey(e.FileName), out var t) ? t : null;
 
     /// <summary>"karuzo-elegia" reads "Karuzo Elegia". A way to read a file name, nothing more.</summary>
     public static string Label(string fileBase)

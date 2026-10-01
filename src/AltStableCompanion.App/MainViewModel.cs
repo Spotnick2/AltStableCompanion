@@ -15,17 +15,19 @@ namespace AltStableCompanion.App;
 /// <param name="Thumbnail">The portrait, small; null for a row without one, or one that could
 ///   not be read this time. The same instance for the same file, so two lines compare equal.</param>
 internal sealed record PortraitLine(string Name, string State, string Summary, string? Tooltip, bool Ready, bool Attention,
-    IImage? Thumbnail)
+    IImage? Thumbnail, bool Working = false)
 {
     public bool Quiet => !Attention;
     public bool HasSummary => Summary.Length > 0;
+    /// <summary>The green dot: in the manifest, and not being worked on right now.</summary>
+    public bool Idle => Ready && !Working;
 
     public static PortraitLine From(PortraitRow row, DateTime today, IImage? thumbnail, bool previewFailed)
     {
         var detail = PassText.RowDetail(row, today);
         var summary = PassText.RowSummary(row, today);
         return new(row.Name, PassText.RowState(row), summary ?? detail, PassText.RowTooltip(summary, detail, previewFailed),
-            row.Ready, row.NeedsAttention, thumbnail);
+            row.Ready, row.NeedsAttention, thumbnail, row.Enhancing);
     }
 }
 
@@ -304,6 +306,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>The box can be used when it can be turned on - or is on: what is on must be turn-off-able.</summary>
     public bool EnhanceUsable => CanEnhance || _enhance;
 
+    /// <summary>What the enhancer is doing, or last did, under the switch.</summary>
+    public string EnhanceStatus => PassText.EnhanceStatus(_controller.Current.Shell, DateTime.Now) ?? "";
+    public bool HasEnhanceStatus => EnhanceStatus.Length > 0;
     /// <summary>Pictures a settings change held back, and the offer to make them again.</summary>
     public string EnhanceHeld => PassText.EnhanceHeld(_controller.Current.Shell.EnhanceHeld) ?? "";
     public bool HasEnhanceHeld => EnhanceHeld.Length > 0;
@@ -446,6 +451,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         _codexProbed = now.CodexProbed;
         _rosterCapable = shell.Install?.RosterDrawsEnhanced ?? false;
         Raise(nameof(EnhanceExplanation)); Raise(nameof(EnhanceUnavailable)); Raise(nameof(CanEnhance)); Raise(nameof(HasEnhanceUnavailable)); Raise(nameof(EnhanceUsable));
+        Raise(nameof(EnhanceStatus)); Raise(nameof(HasEnhanceStatus));
         Raise(nameof(EnhanceHeld)); Raise(nameof(HasEnhanceHeld)); Raise(nameof(EnhanceHeldButton));
 
         _rows = shell.Report?.Portraits ?? [];

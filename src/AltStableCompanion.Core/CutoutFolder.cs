@@ -221,7 +221,17 @@ public sealed class CutoutFolder(string addonDir)
     /// failed: ...", "enhancement cancelled", "enhancing" (an attempt still open). Null when
     /// there is no history, or it cannot be read.
     /// </summary>
-    public string? EnhanceNote(string guid)
+    /// <summary>The note of a character whose picture is being made right now.</summary>
+    public const string EnhancingNote = "enhancing";
+
+    public string? EnhanceNote(string guid) => EnhanceState(guid).Note;
+
+    /// <summary>
+    /// The note, and whether a picture is being made right now - as a fact beside the words,
+    /// not parsed out of them: with an earlier success the note is "enhanced (wow-like);
+    /// realistic enhancing", and the row still has to say Enhancing.
+    /// </summary>
+    public (string? Note, bool InFlight) EnhanceState(string guid)
     {
         AttemptHistory history;
         try
@@ -230,18 +240,19 @@ public sealed class CutoutFolder(string addonDir)
         }
         catch (Exception ex) when (ex is AttemptHistoryException or ArgumentException)
         {
-            return null;
+            return (null, false);
         }
-        if (history.Last is not { } last) return null;
+        if (history.Last is not { } last) return (null, false);
         var shown = history.LastWritten;
-        if (last.Outcome == Attempt.Written) return $"enhanced ({last.Style})";
+        if (last.Outcome == Attempt.Written) return ($"enhanced ({last.Style})", false);
+        var inFlight = last.Outcome == Attempt.Unknown && last.Ended is null;
         var what = Reason(last.Outcome, Attempt.Refused) is { } refused ? "enhancement refused: " + refused
             : Reason(last.Outcome, Attempt.Failed) is { } failed ? "enhancement failed: " + failed
             : last.Outcome.StartsWith(Attempt.Cancelled, StringComparison.Ordinal) ? "enhancement cancelled"
-            : last.Outcome == Attempt.Unknown ? (last.Ended is null ? "enhancing" : "enhancement outcome unknown")
+            : last.Outcome == Attempt.Unknown ? (inFlight ? EnhancingNote : "enhancement outcome unknown")
             : last.Outcome;
         // What is on disk is an earlier success: say both.
-        return shown is null ? what : $"enhanced ({shown.Style}); {last.Style} {what.Replace("enhancement ", "")}";
+        return (shown is null ? what : $"enhanced ({shown.Style}); {last.Style} {what.Replace("enhancement ", "")}", inFlight);
     }
 
     // "refused: why" -> "why"; "refused" alone -> "(no reason given)"; anything else -> null.
@@ -370,9 +381,16 @@ public sealed class CutoutFolder(string addonDir)
         {
             var path = Path.Combine(CutoutsDir, e.FileName);
             if (File.Exists(path)) times[e.FileName] = File.GetLastWriteTime(path);
+            // The enhanced picture's own time, under its own key: activity of its own.
+            if (e.Enhanced is null) continue;
+            var enhanced = Path.Combine(EnhancedDir, e.FileName);
+            if (File.Exists(enhanced)) times[EnhancedKey(e.FileName)] = File.GetLastWriteTime(enhanced);
         }
         return times;
     }
+
+    /// <summary>The key of an enhanced picture's time in <see cref="FileTimes"/>.</summary>
+    public static string EnhancedKey(string fileName) => "Enhanced/" + fileName;
 
     /// <summary>
     /// Rebuild the manifest from what is on disk, and write it when its entries changed. An
