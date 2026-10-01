@@ -108,11 +108,12 @@ public static class Eligibility
 }
 
 /// <summary>
-/// The words Codex is given. The attached screenshot cutout is the authority for everything
-/// it shows - skin, hair, clothing, colours, what is in the hands - and the prompt says only
-/// what a small screenshot cannot: the race's anatomy, the style, the framing, the format.
-/// Measured on 2026-09-30: a prompt that put invented gear words over the reference gave a
-/// black-robed blue troll; this one gave the character.
+/// The words Codex is given. The attached cutout is the design reference - who the character
+/// is: race, face, hair, clothing, colours, what is in the hands - and the prompt asks for the
+/// sculpt and the rendering to be reinterpreted in a named art direction, with the race's
+/// anatomy, the guards (nothing added, one image, nothing around the figure) and the format.
+/// Measured on 2026-09-30: words that made the reference "the authority" to copy gave the
+/// game model back; words that put invented gear over it gave another character.
 /// </summary>
 public static class EnhancementPrompt
 {
@@ -158,16 +159,16 @@ public static class EnhancementPrompt
         }
         else if (race.Length > 0)
         {
-            // A race the model has never heard of (Forever's Skyborne): the picture is all there is.
-            sb.AppendLine($"The {raceWords} may be a race you do not know: take its anatomy - ears, hands, feet, horns, wings, tail, tusks - exactly from the reference, and invent nothing.").AppendLine();
+            // A race the model has never heard of: the reference is what there is to go on.
+            sb.AppendLine($"The {raceWords} may be a race you do not know: take its anatomy - ears, hands, feet, horns, wings, tail, tusks - from the reference and keep it; do not substitute the anatomy of a race you know.").AppendLine();
         }
         sb.AppendLine(w.Look);
         sb.AppendLine();
         sb.AppendLine($"The transformation must be apparent at thumbnail size through facial structure, anatomy, hair, lighting, and material depth - not merely sharper textures. {w.Avoid}");
         sb.AppendLine();
-        sb.AppendLine("Keep the original costume and equipment design. Do not add armor, scars, dirt, or age. Show the full character, including all hair, boots, and equipment, with comfortable margins.");
+        sb.AppendLine("Keep the original costume and equipment design. Do not add armor, weapons, pets, companions, spell effects, glows, auras, scars, dirt, or age; one figure only. Show the full character, including all hair, boots, and equipment, with comfortable margins.");
         sb.AppendLine();
-        sb.AppendLine("Output one image, 1024x1536, as a PNG on a genuinely transparent background. No scenery, ground plane, text, or logos. After generating, report on its own line the exact absolute path of the generated image, prefixed with \"ARTIFACT_PATH: \". If the generation fails or no local path is available, say so plainly; do not invent a path or emit an ARTIFACT_PATH line.");
+        sb.AppendLine("Output one image, 1024x1536, as a PNG on a genuinely transparent background. No scenery, floor, ground plane, ground shadow, glow, halo, vignette, text, or logos; lighting and shadows describe the character's surfaces only. Generate exactly one image in one call: do not generate variants, retry, or post-process the result with scripts, and do not create, edit, or modify any other files. After generating, report on its own line the exact absolute path of the generated image, prefixed with \"ARTIFACT_PATH: \". If the generation fails or no local path is available, say so plainly; do not invent a path or emit an ARTIFACT_PATH line.");
         return sb.ToString();
     }
 
@@ -188,10 +189,10 @@ public static class EnhancementPrompt
     /// </summary>
     public static string? Anatomy(string race) => race.Trim().ToLowerInvariant() switch
     {
-        "troll" => "two toes on each foot, three fingers on each hand, long pointed ears, tusks at the mouth as small or large as in the screenshot, a tall lean build",
-        "orc" => "green skin as in the screenshot, prominent lower tusks, a heavy muscular build, five fingers and five toes",
+        "troll" => "two toes on each foot, three fingers on each hand, long pointed ears, tusks at the mouth as small or large as in the reference, a tall lean build",
+        "orc" => "green skin as in the reference, prominent lower tusks, a heavy muscular build, five fingers and five toes",
         "tauren" => "hooves instead of feet, a bovine head with a muzzle and horns, a tail, three fingers on each hand, a massive build",
-        "scourge" or "undead" => "greyish undead skin, a gaunt build, exposed bone at the joints or spine only where the screenshot shows it, five fingers and five toes",
+        "scourge" or "undead" => "greyish undead skin, a gaunt build, exposed bone at the joints or spine only where the reference shows it, five fingers and five toes",
         "night elf" or "nightelf" => "long pointed ears, glowing eyes, long eyebrows, a tall slender build",
         "gnome" => "a very small build, about a third of a human's height, with a large head",
         "dwarf" => "a short, broad, stocky build",
@@ -206,17 +207,17 @@ public static class EnhancementPrompt
     // Look: the surfaces and the light; Avoid: the failure modes seen.
     private sealed record StyleWords(string Interpretation, string Reinterpret, string Look, string Avoid);
 
-    private const string RaceFeatures = "Keep the race's signature features - stature, ears, nose, tusks, horns, head-to-body proportions - and the character's expressive personality. Maintain the same apparent age and expression.";
+    private const string RaceFeatures = "Keep the race's signature features - stature, ears, nose, tusks, horns, head-to-body proportions - and the character's expressive personality.";
 
     private static StyleWords Words(string style) => EnhanceStyles.Normalize(style) switch
     {
         EnhanceStyles.Realistic => new(
             "photorealistic, live-action",
             "The finished image should look like a photograph of a living fantasy character. Reinterpret the anatomy and surfaces substantially enough to achieve photographic realism. You may adjust eye size, eyelids, facial planes, and small anatomical proportions while retaining the character's distinctive features and racial silhouette. Do not preserve cartoon geometry simply because it appears in the reference. "
-            + RaceFeatures + " Make those features feel like convincing living anatomy, with underlying bone, cartilage, muscle, and soft tissue. Do not turn the character into an average-proportioned human.",
-            "Render eyes with believable eyeball size, detailed irises, moist tear lines, natural eyelid thickness, and subtle reflections; preserve the original iris color without making the eyes look like glass marbles. Use natural skin with subtle pores, fine facial hair, gentle color variation, and slight asymmetry; keep the same apparent age, and do not use extra wrinkles, scars, dirt, or aging as shortcuts to realism. "
+            + RaceFeatures + " Make those features feel like convincing living anatomy, with underlying bone, cartilage, muscle, and soft tissue; do not normalize the character's proportions toward an average human's.",
+            "Render eyes with believable eyeball size, detailed irises, moist tear lines, natural eyelid thickness, and subtle reflections; preserve the original iris color without making the eyes look like glass marbles. Use natural skin with subtle pores, fine facial hair, gentle color variation, and slight asymmetry; realism comes from anatomy, materials, and light, not from wrinkles, scars, dirt, or aging. "
             + "Translate the hairstyle into real individual hairs and physically plausible styled locks, preserving its recognizable silhouette and color while allowing natural strand irregularity; avoid solid sculpted spikes or a synthetic wig appearance. "
-            + "Translate the original outfit into actual constructed garments: appropriate fabric weave, seams, leather thickness, stitching, folds caused by gravity, and believable metal fittings; preserve the design and existing wear level without adding embellishments or damage. "
+            + "Translate the original outfit into actual constructed garments: appropriate fabric weave, seams, leather thickness, stitching, folds caused by gravity, and believable metal fittings; preserve the design and the existing wear level. "
             + "Use photographic portrait lighting: a broad directional key light, soft fill, natural shadow transitions, and restrained highlights. Keep the whole character clearly focused, with realistic lens perspective and balanced exposure.",
             "Avoid glossy CGI skin, illustration, game-render shading, and exaggerated cinematic bloom. Aim for a convincing live-action fantasy film character photographed on set."),
         EnhanceStyles.Cartoonish => new(
@@ -292,7 +293,8 @@ public sealed record Inspection(bool BorderHit, long Opaque, int MinX, int MinY,
 /// the picture is shaped like a cutout - not that it is the right character, which is the
 /// player's to see:
 ///   "transparent border": the outer two rows at the top and the outer two columns on each
-///     side are transparent (the bottom may hold the feet: the model plants them there);
+///     side hold nothing opaque and no run of visible pixels - a hair wisp fading out there is
+///     not a cut figure, a cropped arm is (the bottom may hold the feet: the model plants them there);
 ///   "enough figure": at least 5 % of the pixels are opaque (alpha 250 or more);
 ///   "standing figure": the figure's box is at least 1.15 times as tall as wide.
 /// Then the same tail as the converter: crop to the figure, scale to the cutout height,
@@ -306,12 +308,15 @@ public static class Enhancement
     public const int Opaque = 250;
     public const int Visible = 8;
     public const double MinAspect = 1.15;
+    /// <summary>Visible pixels in the border band beyond this share of it are a cut figure, feathered or not; wisps measured 3 and 57 of 8192.</summary>
+    public const double BorderRun = 0.015;
 
     /// <summary>One pass over the pixels: the border, the opaque count, and the box of everything visible.</summary>
     public static Inspection Inspect(RgbaImage png)
     {
         var borderHit = false;
         long opaque = 0;
+        long onBorder = 0;
         int minX = png.Width, minY = png.Height, maxX = -1, maxY = -1;
         var pixels = png.Pixels;
         var w = png.Width;
@@ -328,13 +333,21 @@ public static class Enhancement
                 // pictures of 2026-09-30: the tool frames the figure as it likes, whatever
                 // margin the prompt asks for, and two good pictures had 3 and 57 faint pixels
                 // there and no opaque one. The bottom may hold the feet.
-                if (a >= Opaque && (y < 2 || x < 2 || x >= w - 2)) borderHit = true;
+                if (y < 2 || x < 2 || x >= w - 2)
+                {
+                    if (a >= Opaque) borderHit = true;
+                    onBorder++;
+                }
                 if (x < minX) minX = x;
                 if (x > maxX) maxX = x;
                 if (y < minY) minY = y;
                 if (y > maxY) maxY = y;
             }
         }
+        // A figure cropped at the edge and feathered there is not opaque in the band, but it
+        // fills a run of it; a wisp is a few pixels.
+        var band = 2L * w + 4L * Math.Max(0, png.Height - 2);
+        if (onBorder > band * BorderRun) borderHit = true;
         return new Inspection(borderHit, opaque, minX, minY, maxX, maxY);
     }
 

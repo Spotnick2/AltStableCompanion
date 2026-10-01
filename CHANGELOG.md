@@ -9,15 +9,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
 ### Added
 
 - Enhanced portraits, off by default: with the Codex CLI installed and signed in on this
-  PC, a better picture of each character of the chosen level or more, from its own portrait.
-  The one exception to "no network": the Settings page says exactly what is sent and when
-  it spends. Needs an AltStable Roster that knows enhanced textures.
-- The prompt, version 2: the character's design is preserved and the sculpt and rendering are
-  reinterpreted in a named art direction - version 1 gave back the game model with better
-  shading, "realistic" included. WoW style is the pre-rendered cinematic look; realistic is a
-  photographed living character. Every eligible character is made again.
-- A picture is refused for its border only when something opaque sits on it - a cut figure -
-  not for a hair wisp fading out there; two good pictures were lost to that.
+  PC, a better picture of each character of the chosen level or more, from its own portrait
+  - in the look of the WoW cinematics, photorealistic, or as an animated feature. The one
+  exception to "no network": the Settings page says exactly what is sent and when it
+  spends. Needs an AltStable Roster that knows enhanced textures.
 
 ## [0.1.0]
 
