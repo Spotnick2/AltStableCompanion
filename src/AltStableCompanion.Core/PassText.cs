@@ -100,7 +100,8 @@ public static class PassText
             + "One automatic attempt for each new combination of capture, style, model and prompt wording (an app update may change the wording, "
             + "and then every eligible character is made again); an attempt uses Codex usage whether or not a "
             + "picture comes back, and a picture that was refused or failed is not tried again for that combination. Turning this off "
-            + "stops new attempts and cancels the one running; pictures already made stay, and the addon keeps showing them.";
+            + "stops new attempts and cancels the one running (that one is tried once more when this is on again); pictures already "
+            + "made stay, and the addon keeps showing them.";
     }
 
     /// <summary>Why the box is disabled, or null when it can be used.</summary>

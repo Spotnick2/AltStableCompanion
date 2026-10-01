@@ -513,8 +513,22 @@ public class AttemptHistoryTests
         Assert.Equal(["sig1", "sig2"], third.Attempts.Select(a => a.Signature));
         // A -> B -> A: A is still recorded, so nothing is launched; and what is on disk is A's.
         Assert.True(third.Has("sig1"));
+        Assert.False(third.MayLaunch("sig1"));
+        Assert.False(third.MayLaunch("sig2"));
         Assert.Equal("out1", third.LastWritten!.OutputHash);
         Assert.Equal("sig2", third.Last!.Signature);
+
+        // A cancel is not the picture's fault: once more, and once only. The second attempt is
+        // its own record, ended on its own.
+        third.Begin(new Attempt { Signature = "sig3", Started = T0.AddMinutes(6) });
+        Assert.False(third.MayLaunch("sig3"));                       // in flight: not while open
+        third.End("sig3", Attempt.Cancelled, T0.AddMinutes(7));
+        Assert.True(third.MayLaunch("sig3"));
+        third.Begin(new Attempt { Signature = "sig3", Started = T0.AddMinutes(8) });
+        third.End("sig3", Attempt.Cancelled + ": the app is stopping", T0.AddMinutes(9));
+        Assert.Equal([Attempt.Cancelled, Attempt.Cancelled + ": the app is stopping"], third.Attempts.Where(a => a.Signature == "sig3").Select(a => a.Outcome));
+        Assert.False(third.MayLaunch("sig3"));
+        Assert.Throws<AttemptHistoryException>(() => third.Begin(new Attempt { Signature = "sig3", Started = T0 }));
     }
 
     [Fact]

@@ -78,19 +78,30 @@ public sealed class AttemptHistory
     /// <summary>Whether anything was ever launched for the signature. Any outcome counts, unknown included.</summary>
     public bool Has(string signature) => _attempts.Any(a => a.Signature == signature);
 
+    /// <summary>
+    /// Whether the signature may be launched: never attempted, or attempted once and cancelled
+    /// - a cancel is the player's doing or a quit, not the picture's fault, and is worth one
+    /// more try. Anything else (written, refused, failed, unknown, cancelled twice) is final.
+    /// </summary>
+    public bool MayLaunch(string signature)
+    {
+        var mine = _attempts.Where(a => a.Signature == signature).ToList();
+        return mine.Count == 0 || (mine.Count == 1 && mine[0].Ended is not null && mine[0].Outcome.StartsWith(Attempt.Cancelled, StringComparison.Ordinal));
+    }
+
     public Attempt? Last => _attempts.Count == 0 ? null : _attempts[^1];
 
     /// <summary>The last attempt that wrote a picture, if any: what is on disk, whatever was asked for since.</summary>
     public Attempt? LastWritten => _attempts.LastOrDefault(a => a.Outcome == Attempt.Written);
 
     /// <summary>
-    /// Record a launch before it happens. Refuses a signature already recorded. Written to disk
-    /// atomically before this returns; if that fails, nothing is launched.
+    /// Record a launch before it happens. Refuses a signature that <see cref="MayLaunch"/> does
+    /// not allow. Written to disk atomically before this returns; if that fails, nothing is launched.
     /// </summary>
     public Attempt Begin(Attempt attempt)
     {
         if (string.IsNullOrEmpty(attempt.Signature)) throw new ArgumentException("an attempt has a signature", nameof(attempt));
-        if (Has(attempt.Signature)) throw new AttemptHistoryException($"{attempt.Signature} was already attempted");
+        if (!MayLaunch(attempt.Signature)) throw new AttemptHistoryException($"{attempt.Signature} was already attempted");
         var started = attempt with { Outcome = Attempt.Unknown, Ended = null };
         _attempts.Add(started);
         try
@@ -139,7 +150,8 @@ public sealed class AttemptHistory
     /// <summary>Record how the launch ended - or, ended again: a write that failed after the record said written.</summary>
     public void End(string signature, string outcome, DateTime when, string? outputHash = null)
     {
-        var i = _attempts.FindIndex(a => a.Signature == signature);
+        // The last one: a signature cancelled once is begun a second time.
+        var i = _attempts.FindLastIndex(a => a.Signature == signature);
         if (i < 0) throw new AttemptHistoryException($"{signature} was never begun");
         _attempts[i] = _attempts[i] with { Outcome = outcome, Ended = when, OutputHash = outputHash };
         Save();
