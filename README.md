@@ -71,8 +71,9 @@ not hidden - the existing ones too, all of them, when you turn it on. What leave
 the portrait's cropped image and the character's race, gender and class, plus any
 instructions your Codex CLI is configured with, to the account Codex is signed in to.
 
-One automatic attempt for each new combination of capture, style and model; an attempt
-uses Codex usage whether or not a picture comes back, and a picture that was refused or
+One automatic attempt for each new combination of capture, style, model and prompt wording
+(an app update may change the wording, and then every eligible character is made again); an
+attempt uses Codex usage whether or not a picture comes back, and a picture that was refused or
 failed is not tried again for that combination. Turning it off stops new attempts and
 cancels the one running; pictures already made stay in `AltStableCutouts\Cutouts\Enhanced\`
 and the addon keeps drawing them (it needs an AltStable Roster that knows enhanced

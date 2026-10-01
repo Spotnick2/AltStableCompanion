@@ -97,7 +97,8 @@ public static class PassText
         return $"When on, the Codex CLI on this PC is asked for a new picture of each character of level {minLevel} or more that has a portrait "
             + "and is not hidden - the existing ones too, all of them, when you turn this on. What is sent: the portrait's cropped image and "
             + $"the character's race, gender and class, plus any instructions your Codex CLI is configured with, to {signedIn}. "
-            + "One automatic attempt for each new combination of capture, style and model; an attempt uses Codex usage whether or not a "
+            + "One automatic attempt for each new combination of capture, style, model and prompt wording (an app update may change the wording, "
+            + "and then every eligible character is made again); an attempt uses Codex usage whether or not a "
             + "picture comes back, and a picture that was refused or failed is not tried again for that combination. Turning this off "
             + "stops new attempts and cancels the one running; pictures already made stay, and the addon keeps showing them.";
     }

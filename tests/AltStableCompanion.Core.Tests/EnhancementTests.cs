@@ -280,50 +280,87 @@ public class EnhancementPromptTests
     private static readonly RosterCharacter Troll = new("g", "Drakuzo", "WARLOCK", "Troll", "Female", 12, 1);
 
     [Fact]
-    public void The_reference_rules_and_the_prompt_says_only_what_it_cannot()
+    public void The_design_is_preserved_and_the_sculpt_and_rendering_are_reinterpreted()
     {
         var p = EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Troll Warlock", p);
-        Assert.Contains("It is the authority", p);
+        Assert.Contains("The character is a Female Troll Warlock.", p);
+        // The design is preserved; the sculpt and the rendering are reinterpreted.
+        Assert.StartsWith("Use the built-in image_gen tool. Use the attached character as the design reference and generate a distinctly World of Warcraft cinematic interpretation.", p);
+        Assert.Contains("Preserve the recognizable character:", p);
+        Assert.Contains("Reinterpret the facial sculpt and rendering substantially.", p);
+        Assert.Contains("Keep the race's signature features - stature, ears, nose, tusks, horns, head-to-body proportions", p);
+        Assert.DoesNotContain("gnome", p, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("copy it faithfully", p);
+        Assert.DoesNotContain("exactly as shown", p);
+        Assert.DoesNotContain("skill", p);
         Assert.Contains("two toes on each foot, three fingers on each hand", p);
         Assert.Contains("Troll anatomy", p);
-        Assert.Contains("TRANSPARENT background", p);
-        Assert.Contains("EXACTLY ONE image", p);
+        Assert.Contains("do not remove or alter them to show it", p);
+        Assert.Contains("apparent at thumbnail size", p);
+        Assert.Contains("Do not add armor, weapons, pets, companions, spell effects, glows, auras, scars, dirt, or age; one figure only.", p);
+        Assert.Contains("ground shadow, glow, halo, vignette", p);
+        Assert.Contains("Generate exactly one image in one call: do not generate variants, retry, or post-process the result with scripts, and do not create, edit, or modify any other files.", p);
+        Assert.DoesNotContain("screenshot", p);
+        // Said once each.
+        Assert.Equal(1, p.Split("apparent age").Length - 1);
+        Assert.DoesNotContain("exactly from the reference", EnhancementPrompt.Build(Troll with { Race = "Pandaren", RaceName = null }, EnhanceStyles.Realistic));
+        Assert.DoesNotContain("invent nothing", EnhancementPrompt.Build(Troll with { Race = "Pandaren", RaceName = null }, EnhanceStyles.Realistic));
+        Assert.Contains("genuinely transparent background", p);
+        Assert.Contains("1024x1536", p);
         Assert.Contains("ARTIFACT_PATH: ", p);
-        Assert.Contains("do not add weapons, magic effects, glows, pets", p);
-        // No gear words, no scenery, no crop talk: the reference carries the clothing.
-        Assert.DoesNotContain("gear", p, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("crop", p, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Background:", p);
+        Assert.Contains("do not invent a path", p);
+        // Preserve, then reinterpret, then the look, then the delivery.
+        Assert.True(p.IndexOf("Preserve the recognizable", StringComparison.Ordinal) < p.IndexOf("Reinterpret the facial", StringComparison.Ordinal));
+        Assert.True(p.IndexOf("Reinterpret the facial", StringComparison.Ordinal) < p.IndexOf("cinematic depth", StringComparison.Ordinal));
+        Assert.True(p.IndexOf("cinematic depth", StringComparison.Ordinal) < p.IndexOf("ARTIFACT_PATH", StringComparison.Ordinal));
+        Assert.Equal(2, EnhancementPrompt.Version);
     }
 
     [Fact]
     public void Each_style_and_race_has_its_line_and_an_unknown_race_has_none()
     {
-        Assert.Contains("photorealistic", EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic));
-        Assert.Contains("cartoon", EnhancementPrompt.Build(Troll, EnhanceStyles.Cartoonish));
-        Assert.Contains("World of Warcraft style", EnhancementPrompt.Build(Troll, "no such style"));
+        var real = EnhancementPrompt.Build(Troll, EnhanceStyles.Realistic);
+        Assert.Contains("distinctly photorealistic, live-action interpretation", real);
+        Assert.Contains("Do not preserve cartoon geometry simply because it appears in the reference.", real);
+        Assert.Contains("do not normalize the character's proportions toward an average human's", real);
+        Assert.DoesNotContain("average-proportioned human", EnhancementPrompt.Build(Troll with { Race = "Human", RaceName = null }, EnhanceStyles.Realistic));
+        Assert.Equal(1, real.Split("apparent age").Length - 1);
+        Assert.DoesNotContain("embellishments", real);
+        Assert.Contains("underlying bone, cartilage, muscle, and soft tissue", real);
+        Assert.Contains("folds caused by gravity", real);
+        Assert.Contains("photographic portrait lighting", real);
+        Assert.DoesNotContain("gnome", real, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TGA", real);
+        Assert.Contains("distinctly animated-feature interpretation", EnhancementPrompt.Build(Troll, EnhanceStyles.Cartoonish));
+        Assert.Contains("distinctly World of Warcraft cinematic interpretation", EnhancementPrompt.Build(Troll, "no such style"));
+        Assert.Contains("Blizzard's pre-rendered Warcraft cinematic aesthetic", EnhancementPrompt.Build(Troll, EnhanceStyles.WowLike));
         Assert.Contains("hooves", EnhancementPrompt.Anatomy("Tauren")!);
         Assert.Contains("green skin", EnhancementPrompt.Anatomy("orc")!);
         Assert.Contains("greyish undead", EnhancementPrompt.Anatomy("Scourge")!);
         Assert.Null(EnhancementPrompt.Anatomy("Pandaren"));
         var noRace = EnhancementPrompt.Build(Troll with { Race = null, Gender = null, Class = null }, EnhanceStyles.WowLike);
-        Assert.Contains("cutout of a character from", noRace);
-        Assert.DoesNotContain("anatomy", noRace);
+        Assert.Contains("The character is a character.", noRace);
+        Assert.DoesNotContain("anatomy, which", noRace);
+        Assert.DoesNotContain("may be a race you do not know", noRace);
         // The token is spelled as a reader would say it, and the client's display name wins.
         var elf = EnhancementPrompt.Build(Troll with { Race = "NightElf", RaceName = null }, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Night Elf Warlock", elf);
+        Assert.Contains("The character is a Female Night Elf Warlock.", elf);
         Assert.Contains("Night Elf anatomy", elf);
         Assert.DoesNotContain("NightElf", elf);
         var undead = EnhancementPrompt.Build(Troll with { Race = "Scourge", RaceName = "Undead" }, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Undead Warlock", undead);
+        Assert.Contains("The character is a Female Undead Warlock.", undead);
         Assert.Contains("Undead anatomy", undead);
         Assert.DoesNotContain("Scourge", undead);
-        // Forever's own race: the model has never seen one, so the picture is the whole truth.
+        // Forever's own race: the model has never seen one, but the owner has - a high elf.
         var sky = EnhancementPrompt.Build(Troll with { Race = "Skyborne", RaceName = "Windshaper Skyborne" }, EnhanceStyles.WowLike);
-        Assert.Contains("a Female Windshaper Skyborne Warlock", sky);
-        Assert.Contains("may be a race you do not know", sky);
-        Assert.DoesNotContain("anatomy, which", sky);
+        Assert.Contains("The character is a Female Windshaper Skyborne Warlock.", sky);
+        Assert.Contains("Skyborne anatomy, which the small reference may not make clear: a high elf's anatomy", sky);
+        Assert.Contains("do not substitute the anatomy of a race you know", EnhancementPrompt.Build(Troll with { Race = "Pandaren", RaceName = null }, EnhanceStyles.WowLike));
+        Assert.DoesNotContain("may be a race you do not know", sky);
+        // A race nobody has seen: the picture is the whole truth.
+        var unknown = EnhancementPrompt.Build(Troll with { Race = "Pandaren", RaceName = null }, EnhanceStyles.WowLike);
+        Assert.Contains("may be a race you do not know", unknown);
+        Assert.DoesNotContain("anatomy, which", unknown);
         Assert.Contains("Death Knight", EnhancementPrompt.Build(Troll with { Class = "DEATHKNIGHT" }, EnhanceStyles.WowLike));
     }
 
@@ -367,10 +404,34 @@ public class EnhancementCutoutTests
         Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(Picture(100, 200, 20, 0, 40, 160)));
         Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(Picture(100, 200, 0, 20, 40, 160)));
         Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(Picture(100, 200, 60, 20, 40, 160)));
-        // A faint outlier on the border (alpha below Visible) is not the figure.
+        // A faint outlier on the border (alpha below Visible) is not the figure - and neither
+        // is a hair wisp fading out there: visible but not opaque, on the top or a side.
         var faint = Picture(100, 200, 20, 20, 40, 160);
         faint[0, 0] = (255, 255, 255, 7);
         Assert.Null(Enhancement.Refuse(faint));
+        var wisp = Picture(100, 200, 20, 20, 40, 160);
+        for (var x = 30; x < 35; x++) { wisp[x, 0] = (200, 100, 50, 120); wisp[x, 1] = (200, 100, 50, 249); }
+        wisp[0, 100] = (200, 100, 50, 200); wisp[99, 100] = (200, 100, 50, 249);
+        Assert.Null(Enhancement.Refuse(wisp));
+        // One opaque pixel in the outer band is the figure, cut.
+        var cut = Picture(100, 200, 20, 20, 40, 160);
+        cut[50, 1] = (200, 100, 50, 250);
+        Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(cut));
+        cut = Picture(100, 200, 20, 20, 40, 160);
+        cut[98, 100] = (200, 100, 50, 255);
+        Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(cut));
+        cut = Picture(100, 200, 20, 20, 40, 160);
+        cut[1, 100] = (200, 100, 50, 250);
+        Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(cut));
+        // A figure cropped at the edge and feathered there: nothing opaque in the band, but a run
+        // of it - 60 rows of the two right columns is 120 of a 992-pixel band, well over 1.5 %.
+        var feathered = Picture(100, 200, 20, 20, 40, 160);
+        for (var y = 60; y < 120; y++) { feathered[98, y] = (200, 100, 50, 200); feathered[99, y] = (200, 100, 50, 180); }
+        Assert.Equal(Enhancement.TransparentBorder, Enhancement.Refuse(feathered));
+        // The wisps measured on real pictures, scaled: 57 of 8192 is 0.7 %; here 6 of 992.
+        var wisps = Picture(100, 200, 20, 20, 40, 160);
+        for (var x = 40; x < 46; x++) wisps[x, 0] = (200, 100, 50, 120);
+        Assert.Null(Enhancement.Refuse(wisps));
         // Too little figure: a 4 x 4 in 100 x 200 is under 5 %.
         Assert.Equal(Enhancement.EnoughFigure, Enhancement.Refuse(Picture(100, 200, 20, 20, 4, 4)));
         // Alpha 254 counts as opaque; alpha 200 does not.
