@@ -479,6 +479,67 @@ public static class PassText
             report is null ? null : report.Accounts == 1 ? "1 account" : $"{report.Accounts} accounts");
     }
 
+    // ---- About, and updates: the Help page's last section
+
+    public const string About =
+        "A free fan tool that turns the portrait captures taken by the AltStable addon into the cutouts "
+        + "its Roster draws. MIT licence; not affiliated with or endorsed by Blizzard.";
+
+    public const string BlizzardCredit =
+        "World of Warcraft is a trademark or registered trademark of Blizzard Entertainment, Inc., in the U.S. and/or other countries.";
+
+    /// <summary>The links under About. The browser opens them; the app fetches nothing for them.</summary>
+    public static readonly IReadOnlyList<(string Label, string Url, string Tip)> AboutLinks =
+    [
+        ("Project on GitHub", "https://github.com/" + Updater.Repository, "The source, the releases, the change log"),
+        ("Report an issue", "https://github.com/" + Updater.Repository + "/issues", "Open the issues page; Open log is beside it, for what to attach"),
+        ("The AltStable addon", "https://github.com/Spotnick2/AltStable", "The addon that takes the captures and draws the portraits"),
+        ("Licence (MIT)", "https://github.com/" + Updater.Repository + "/blob/main/LICENSE", "The terms this app is given under"),
+        ("Blizzard's trademark terms", "https://github.com/" + Updater.Repository + "/blob/main/Reference/Blizzard/README.md",
+            "The emblem in the window is Blizzard's; these are the terms it is used under"),
+    ];
+
+    /// <summary>
+    /// "Version 0.1.0-beta.1 (build 4eb2b19)", from the stamp the build left: the props'
+    /// version, then the commit it was built from, "-dirty" when that tree had changes that
+    /// were in no commit. A stamp that is not shaped like that is shown as it is.
+    /// </summary>
+    public static string VersionLine(string informational)
+    {
+        var v = ReleaseVersion.TryParse(informational);
+        if (v is null) return "Version " + informational;
+        if (v.Build.Length == 0) return "Version " + v.Text;
+        var dirty = v.Build.EndsWith("-dirty", StringComparison.Ordinal);
+        var sha = dirty ? v.Build[..^"-dirty".Length] : v.Build;
+        if (sha.Length > 7) sha = sha[..7];
+        return $"Version {v.Text} (build {sha}{(dirty ? ", with uncommitted changes" : "")})";
+    }
+
+    public const string CheckUpdatesOnOpen = "Check for updates when the window opens";
+    public const string CheckUpdatesExplanation =
+        "Otherwise the app looks only when you press Check for updates, under Help. Either way it asks "
+        + "GitHub for the list of releases and nothing else; a download is always your press of a button.";
+
+    /// <summary>The line beside the update buttons: where the update stands. Null before any check.</summary>
+    public static string? UpdateLine(UpdateState? u, DateTime today)
+    {
+        if (u is null) return null;
+        var version = u.Release?.Version.Text;
+        return u.Stage switch
+        {
+            UpdateStage.None => null,
+            UpdateStage.Checking => "Checking GitHub…",
+            UpdateStage.UpToDate => $"This is the newest release{(u.CheckedAt is { } at ? " (checked " + Time(at, today) + ")" : "")}.",
+            UpdateStage.Available => $"{version} is out{(u.Release!.PreRelease ? " (a pre-release)" : "")}. Update now downloads it; "
+                + "nothing changes until you restart.",
+            UpdateStage.Downloading => $"Downloading {version} ({u.Percent}%)…",
+            UpdateStage.Ready => $"{version} is downloaded and checked. Restart now puts it in place; the app comes back on its own.",
+            UpdateStage.Failed => (version is null ? "Could not check for updates: " : $"Could not download {version}: ") + u.Problem
+                + (version is null ? "." : ". You can also download it from the release page."),
+            _ => null,
+        };
+    }
+
     /// <summary>The generated .toc says Interface 16001: only Forever reads it as current.</summary>
     public static string? FlavorWarning(WowInstall install) =>
         string.Equals(install.Flavor, WowInstallLocator.DefaultFlavor, StringComparison.OrdinalIgnoreCase)

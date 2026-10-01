@@ -83,6 +83,13 @@ public sealed record Settings
     } = DefaultEnhanceTimeoutSeconds;
 
     /// <summary>
+    /// Look on GitHub for a newer release whenever the window is opened. Off unless the player
+    /// turned it on: the check is the app's one other way onto the network, and the README
+    /// says it happens only when asked.
+    /// </summary>
+    public bool CheckUpdatesOnOpen { get; init; }
+
+    /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
     /// notice is dismissed, so the notice survives the app being closed - or killed - in
@@ -123,6 +130,7 @@ public sealed record Settings
         && EnhanceModel == other.EnhanceModel
         && EnhanceEffort == other.EnhanceEffort
         && EnhanceTimeoutSeconds == other.EnhanceTimeoutSeconds
+        && CheckUpdatesOnOpen == other.CheckUpdatesOnOpen
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
