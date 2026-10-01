@@ -8,8 +8,8 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [0.1.0-beta.1]
 
-The first release, a beta: everything below is new, and the owner has run it against
-their own game for a month; nobody else has yet.
+The first release, a beta: everything below is new, and so far only the owner has run it
+against their own game.
 
 ### Added
 
