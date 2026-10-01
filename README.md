@@ -71,9 +71,12 @@ not hidden - the existing ones too, all of them, when you turn it on. What leave
 the portrait's cropped image and the character's race, gender and class, plus any
 instructions your Codex CLI is configured with, to the account Codex is signed in to.
 
-One automatic attempt for each new combination of capture, style, model and prompt wording
-(an app update may change the wording, and then every eligible character is made again); an
-attempt uses Codex usage whether or not a picture comes back, and a picture that was refused or
+A picture is made on its own only for a character who has none yet, or whose portrait was
+captured again. When only the style, the model or the app's wording changed (an update may
+change the wording), the pictures already made stay, and the Settings page says how many
+and offers to make them again - a settings change is never a decision to spend. One attempt
+for each combination of capture, style, model and wording; an attempt uses Codex usage
+whether or not a picture comes back, and a picture that was refused or
 failed is not tried again for that combination. Turning it off stops new attempts and
 cancels the one running (that one is tried once more when it is on again, as is one the
 app did not live to finish); pictures already made stay in `AltStableCutouts\Cutouts\Enhanced\`

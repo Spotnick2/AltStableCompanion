@@ -90,6 +90,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         });
         DismissRestartNotice = new Command(controller.DismissRestartNotice);
         GotIt = new Command(controller.AcknowledgeUpdate);
+        RemakeEnhanced = new Command(controller.RemakeEnhanced);
         Resume = new Command(() => controller.SetPaused(false));
         StartWatching = new Command(controller.StartWatching);
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
@@ -303,6 +304,12 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>The box can be used when it can be turned on - or is on: what is on must be turn-off-able.</summary>
     public bool EnhanceUsable => CanEnhance || _enhance;
 
+    /// <summary>Pictures a settings change held back, and the offer to make them again.</summary>
+    public string EnhanceHeld => PassText.EnhanceHeld(_controller.Current.Shell.EnhanceHeld) ?? "";
+    public bool HasEnhanceHeld => EnhanceHeld.Length > 0;
+    public string EnhanceHeldButton => PassText.EnhanceHeldButton(_controller.Current.Shell.EnhanceHeld);
+    public Command RemakeEnhanced { get; }
+
     public bool IsWowLike { get => _enhanceStyle == EnhanceStyles.WowLike; set { if (value) SetStyle(EnhanceStyles.WowLike); } }
     public bool IsRealistic { get => _enhanceStyle == EnhanceStyles.Realistic; set { if (value) SetStyle(EnhanceStyles.Realistic); } }
     public bool IsCartoonish { get => _enhanceStyle == EnhanceStyles.Cartoonish; set { if (value) SetStyle(EnhanceStyles.Cartoonish); } }
@@ -439,6 +446,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         _codexProbed = now.CodexProbed;
         _rosterCapable = shell.Install?.RosterDrawsEnhanced ?? false;
         Raise(nameof(EnhanceExplanation)); Raise(nameof(EnhanceUnavailable)); Raise(nameof(CanEnhance)); Raise(nameof(HasEnhanceUnavailable)); Raise(nameof(EnhanceUsable));
+        Raise(nameof(EnhanceHeld)); Raise(nameof(HasEnhanceHeld)); Raise(nameof(EnhanceHeldButton));
 
         _rows = shell.Report?.Portraits ?? [];
         Count = PassText.Count(_rows);

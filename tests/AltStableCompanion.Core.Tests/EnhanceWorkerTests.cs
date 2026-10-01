@@ -175,9 +175,9 @@ public class EnhanceWorkerTests
     private const string Guid1 = "Player-1-0000AAAA";
 
     // A capture of a level-20 troll, with the roster tables the enhancement reads.
-    private static void Roster(TempInstall t, string account, string name, string guid, DateTime at, int level = 20, string race = "Troll")
+    private static void Roster(TempInstall t, string account, string name, string guid, DateTime at, int level = 20, string race = "Troll", int fw = 100)
     {
-        var (b, w) = TestData.Pair(400, 1200, 150, 250, 100, 700);
+        var (b, w) = TestData.Pair(400, 1200, 150, 250, fw, 700);
         t.WriteShot(at, b);
         t.WriteShot(at.AddSeconds(1), w);
         var db = "AltStableDB = {\n[\"" + guid + "\"] = {\n[\"name\"] = \"" + name + "\",\n[\"class\"] = \"WARLOCK\",\n[\"race\"] = \"" + race + "\",\n[\"gender\"] = \"Female\",\n[\"level\"] = " + level + ",\n[\"lastUpdate\"] = 1790000000,\n},\n}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n},\n}\n";
@@ -309,6 +309,54 @@ public class EnhanceWorkerTests
         Assert.Equal(1, fake.Calls);
         // The job folder is gone.
         Assert.False(Directory.Exists(Path.Combine(Data(t), "enhance")) && Directory.GetDirectories(Path.Combine(Data(t), "enhance")).Length > 0);
+    }
+
+    [Fact]
+    public void A_settings_change_holds_the_pictures_already_made_until_asked_and_a_new_capture_does_not()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake();
+        using var c = Started(t, fake);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the first picture");
+        Until(() => c.Current.Shell.Enhancing is null, "the first job over");
+        Assert.Null(c.Current.Shell.EnhanceHeld);
+
+        // Another style: nothing is spent; the window is told whom it would spend on.
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "the hold");
+        Settle(1500);
+        Assert.Equal(1, fake.Calls);
+        Assert.Equal(["Kaleid Sumner"], c.Current.Shell.EnhanceHeld);
+        Assert.Equal("Kaleid Sumner's enhanced portrait was made with other settings. It stays as it is until you ask.", PassText.EnhanceHeld(c.Current.Shell.EnhanceHeld));
+        Assert.Equal("Make it again (1 generation)", PassText.EnhanceHeldButton(c.Current.Shell.EnhanceHeld));
+        Assert.Equal("Make them again (2 generations)", PassText.EnhanceHeldButton(["A", "B"]));
+        Assert.Equal("enhanced (wow-like)", c.Current.Shell.Report!.Portraits!.Single().EnhanceNote);
+
+        // Asked: that combination is made, and the hold is gone.
+        c.RemakeEnhanced();
+        Until(() => fake.Calls == 2, "the remake");
+        Until(() => c.Current.Shell.Report?.Portraits?.Single().EnhanceNote == "enhanced (realistic)", "the realistic picture");
+        Until(() => c.Current.Shell.EnhanceHeld is null, "nothing held");
+
+        // A third style holds again: the permission was for the one combination.
+        c.SetEnhance(true, 10, EnhanceStyles.Cartoonish);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "held again");
+        Settle(1500);
+        Assert.Equal(2, fake.Calls);
+
+        // A new capture is the player's own decision: made on its own, in the current style, and nothing is held.
+        var later = T0.AddMinutes(10);
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, later, fw: 120);
+        Until(() => fake.Calls == 3, "the new capture's picture");
+        Until(() => c.Current.Shell.Report?.Portraits?.Single().EnhanceNote == "enhanced (cartoonish)", "the cartoon");
+        Assert.Null(c.Current.Shell.EnhanceHeld);
+        var attempts = AttemptHistory.Load(folder.EnhancedDir, Guid1).Attempts;
+        Assert.Equal([EnhanceStyles.WowLike, EnhanceStyles.Realistic, EnhanceStyles.Cartoonish], attempts.Select(a => a.Style));
+        Assert.NotEqual(attempts[1].SourceHash, attempts[2].SourceHash);
+        Assert.NotEqual(attempts[1].Epoch, attempts[2].Epoch);
     }
 
     [Fact]

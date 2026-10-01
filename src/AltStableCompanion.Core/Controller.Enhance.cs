@@ -34,6 +34,10 @@ public sealed partial class Controller
     private bool _reprobeCodex;
     private int _sweptGeneration = -1;                       // the install whose open records were closed
     private string? _enhanceRefused;                         // why nobody is eligible right now, logged once
+    // The one combination of style, model, effort and wording the player asked to remake the
+    // held pictures with. Any other combination holds them again. Never cleared: once made,
+    // a combination is in the history and is not made twice.
+    private (string Style, string Model, string Effort, int Prompt)? _remakeAllowed;
 
     /// <summary>How long the CLI's presence and sign-in are taken on trust while enhancing.</summary>
     public static readonly TimeSpan ProbeAgain = TimeSpan.FromMinutes(5);
@@ -182,20 +186,24 @@ public sealed partial class Controller
             if (eligible.Refused is { } refused) return Idle(refused);
 
             var candidates = eligible.Candidates;
-            for (var i = 0; i < candidates.Count; i++)
+            var combination = (settings.EnhanceStyle, settings.EnhanceModel, settings.EnhanceEffort, EnhancementPrompt.Version);
+            bool remakeAllowed;
+            lock (_gate) { remakeAllowed = _remakeAllowed == combination; }
+            // Every candidate is placed first - to launch, held, or done - so the held ones are
+            // known as a whole before the first launch: the window offers them together.
+            var held = new List<string>();
+            var launch = new List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string SourceHash, string Signature, AttemptHistory History)>();
+            foreach (var c in candidates)
             {
-                var c = candidates[i];
                 var primary = Path.Combine(folder.CutoutsDir, c.FileBase + ".tga");
                 var meta = folder.ReadMeta(c.FileBase);
                 if (meta?.Guid != c.Guid || !File.Exists(primary)) continue;
                 string sourceHash;
-                RgbaImage canvas;
                 try
                 {
                     sourceHash = EnhancementSignature.HashOf(primary);
-                    canvas = TgaCodec.Read(primary);
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TgaFormatException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     _log?.Write($"enhance: {c.FileBase}.tga could not be read this time: {ex.Message}");
                     continue;
@@ -213,6 +221,42 @@ public sealed partial class Controller
                     continue;
                 }
                 if (!history.MayLaunch(signature)) continue;
+                // A picture made from THIS portrait, with other settings or wording, stays until
+                // the player asks: a style change or an app update is not a decision to spend.
+                // A new capture (another epoch or other bytes) or no picture at all is.
+                var made = history.LastWritten;
+                if (!remakeAllowed && made is not null && made.Epoch == meta.Epoch && made.SourceHash == sourceHash
+                    && File.Exists(Path.Combine(folder.EnhancedDir, c.FileBase + ".tga")))
+                {
+                    held.Add(c.Character.Name);
+                    continue;
+                }
+                launch.Add((c, meta, primary, sourceHash, signature, history));
+            }
+            var heldChanged = false;
+            lock (_gate)
+            {
+                if (!(_current.Shell.EnhanceHeld ?? []).SequenceEqual(held))
+                {
+                    _current = _current with { Shell = _current.Shell with { EnhanceHeld = held.Count == 0 ? null : held } };
+                    heldChanged = true;
+                }
+            }
+            if (heldChanged) Changed?.Invoke();
+
+            for (var i = 0; i < launch.Count; i++)
+            {
+                var (c, meta, primary, sourceHash, signature, history) = launch[i];
+                RgbaImage canvas;
+                try
+                {
+                    canvas = TgaCodec.Read(primary);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TgaFormatException)
+                {
+                    _log?.Write($"enhance: {c.FileBase}.tga could not be read this time: {ex.Message}");
+                    continue;
+                }
 
                 // The job folder: the reference (the manifest's crop of the primary, as a PNG),
                 // and later the verdict. Ours, deleted when the job ends.
@@ -251,7 +295,7 @@ public sealed partial class Controller
                 lock (_gate)
                 {
                     _enhanceRefused = null;
-                    _current = _current with { Shell = _current.Shell with { Enhancing = $"{c.Character.Name} ({i + 1} of {candidates.Count})" } };
+                    _current = _current with { Shell = _current.Shell with { Enhancing = $"{c.Character.Name} ({i + 1} of {launch.Count})" } };
                 }
                 Changed?.Invoke();
                 _log?.Write($"enhance: {c.Character.Name} ({c.FileBase}), {settings.EnhanceStyle}, {settings.EnhanceModel} {settings.EnhanceEffort}");
@@ -460,6 +504,20 @@ public sealed partial class Controller
         }
         cancel?.Cancel();
         Changed?.Invoke();
+        WakeEnhancer();
+    }
+
+    /// <summary>
+    /// The player asked for the held pictures with the settings as they are now: that one
+    /// combination may be made. A later change of settings holds them again.
+    /// </summary>
+    public void RemakeEnhanced()
+    {
+        lock (_gate)
+        {
+            _remakeAllowed = (_settings.EnhanceStyle, _settings.EnhanceModel, _settings.EnhanceEffort, EnhancementPrompt.Version);
+        }
+        _log?.Write("enhance: the held pictures may be made again with the current settings");
         WakeEnhancer();
     }
 
