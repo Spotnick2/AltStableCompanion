@@ -72,10 +72,11 @@ the portrait's cropped image and the character's race, gender and class, plus an
 instructions your Codex CLI is configured with, to the account Codex is signed in to.
 
 A picture is made on its own only for a character who has none yet, or whose portrait was
-captured again. When only the style, the model or the app's wording changed (an update may
-change the wording), the pictures already made stay, and the Settings page says how many
-and offers to make them again - a settings change is never a decision to spend. One attempt
-for each combination of capture, style, model and wording; an attempt uses Codex usage
+captured again. When only the style, the model, the effort or the app's wording changed (an
+update may change the wording), the pictures already made stay, and the Settings page says
+how many and offers to make them again - a settings change is never a decision to spend; the
+offer is for exactly those pictures, and a quit mid-way does not take it back. One attempt
+for each combination of capture, style, model, effort and wording; an attempt uses Codex usage
 whether or not a picture comes back, and a picture that was refused or
 failed is not tried again for that combination. Turning it off stops new attempts and
 cancels the one running (that one is tried once more when it is on again, as is one the

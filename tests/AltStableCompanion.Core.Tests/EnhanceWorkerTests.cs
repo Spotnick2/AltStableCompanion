@@ -232,9 +232,9 @@ public class EnhanceWorkerTests
 
     private static string Data(TempInstall t) => Path.Combine(t.Root, "data");
 
-    private static Controller Started(TempInstall t, Fake fake, bool enhance = true)
+    private static Controller Started(TempInstall t, Fake fake, bool enhance = true, string style = EnhanceStyles.WowLike)
     {
-        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Enhance = enhance }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Enhance = enhance, EnhanceStyle = style }.Save(Data(t));
         var c = new Controller(new StartupOptions(DataDir: Data(t)), () => throw new InvalidOperationException("detection was used"), enhance: fake.Hooks);
         c.Start();
         return c;
@@ -385,6 +385,136 @@ public class EnhanceWorkerTests
         Assert.Equal(("enhanced (wow-like); realistic enhancing", true), folder.EnhanceState(Guid1));
         fake.Hold.SetResult(true);
         Until(() => c.Current.Shell.Report?.Portraits?.Single() is { Enhancing: false, EnhanceNote: "enhanced (realistic)" }, "the second picture");
+    }
+
+    private const string Guid2 = "Player-1-0000BBBB";
+    private const string Guid3 = "Player-1-0000CCCC";
+
+    [Fact]
+    public void The_permission_is_for_the_pictures_offered_and_no_other()
+    {
+        // Codex's scenario on PR #25: A made in WoW style; Realistic chosen, A held, remake clicked, A made.
+        // Cartoonish chosen: a new B is made on its own (none yet). Back to Realistic: A is done - and B
+        // must be HELD, not made: the click was for A's realistic picture, not for every realistic picture.
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake();
+        using var c = Started(t, fake);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "A in WoW style");
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "A held");
+        c.RemakeEnhanced();
+        Until(() => fake.Calls == 2 && c.Current.Shell.Enhancing is null, "A realistic");
+        Assert.False(File.Exists(Path.Combine(Data(t), "remake.json")));   // used up, gone
+        c.SetEnhance(true, 10, EnhanceStyles.Cartoonish);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "A held under cartoon");
+        Roster(t, "1#2", "Zoruka", Guid2, T0.AddMinutes(1));
+        Until(() => fake.Calls == 3 && c.Current.Shell.Enhancing is null, "B made on its own, cartoon");
+        Assert.Equal(["Kaleid Sumner"], c.Current.Shell.EnhanceHeld);
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "B held under realistic");
+        Settle(2000);
+        Assert.Equal(3, fake.Calls);
+        Assert.Equal(["Zoruka"], c.Current.Shell.EnhanceHeld);
+        // A permission still unused - B's realistic picture, asked for and then cancelled by a
+        // style change - covers B's realistic picture and nothing else: under the new style B is held.
+        fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        c.RemakeEnhanced();
+        Until(() => fake.Calls == 4, "B realistic in flight");
+        c.SetEnhance(true, 10, EnhanceStyles.Cartoonish);
+        Until(() => c.Current.Shell.Enhancing is null, "cancelled by the style change");
+        Assert.True(File.Exists(Path.Combine(Data(t), "remake.json")));   // kept: a cancel is tried once more
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "A held under cartoon again");
+        Settle(2000);
+        Assert.Equal(4, fake.Calls);
+        Assert.Equal(["Kaleid Sumner"], c.Current.Shell.EnhanceHeld);   // B is done in cartoon; A is held
+    }
+
+    [Fact]
+    public void The_hold_is_the_last_looks_and_a_look_that_stops_early_clears_it()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake();
+        using var c = Started(t, fake);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "the picture");
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "held");
+        // Off: nothing is offered, and the button - were it pressed - arms nothing.
+        c.SetEnhance(false, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is null, "nothing offered while off");
+        c.RemakeEnhanced();
+        Assert.False(File.Exists(Path.Combine(Data(t), "remake.json")));
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "held again, not made");
+        Settle(1500);
+        Assert.Equal(1, fake.Calls);
+        // Another game: the names are not this install's.
+        using var other = new TempInstall();
+        Assert.True(c.Browse(other.Install.FlavorDir));
+        Until(() => c.Current.Shell.EnhanceHeld is null, "nothing held for another game");
+    }
+
+    [Fact]
+    public void A_remake_the_app_did_not_live_to_finish_goes_on_after_a_restart()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake();
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        using (var c = Started(t, fake))
+        {
+            Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "the picture");
+            c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+            Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "held");
+            fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            c.RemakeEnhanced();
+            Until(() => fake.Calls == 2, "the remake in flight");
+            Assert.True(File.Exists(Path.Combine(Data(t), "remake.json")));
+        }
+        // Quit cancelled it; the permission was kept; the next start makes it without asking.
+        fake.Hold = null;
+        using var again = Started(t, fake, style: EnhanceStyles.Realistic);
+        Until(() => fake.Calls == 3, "made again on the next start");
+        Until(() => again.Current.Shell.Report?.Portraits?.Single().EnhanceNote == "enhanced (realistic)", "realistic on disk");
+        Until(() => !File.Exists(Path.Combine(Data(t), "remake.json")), "the permission used up");
+        Assert.Null(again.Current.Shell.EnhanceHeld);
+    }
+
+    [Fact]
+    public void The_batch_counts_through_the_ones_already_made_and_offers_the_held_by_name()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Zoruka", Guid2, T0);
+        Roster(t, "1#2", "Aaron", Guid3, T0.AddMinutes(1));
+        Roster(t, "1#3", "Kaleid Sumner", Guid1, T0.AddMinutes(2));
+        CapableRoster(t);
+        var fake = new Fake { Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) };
+        using var c = Started(t, fake);
+        Until(() => fake.Calls == 1, "the first launch");
+        Assert.EndsWith("(1 of 3)", c.Current.Shell.Enhancing);
+        var first = fake.Hold;
+        fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // A new look in the middle of the batch (the level changed): the count still runs through
+        // the ones already made - "2 of 3", not "1 of 2".
+        c.SetEnhance(true, 9, EnhanceStyles.WowLike);
+        first.SetResult(true);
+        Until(() => fake.Calls == 2, "the second launch");
+        Assert.EndsWith("(2 of 3)", c.Current.Shell.Enhancing);
+        var second = fake.Hold;
+        fake.Hold = null;
+        second.SetResult(true);
+        Until(() => fake.Calls == 3 && c.Current.Shell.Enhancing is null, "all three");
+        // Held, by name, whatever the roster's order.
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceHeld is { Count: 3 }, "all held");
+        Assert.Equal(["Aaron", "Kaleid Sumner", "Zoruka"], c.Current.Shell.EnhanceHeld);
+        Assert.Equal("Make them again (3 generations)", PassText.EnhanceHeldButton(c.Current.Shell.EnhanceHeld));
     }
 
     [Fact]

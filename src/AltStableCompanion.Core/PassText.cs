@@ -122,8 +122,8 @@ public static class PassText
             + "and is not hidden - the existing ones too, all of them, when you turn this on. What is sent: the portrait's cropped image and "
             + $"the character's race, gender and class, plus any instructions your Codex CLI is configured with, to {signedIn}. "
             + "A picture is made on its own only for a character who has none yet, or whose portrait was captured again; when only the "
-            + "style, the model or the app's wording changed (an update may change the wording), the pictures already made stay and this "
-            + "page offers to make them again. One attempt for each combination of capture, style, model and wording; an attempt uses Codex usage whether or not a "
+            + "style, the model, the effort or the app's wording changed (an update may change the wording), the pictures already made stay "
+            + "and this page offers to make them again. One attempt for each combination of capture, style, model, effort and wording; an attempt uses Codex usage whether or not a "
             + "picture comes back, and a picture that was refused or failed is not tried again for that combination. Turning this off "
             + "stops new attempts and cancels the one running (that one is tried once more when this is on again); pictures already "
             + "made stay, and the addon keeps showing them.";

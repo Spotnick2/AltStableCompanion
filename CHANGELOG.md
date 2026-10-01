@@ -18,8 +18,9 @@ version's section, as it stands here, for the notes of its GitHub Release.
   picture is being made, a balloon when one is written or refused, a status line under the
   switch, "Enhancing" on the character's row, and the list ordered by latest activity.
 - A settings change never spends on its own: a picture made from the portrait a character
-  still has is held when only the style, the model or the wording changed, and the Settings
-  page says how many and offers to make them again. A new capture is made on its own.
+  still has is held when only the style, the model, the effort or the wording changed, and
+  the Settings page says how many and offers to make them again - exactly those, and a quit
+  mid-way does not take the offer back. A new capture is made on its own.
 
 ## [0.1.0]
 
