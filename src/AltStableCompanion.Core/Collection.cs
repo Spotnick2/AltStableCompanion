@@ -60,10 +60,10 @@ public sealed record PortraitRow(
     /// <summary>What the enhancer last did for this character, in a few words, or null.</summary>
     string? EnhanceNote = null,
     /// <summary>When the enhanced picture was written, if one is attached.</summary>
-    DateTime? EnhancedModified = null)
+    DateTime? EnhancedModified = null,
+    /// <summary>A picture of this character is being made right now - a fact of its own, whatever the note says.</summary>
+    bool Enhancing = false)
 {
-    /// <summary>A picture of this character is being made right now.</summary>
-    public bool Enhancing => EnhanceNote == CutoutFolder.EnhancingNote;
 
     /// <summary>The latest thing that happened to this character - a capture, a portrait, an enhanced picture - for the list's order.</summary>
     public DateTime? LastActivity => new[] { FileModified, EnhancedModified, LatestCapture }.Max();
@@ -105,7 +105,7 @@ public static class Collection
         IReadOnlyList<ManifestEntry> entries,
         IReadOnlyList<CharacterStatus> captures,
         IReadOnlyDictionary<string, DateTime> fileTimes,
-        Func<string, string?>? enhanceNote = null)
+        Func<string, (string? Note, bool InFlight)>? enhanceState = null)
     {
         var byKey = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
         foreach (var e in entries) byKey.TryAdd(e.Key, e);
@@ -123,8 +123,9 @@ public static class Collection
                 NearlySquare: c.NearlySquare,
                 Size: entry is null ? null : (entry.W, entry.H),
                 Enhanced: entry?.Enhanced,
-                EnhanceNote: enhanceNote?.Invoke(c.Guid),
-                EnhancedModified: entry is null ? null : EnhancedModified(fileTimes, entry)));
+                EnhanceNote: enhanceState?.Invoke(c.Guid).Note,
+                EnhancedModified: entry is null ? null : EnhancedModified(fileTimes, entry),
+                Enhancing: enhanceState?.Invoke(c.Guid).InFlight ?? false));
         }
 
         foreach (var e in entries.Where(e => !claimed.Contains(e)))
@@ -132,8 +133,9 @@ public static class Collection
             rows.Add(new PortraitRow(
                 Label(Path.GetFileNameWithoutExtension(e.FileName)), e.Guid, e.FileName, PortraitSource.File,
                 Modified(fileTimes, e), null, CaptureOutcome.None, null, Size: (e.W, e.H),
-                Enhanced: e.Enhanced, EnhanceNote: e.Guid is null ? null : enhanceNote?.Invoke(e.Guid),
-                EnhancedModified: EnhancedModified(fileTimes, e)));
+                Enhanced: e.Enhanced, EnhanceNote: e.Guid is null ? null : enhanceState?.Invoke(e.Guid).Note,
+                EnhancedModified: EnhancedModified(fileTimes, e),
+                Enhancing: e.Guid is not null && (enhanceState?.Invoke(e.Guid).InFlight ?? false)));
         }
 
         // Namesakes are told apart by the one thing that is theirs alone.

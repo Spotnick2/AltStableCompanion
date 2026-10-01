@@ -30,7 +30,7 @@ public class CollectionTests
             [CutoutFolder.EnhancedKey("ccc.tga")] = Written.AddDays(3),        // but the newest thing of all is C's enhanced picture
         };
         var rows = Collection.Build(entries, [Captured("Aaa", "Player-1-AAAA"), Captured("Bbb", "Player-1-BBBB"), Captured("Ccc", "Player-1-CCCC")], times,
-            guid => guid == "Player-1-BBBB" ? CutoutFolder.EnhancingNote : null);
+            guid => guid == "Player-1-BBBB" ? ("enhanced (wow-like); realistic enhancing", true) : (null, false));
         Assert.Equal(["Bbb", "Ccc", "Aaa"], rows.Select(r => r.Name));
         Assert.True(rows[0].Enhancing);
         Assert.Equal(Written.AddDays(3), rows[1].EnhancedModified);

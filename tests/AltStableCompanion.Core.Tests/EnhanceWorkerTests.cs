@@ -314,6 +314,30 @@ public class EnhanceWorkerTests
     }
 
     [Fact]
+    public void A_character_with_an_earlier_picture_still_says_Enhancing_while_the_next_is_made()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake();
+        using var c = Started(t, fake);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the first picture");
+        Until(() => c.Current.Shell.Enhancing is null, "the first job over");
+        // Another style, held in flight: the note says both, the row says Enhancing, and sits first.
+        fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => fake.Calls == 2, "the second launch");
+        Until(() => c.Current.Shell.Report?.Portraits?.Single().Enhancing == true, "the row in flight");
+        var row = c.Current.Shell.Report!.Portraits!.Single();
+        Assert.Equal("enhanced (wow-like); realistic enhancing", row.EnhanceNote);
+        Assert.Equal("Enhancing", PassText.RowState(row));
+        Assert.Equal(("enhanced (wow-like); realistic enhancing", true), folder.EnhanceState(Guid1));
+        fake.Hold.SetResult(true);
+        Until(() => c.Current.Shell.Report?.Portraits?.Single() is { Enhancing: false, EnhanceNote: "enhanced (realistic)" }, "the second picture");
+    }
+
+    [Fact]
     public void A_picture_that_cannot_be_written_is_recorded_as_failed_not_written()
     {
         using var t = new TempInstall();

@@ -178,9 +178,9 @@ public class PassTextTests
         Assert.Equal(("Morphisto Ruskador: enhancement refused - transparent border", "This combination is not tried again. See the list."), PassText.EnhanceBalloon(refused));
         Assert.Contains("failed - codex exited with 1", PassText.EnhanceBalloon(refused with { Outcome = "failed: codex exited with 1" })!.Value.Title);
         Assert.Null(PassText.EnhanceBalloon(refused with { Outcome = "cancelled: the app is stopping" }));
-        var row = new PortraitRow("Kaleid Sumner", "Player-1-AAAA", "kaleid-sumner.tga", PortraitSource.ByGuid, T0, T0, CaptureOutcome.Converted, null, EnhanceNote: CutoutFolder.EnhancingNote);
+        var row = new PortraitRow("Kaleid Sumner", "Player-1-AAAA", "kaleid-sumner.tga", PortraitSource.ByGuid, T0, T0, CaptureOutcome.Converted, null, EnhanceNote: "enhanced (wow-like); realistic enhancing", Enhancing: true);
         Assert.Equal("Enhancing", PassText.RowState(row));
-        Assert.Equal("Ready", PassText.RowState(row with { EnhanceNote = "enhanced (wow-like)" }));
+        Assert.Equal("Ready", PassText.RowState(row with { EnhanceNote = "enhanced (wow-like)", Enhancing = false }));
     }
 
     private static PassReport Report(int written = 0, bool folderCreated = false, bool stale = false,

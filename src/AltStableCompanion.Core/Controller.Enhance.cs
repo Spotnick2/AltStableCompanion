@@ -430,7 +430,7 @@ public sealed partial class Controller
         lock (_gate)
         {
             if (generation != _generation || _current.Shell.Report is not { } report) return;
-            var rows = Collection.Build(entries, report.Characters, times, folder.EnhanceNote);
+            var rows = Collection.Build(entries, report.Characters, times, folder.EnhanceState);
             var shell = _current.Shell;
             EnhancedNote? note = null;
             if (written is not null)
