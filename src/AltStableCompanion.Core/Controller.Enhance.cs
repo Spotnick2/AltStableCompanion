@@ -230,6 +230,10 @@ public sealed partial class Controller
             if (!folder.Exists) return Idle("no portraits yet");
             var batch = _batch;
             var under = (settings.EnhanceStyle, settings.EnhanceModel, settings.EnhanceEffort, settings.EnhanceMinLevel);
+            // A wake that arrived during the last generation - a pass after a roster or file
+            // change, a setting - means the look is stale: a character hidden meanwhile, or an
+            // account that can no longer be read, must not be sent from the old list.
+            if (_enhanceWake.CurrentCount > 0) batch = null;
             if (batch is null || batch.Settings != under || batch.Generation != generation)
             {
                 // The look: everyone placed - to launch, held, or done - once per wake, so the
@@ -240,9 +244,17 @@ public sealed partial class Controller
 
             while (batch.Launched < batch.Launch.Count)
             {
-                var (c, meta, primary, placed) = batch.Launch[batch.Launched++];
-                // The placement is a wake old: the portrait and the history are read again for
-                // the one being launched - a capture or a record since would make it another picture.
+                var (c, placedMeta, primary, placed) = batch.Launch[batch.Launched++];
+                // The placement is a wake old: the portrait, its sidecar and the history are read
+                // again for the one being launched - a capture since (the same pixels with a new
+                // epoch included) or a record since would make it another picture, so the look
+                // is done again rather than spending on the old one.
+                var meta = folder.ReadMeta(c.FileBase);
+                if (meta is null || meta.Guid != c.Guid || meta.Epoch != placedMeta.Epoch || meta.W != placedMeta.W || meta.H != placedMeta.H)
+                {
+                    _batch = null;
+                    return PrepareEnhancement();
+                }
                 string sourceHash;
                 RgbaImage canvas;
                 try

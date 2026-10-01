@@ -175,12 +175,13 @@ public class EnhanceWorkerTests
     private const string Guid1 = "Player-1-0000AAAA";
 
     // A capture of a level-20 troll, with the roster tables the enhancement reads.
-    private static void Roster(TempInstall t, string account, string name, string guid, DateTime at, int level = 20, string race = "Troll", int fw = 100)
+    private static void Roster(TempInstall t, string account, string name, string guid, DateTime at, int level = 20, string race = "Troll", int fw = 100, bool hidden = false)
     {
         var (b, w) = TestData.Pair(400, 1200, 150, 250, fw, 700);
         t.WriteShot(at, b);
         t.WriteShot(at.AddSeconds(1), w);
-        var db = "AltStableDB = {\n[\"" + guid + "\"] = {\n[\"name\"] = \"" + name + "\",\n[\"class\"] = \"WARLOCK\",\n[\"race\"] = \"" + race + "\",\n[\"gender\"] = \"Female\",\n[\"level\"] = " + level + ",\n[\"lastUpdate\"] = 1790000000,\n},\n}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n},\n}\n";
+        var hide = hidden ? "[\"" + guid + "\"] = true,\n" : "";
+        var db = "AltStableDB = {\n[\"" + guid + "\"] = {\n[\"name\"] = \"" + name + "\",\n[\"class\"] = \"WARLOCK\",\n[\"race\"] = \"" + race + "\",\n[\"gender\"] = \"Female\",\n[\"level\"] = " + level + ",\n[\"lastUpdate\"] = 1790000000,\n},\n}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n" + hide + "},\n}\n";
         var store = "AltStablePortraits = {\n[\"version\"] = 1,\n[\"renders\"] = {\n" + TestData.Record(name, guid, 1, at) + ",\n" + TestData.Record(name, guid, 2, at.AddSeconds(1)) + ",\n},\n}\n";
         t.WriteStore(account, db + store);
     }
@@ -515,6 +516,59 @@ public class EnhanceWorkerTests
         Until(() => c.Current.Shell.EnhanceHeld is { Count: 3 }, "all held");
         Assert.Equal(["Aaron", "Kaleid Sumner", "Zoruka"], c.Current.Shell.EnhanceHeld);
         Assert.Equal("Make them again (3 generations)", PassText.EnhanceHeldButton(c.Current.Shell.EnhanceHeld));
+    }
+
+    [Fact]
+    public void A_character_hidden_during_the_batch_is_not_sent_and_a_recapture_with_the_same_pixels_is_sent_once()
+    {
+        // Codex's two probes on PR #25: the batch reuses the look, but not past a wake, and not past a sidecar change.
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Aaron", Guid3, T0);
+        Roster(t, "1#2", "Zoruka", Guid2, T0.AddMinutes(1));
+        CapableRoster(t);
+        var fake = new Fake { Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) };
+        using var c = Started(t, fake);
+        Until(() => fake.Calls == 1, "Aaron in flight");
+        // Zoruka hidden while Aaron is being made: the file change runs a pass, which wakes the enhancer.
+        Roster(t, "1#2", "Zoruka", Guid2, T0.AddMinutes(1), hidden: true);
+        Settle(3000);
+        var first = fake.Hold;
+        fake.Hold = null;
+        first.SetResult(true);
+        Until(() => c.Current.Shell.Enhancing is null, "Aaron made");
+        Settle(2500);
+        Assert.Equal(1, fake.Calls);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Assert.False(File.Exists(AttemptHistory.PathFor(folder.EnhancedDir, Guid2)));
+
+        // Two placed; the second's portrait is written again with the same pixels and a newer epoch
+        // while the first is in flight: one picture, with the new epoch.
+        using var t2 = new TempInstall();
+        Roster(t2, "1#1", "Aaron", Guid3, T0);
+        Roster(t2, "1#2", "Kaleid Sumner", Guid1, T0.AddMinutes(1));
+        CapableRoster(t2);
+        var fake2 = new Fake { Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) };
+        // Off until the passes (and the rerun their deletions queue) are over, so no wake is pending
+        // when the batch is placed: the sidecar re-read is the only thing that can catch the change.
+        using var c2 = Started(t2, fake2, enhance: false);
+        Until(() => c2.Current.Shell.Report is not null && !c2.Current.Shell.Converting, "the first pass");
+        Settle(3000);
+        c2.SetEnhance(true, 10, EnhanceStyles.WowLike);
+        Until(() => fake2.Calls == 1, "Aaron in flight");
+        var folder2 = new CutoutFolder(t2.Install.CutoutAddonDir);
+        Until(() => folder2.ReadMeta("kaleid-sumner") is not null, "Kaleid's portrait");
+        var meta = folder2.ReadMeta("kaleid-sumner")!;
+        var canvas = TgaCodec.Read(Path.Combine(folder2.CutoutsDir, "kaleid-sumner.tga"));
+        folder2.WriteCutout("kaleid-sumner", canvas, meta with { Epoch = meta.Epoch + 600 });
+        var hold2 = fake2.Hold;
+        fake2.Hold = null;
+        hold2.SetResult(true);
+        Until(() => fake2.Calls == 2 && c2.Current.Shell.Enhancing is null, "Kaleid made");
+        Settle(2500);
+        Assert.Equal(2, fake2.Calls);
+        var attempts = AttemptHistory.Load(folder2.EnhancedDir, Guid1).Attempts;
+        Assert.Single(attempts);
+        Assert.Equal(meta.Epoch + 600, attempts[0].Epoch);
     }
 
     [Fact]
