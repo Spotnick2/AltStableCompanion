@@ -24,6 +24,14 @@ From then on: in the game, `/alts portrait`, then `/reload`; the portrait is mad
 seconds, and a `/reload` shows it. The very first portrait needs the game restarted once,
 because WoW only finds a new addon folder when it starts.
 
+**Enhanced portraits** (optional, off by default - see below) need one more thing on the
+PC: the [Codex CLI](https://github.com/openai/codex) - `npm install -g @openai/codex`, then
+`codex login` with a ChatGPT account - on the PATH. The app runs that command line and
+nothing else: the pictures come from the CLI's built-in image tool, on the ChatGPT account
+it is signed in to, and the app has no say over that tool's quality - there is no setting
+for it in the CLI, and the Codex desktop app is the same tool with a window. No OpenAI API
+key is used, needed, or read.
+
 Closing the window leaves the app running in the tray; **Quit** is in the tray icon's menu.
 It does not start with Windows: start it again after logging in. To upgrade, quit the old
 one, then run the new file - starting a second copy only brings the running one's window
