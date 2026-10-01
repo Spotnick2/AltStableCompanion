@@ -303,7 +303,7 @@ public class EnhanceWorkerTests
         Assert.StartsWith("Portrait enhanced: Kaleid Sumner", PassText.Headline(c.Current.Shell).Title);
         c.AcknowledgeUpdate();
         Assert.DoesNotContain("enhanced", PassText.Headline(c.Current.Shell).Title);
-        Assert.Null(c.Current.Shell.Enhancing);
+        Until(() => c.Current.Shell.Enhancing is null, "the activity over");   // cleared when the job ends, a moment after the files
         Assert.Equal("Logged in using ChatGPT", c.Current.CodexStatus);
 
         // A later pass, a later wake: the same signature is never launched again.
@@ -622,7 +622,7 @@ public class EnhanceWorkerTests
         var folder2 = new CutoutFolder(t2.Install.CutoutAddonDir);
         Until(() => AttemptHistoryReady(folder2), "the record");
         Assert.Equal(Attempt.Cancelled, AttemptHistory.Load(folder2.EnhancedDir, Guid1).Last!.Outcome);
-        Assert.Null(c2.Current.Shell.Enhancing);
+        Until(() => c2.Current.Shell.Enhancing is null, "the activity over");
     }
 
     [Fact]
