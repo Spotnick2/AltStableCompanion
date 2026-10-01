@@ -215,7 +215,7 @@ public sealed partial class Controller
                     _log?.Write($"enhance: {c.Character.Name} skipped: {ex.Message}");
                     continue;
                 }
-                if (history.Has(signature)) continue;
+                if (!history.MayLaunch(signature)) continue;
 
                 // The job folder: the reference (the manifest's crop of the primary, as a PNG),
                 // and later the verdict. Ours, deleted when the job ends.

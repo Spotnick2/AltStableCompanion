@@ -9,9 +9,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 ### Added
 
 - Enhanced portraits, off by default: with the Codex CLI installed and signed in on this
-  PC, a better picture of each character of the chosen level or more, from its own portrait.
-  The one exception to "no network": the Settings page says exactly what is sent and when
-  it spends. Needs an AltStable Roster that knows enhanced textures.
+  PC, a better picture of each character of the chosen level or more, from its own portrait
+  - in the look of the WoW cinematics, photorealistic, or as an animated feature. The one
+  exception to "no network": the Settings page says exactly what is sent and when it
+  spends. Needs an AltStable Roster that knows enhanced textures. A cancelled attempt (the
+  box unticked, a quit) is tried once more; refused and failed ones are final.
 - What the enhancer is doing is visible: the tray tooltip and a dot on the tray icon while a
   picture is being made, a balloon when one is written or refused, a status line under the
   switch, "Enhancing" on the character's row, and the list ordered by latest activity.

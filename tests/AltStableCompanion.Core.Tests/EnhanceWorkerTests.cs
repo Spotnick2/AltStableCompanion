@@ -516,30 +516,35 @@ public class EnhanceWorkerTests
         Assert.Equal(("Kaleid Sumner", Attempt.Cancelled), (ended[0].Name, ended[0].Outcome));
         Assert.Equal("Last: Kaleid Sumner cancelled, " + PassText.EnhanceStatus(c.Current.Shell, DateTime.Now)!.Split(", ")[1], PassText.EnhanceStatus(c.Current.Shell, DateTime.Now));
         Assert.False(c.Current.Shell.Report!.Portraits!.Single().Enhancing);
-        // On again: the same signature stays attempted.
+        // On again: the cancelled picture is tried once more - and, cancelled again, no more.
+        fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        c.SetEnhance(true, 10, EnhanceStyles.WowLike);
+        Until(() => fake.Calls == 2, "the second try");
+        c.SetEnhance(false, 10, EnhanceStyles.WowLike);
+        Until(() => AttemptHistory.Load(folder.EnhancedDir, Guid1).Attempts.Count(a => a.Ended is not null) == 2, "the second record");
         c.SetEnhance(true, 10, EnhanceStyles.WowLike);
         Settle(1500);
-        Assert.Equal(1, fake.Calls);
+        Assert.Equal(2, fake.Calls);
         // Another style is another combination - and a picture in flight, of the old style,
         // is given up for it rather than spent to the end.
         var second = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         fake.Hold = second;
         c.SetEnhance(true, 10, EnhanceStyles.Realistic);
-        Until(() => fake.Calls == 2, "the second style");
+        Until(() => fake.Calls == 3, "the second style");
         var third = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         fake.Hold = third;
         c.SetEnhance(true, 10, EnhanceStyles.Cartoonish);
         Until(() => second.Task.IsCanceled, "the realistic picture given up");
-        Until(() => fake.Calls == 3, "the third style");
+        Until(() => fake.Calls == 4, "the third style");
         third.SetResult(true);
         Until(() => File.Exists(Path.Combine(folder.EnhancedDir, "kaleid-sumner.tga")), "the cartoon written");
         var attempts = AttemptHistory.Load(folder.EnhancedDir, Guid1).Attempts;
-        Assert.Equal([Attempt.Cancelled, Attempt.Cancelled, Attempt.Written], attempts.Select(a => a.Outcome));
-        Assert.Equal([EnhanceStyles.WowLike, EnhanceStyles.Realistic, EnhanceStyles.Cartoonish], attempts.Select(a => a.Style));
+        Assert.Equal([Attempt.Cancelled, Attempt.Cancelled, Attempt.Cancelled, Attempt.Written], attempts.Select(a => a.Outcome));
+        Assert.Equal([EnhanceStyles.WowLike, EnhanceStyles.WowLike, EnhanceStyles.Realistic, EnhanceStyles.Cartoonish], attempts.Select(a => a.Style));
     }
 
     [Fact]
-    public void An_attempt_the_app_did_not_live_to_finish_is_not_made_again()
+    public void An_attempt_the_app_did_not_live_to_finish_is_closed_and_made_once_more()
     {
         using var t = new TempInstall();
         Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
@@ -558,13 +563,13 @@ public class EnhanceWorkerTests
         // An "unknown": launched, never finished - as after a crash.
         AttemptHistory.Load(folder.EnhancedDir, Guid1).Begin(new Attempt { Signature = signature, Started = T0 });
         using var again = Started(t, fake);
-        Until(() => again.Current.Shell.Report is not null && !again.Current.Shell.Converting, "the first pass");
-        Settle(2000);
-        Assert.Equal(0, fake.Calls);
-        // ...and closed, so the row does not say "enhancing" about a run that is dead.
-        Until(() => again.Current.Shell.Report?.Portraits?.Single().EnhanceNote == "enhancement cancelled", "the note");
-        var closed = AttemptHistory.Load(folder.EnhancedDir, Guid1).Last!;
-        Assert.Equal("cancelled: the app did not live to finish it", closed.Outcome);
-        Assert.NotNull(closed.Ended);
+        // Closed - the row must not say "enhancing" about a run that is dead - and, a cancel
+        // being nobody's fault, tried once more.
+        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the picture, on the second try");
+        Assert.Equal(1, fake.Calls);
+        var attempts = AttemptHistory.Load(folder.EnhancedDir, Guid1).Attempts;
+        Assert.Equal(["cancelled: the app did not live to finish it", Attempt.Written], attempts.Select(a => a.Outcome));
+        Assert.All(attempts, a => Assert.NotNull(a.Ended));
+        Assert.Equal(signature, attempts[1].Signature);
     }
 }
