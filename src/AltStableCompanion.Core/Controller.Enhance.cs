@@ -245,10 +245,22 @@ public sealed partial class Controller
             while (batch.Launched < batch.Launch.Count)
             {
                 var (c, placedMeta, primary, placed) = batch.Launch[batch.Launched++];
-                // The placement is a wake old: the portrait, its sidecar and the history are read
-                // again for the one being launched - a capture since (the same pixels with a new
-                // epoch included) or a record since would make it another picture, so the look
-                // is done again rather than spending on the old one.
+                // The placement is a wake old, and a wake comes two seconds after the roster
+                // changed on disk: the roster is read again for the one being launched. Hidden
+                // since, below the level, another portrait, another race or class - or an
+                // account that can no longer be read, which refuses everyone - and the look is
+                // done again rather than spending on the old one.
+                var fresh = Eligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)),
+                    settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
+                if (fresh.Refused is { } refusedNow) { _batch = null; return Idle(refusedNow); }
+                var still = fresh.Candidates.FirstOrDefault(e => e.Guid == c.Guid);
+                if (still is null || still.Character != c.Character || still.FileBase != c.FileBase)
+                {
+                    _batch = null;
+                    return PrepareEnhancement();
+                }
+                // The portrait, its sidecar and the history, likewise: a capture since (the same
+                // pixels with a new epoch included) or a record since would make it another picture.
                 var meta = folder.ReadMeta(c.FileBase);
                 if (meta is null || meta.Guid != c.Guid || meta.Epoch != placedMeta.Epoch || meta.W != placedMeta.W || meta.H != placedMeta.H)
                 {

@@ -527,11 +527,15 @@ public class EnhanceWorkerTests
         Roster(t, "1#2", "Zoruka", Guid2, T0.AddMinutes(1));
         CapableRoster(t);
         var fake = new Fake { Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously) };
-        using var c = Started(t, fake);
-        Until(() => fake.Calls == 1, "Aaron in flight");
-        // Zoruka hidden while Aaron is being made: the file change runs a pass, which wakes the enhancer.
-        Roster(t, "1#2", "Zoruka", Guid2, T0.AddMinutes(1), hidden: true);
+        // Off until the passes are over, so the batch is placed with nothing pending; then Zoruka is
+        // hidden on disk and Aaron's picture comes back AT ONCE - inside the watcher's two-second
+        // debounce, before any pass or wake: the roster read before the launch is what must catch it.
+        using var c = Started(t, fake, enhance: false);
+        Until(() => c.Current.Shell.Report is not null && !c.Current.Shell.Converting, "the first pass");
         Settle(3000);
+        c.SetEnhance(true, 10, EnhanceStyles.WowLike);
+        Until(() => fake.Calls == 1, "Aaron in flight");
+        Roster(t, "1#2", "Zoruka", Guid2, T0.AddMinutes(1), hidden: true);
         var first = fake.Hold;
         fake.Hold = null;
         first.SetResult(true);
