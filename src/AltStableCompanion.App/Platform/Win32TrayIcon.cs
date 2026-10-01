@@ -36,7 +36,7 @@ internal sealed class Win32TrayIcon : IDisposable
     private const uint IconId = 1;
 
     private readonly WndProc _wndProc;                         // kept alive: see above
-    private readonly byte[] _ico;
+    private byte[] _ico;
     private readonly Func<IReadOnlyList<TrayMenuItem>> _menu;
     private readonly uint _taskbarCreated;
     private readonly nint _instance;
@@ -91,6 +91,17 @@ internal sealed class Win32TrayIcon : IDisposable
         _retry = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _retry.Tick += (_, _) => Add();
         Add();
+    }
+
+    /// <summary>Another .ico for the same icon: the same bytes again do nothing.</summary>
+    public void SetIcon(byte[] ico)
+    {
+        if (_disposed || ReferenceEquals(ico, _ico)) return;
+        _ico = ico;
+        LoadIcons();
+        if (!Present) return;
+        var data = Data(NIF_ICON);
+        Shell_NotifyIconW(NIM_MODIFY, ref data);
     }
 
     public void SetTip(string tip)
