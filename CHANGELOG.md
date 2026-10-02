@@ -6,6 +6,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.0-beta.2]
+
+The beta that can update itself: this is the last one you download by hand.
+
 ### Added
 
 - An About section under Help: the version and build this is, what the app is, and links
