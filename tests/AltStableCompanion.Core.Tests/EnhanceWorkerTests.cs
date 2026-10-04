@@ -363,6 +363,92 @@ public class EnhanceWorkerTests
     }
 
     [Fact]
+    public void The_count_before_turning_it_on_is_the_launches_that_follow_and_counting_spends_nothing()
+    {
+        using var t = new TempInstall();
+        CapableRoster(t);
+        var fake = new Fake();
+        using var c = Started(t, fake);                                  // wow-like, from level 10
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+
+        // D: a picture made, wow-like. E: an attempt that failed, wow-like.
+        Roster(t, "4#1", "Dee", "Player-1-0000000D", T0);
+        Until(() => fake.Calls == 1 && folder.Inventory().Any(e => e.Enhanced is not null), "D's picture");
+        fake.Failure = "refused: test";
+        Roster(t, "5#1", "Eee", "Player-1-0000000E", T0.AddMinutes(1), fw: 110);
+        Until(() => fake.Calls == 2, "E's attempt");
+        Until(() => c.Current.Shell.Enhancing is null, "E's attempt over");
+        fake.Failure = null;
+        c.SetEnhance(false, 10, EnhanceStyles.WowLike);
+
+        // A: eligible, nothing made. B: below the level. C: hidden.
+        Roster(t, "1#1", "Aaa", "Player-1-0000000A", T0.AddMinutes(2), fw: 120);
+        Roster(t, "2#1", "Bbb", "Player-1-0000000B", T0.AddMinutes(3), level: 5, fw: 130);
+        Roster(t, "3#1", "Ccc", "Player-1-0000000C", T0.AddMinutes(4), fw: 140, hidden: true);
+        Until(() => folder.Inventory().Count == 5, "five portraits");
+        Until(() => !c.Current.Shell.Converting, "the pass over");
+
+        // The same style: only A. D is made and E was tried - both done.
+        Assert.Equal(new EnhancePlan(Launch: 1, Held: 0, Done: 2), c.PlanEnhancement(10, EnhanceStyles.WowLike));
+        // Another style: A, and E (a new combination, and nothing of E's to keep); D is held.
+        var plan = c.PlanEnhancement(10, EnhanceStyles.Realistic);
+        Assert.Equal(new EnhancePlan(Launch: 2, Held: 1, Done: 0), plan);
+
+        // Counting spent nothing, recorded nothing and offered nothing.
+        Settle();
+        Assert.Equal(2, fake.Calls);
+        Assert.Null(c.Current.Shell.EnhanceHeld);
+        Assert.Empty(AttemptHistory.Load(folder.EnhancedDir, "Player-1-0000000A").Attempts);
+
+        // On: exactly the launches counted.
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Until(() => fake.Calls == 2 + plan.Launch, "the counted launches");
+        Until(() => c.Current.Shell.Enhancing is null, "the batch over");
+        Settle(2000);
+        Assert.Equal(2 + plan.Launch, fake.Calls);
+        Assert.Equal(["Dee"], c.Current.Shell.EnhanceHeld);
+    }
+
+    [Fact]
+    public void The_question_says_how_many_now_what_it_costs_and_what_stays()
+    {
+        var three = PassText.EnhanceConfirm(new EnhancePlan(3, 0, 0), paused: false);
+        Assert.StartsWith("This makes 3 pictures now, one Codex request each;", three);
+        Assert.Contains("uses your Codex usage", three);
+        Assert.DoesNotContain("paused", three);
+        Assert.Equal("Make 3 pictures", PassText.EnhanceConfirmButton(new EnhancePlan(3, 0, 0)));
+        Assert.Equal("Make 1 picture", PassText.EnhanceConfirmButton(new EnhancePlan(1, 2, 0)));
+
+        Assert.Contains("1 picture made with other settings stays as it is", PassText.EnhanceConfirm(new EnhancePlan(1, 1, 0), false));
+        Assert.Contains("2 pictures made with other settings stay as they are", PassText.EnhanceConfirm(new EnhancePlan(1, 2, 0), false));
+        Assert.Contains("they start when it resumes", PassText.EnhanceConfirm(new EnhancePlan(1, 0, 0), paused: true));
+
+        var none = PassText.EnhanceConfirm(new EnhancePlan(0, 0, 4), false);
+        Assert.StartsWith("Nothing to make right now.", none);
+        Assert.Equal("Turn on", PassText.EnhanceConfirmButton(new EnhancePlan(0, 0, 4)));
+
+        var refused = new EnhancePlan(0, 0, 0, "1 account file(s) could not be read this time");
+        Assert.StartsWith("Nothing can be made right now: 1 account file(s)", PassText.EnhanceConfirm(refused, false));
+        Assert.Equal("Turn on", PassText.EnhanceConfirmButton(refused));
+    }
+
+    [Fact]
+    public void Nothing_is_counted_where_nothing_could_be_made()
+    {
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Aaa", "Player-1-0000000A", T0);
+        var fake = new Fake();
+        using var c = Started(t, fake, enhance: false);
+        Until(() => c.Current.Shell.Report is not null && !c.Current.Shell.Converting, "the first pass");
+        Until(() => c.Current.CodexProbed, "Codex looked for");
+        // No Roster that draws enhanced pictures.
+        Assert.Equal(new EnhancePlan(0, 0, 0, "the installed AltStable Roster cannot draw enhanced pictures"), c.PlanEnhancement(10, EnhanceStyles.WowLike));
+        CapableRoster(t);
+        Assert.Equal(new EnhancePlan(1, 0, 0), c.PlanEnhancement(10, EnhanceStyles.WowLike));
+        Assert.Equal(new EnhancePlan(0, 0, 0), c.PlanEnhancement(30, EnhanceStyles.WowLike));
+    }
+
+    [Fact]
     public void A_picture_left_behind_by_a_new_capture_is_logged_once_by_the_pass_and_the_enhancer()
     {
         // Measured on beta.3: the pass said it, then the enhancer's look before its next job

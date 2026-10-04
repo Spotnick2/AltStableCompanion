@@ -21,6 +21,14 @@ public sealed record EnhanceHooks(
         async ct => CodexImageGen.Find() is { } exe ? await CodexImageGen.LoginStatusAsync(exe, ct) ?? "installed" : null);
 }
 
+/// <summary>
+/// What turning enhanced portraits on would do now, counted the way the worker launches:
+/// <see cref="Launch"/> pictures made at once (one Codex request each), <see cref="Held"/>
+/// made before with other settings and kept until asked, <see cref="Done"/> already attempted
+/// for these settings. <see cref="Refused"/> says why nothing would be made at all right now.
+/// </summary>
+public sealed record EnhancePlan(int Launch, int Held, int Done, string? Refused = null);
+
 public sealed partial class Controller
 {
     /// <summary>A generation ended - written, refused, failed or cancelled - on whatever thread it ended on.</summary>
@@ -350,12 +358,41 @@ public sealed partial class Controller
     private Placement? Place(CutoutFolder folder, WowInstall install, Settings settings, int generation,
         (string Style, string Model, string Effort, int Level) under)
     {
-        var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
-        var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
-        if (eligible.Refused is { } refused) { Idle(refused); return null; }
-
         HashSet<string> allowed;
         lock (_gate) { allowed = [.. _remakeAllowed]; }
+        var plan = PlanLaunches(folder, install, settings, allowed);
+        if (plan.Refused is { } refused) { Idle(refused); return null; }
+        var (launch, held, done, inHistory) = (plan.Launch, plan.Held, plan.Done, plan.InHistory);
+        var names = held.Select(h => h.Name).ToList();
+        var changed = false;
+        lock (_gate)
+        {
+            _held = held;
+            // A permission that is in the history has been used: the set shrinks to nothing, and the file with it.
+            if (inHistory.Count > 0) { _remakeAllowed.ExceptWith(inHistory); SaveRemake(); }
+            if (!(_current.Shell.EnhanceHeld ?? []).SequenceEqual(names))
+            {
+                _current = _current with { Shell = _current.Shell with { EnhanceHeld = names.Count == 0 ? null : names } };
+                changed = true;
+            }
+        }
+        if (changed) Changed?.Invoke();
+        return new Placement(under, generation, launch, done);
+    }
+
+    private sealed record LaunchPlan(
+        List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)> Launch,
+        List<(string Name, string Signature)> Held, int Done, List<string> InHistory, string? Refused);
+
+    // Under _passGate. Who would launch, who is held and who is done, under these settings -
+    // reading the disk and changing nothing: the worker places its batch from it, and the
+    // window's count before turning this on is the same call.
+    private LaunchPlan PlanLaunches(CutoutFolder folder, WowInstall install, Settings settings, IReadOnlySet<string> allowed)
+    {
+        var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
+        var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
+        if (eligible.Refused is { } refused) return new([], [], 0, [], refused);
+
         var held = new List<(string Name, string Signature)>();
         var launch = new List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)>();
         var done = 0;
@@ -406,21 +443,38 @@ public sealed partial class Controller
             launch.Add((c, meta, primary, signature));
         }
         held.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
-        var names = held.Select(h => h.Name).ToList();
-        var changed = false;
-        lock (_gate)
+        return new(launch, held, done, inHistory, null);
+    }
+
+    /// <summary>
+    /// What turning enhanced portraits on - from this level, in this style - would do now:
+    /// the worker's own placement, under the worker's own checks, with nothing changed and
+    /// nothing spent. Reads every account's file and hashes the portraits, under the pass
+    /// gate: off the UI thread.
+    /// </summary>
+    public EnhancePlan PlanEnhancement(int minLevel, string style)
+    {
+        lock (_passGate)
         {
-            _held = held;
-            // A permission that is in the history has been used: the set shrinks to nothing, and the file with it.
-            if (inHistory.Count > 0) { _remakeAllowed.ExceptWith(inHistory); SaveRemake(); }
-            if (!(_current.Shell.EnhanceHeld ?? []).SequenceEqual(names))
+            Settings settings;
+            WowInstall? install;
+            string? codex;
+            HashSet<string> allowed;
+            lock (_gate)
             {
-                _current = _current with { Shell = _current.Shell with { EnhanceHeld = names.Count == 0 ? null : names } };
-                changed = true;
+                settings = _settings with { Enhance = true, EnhanceMinLevel = minLevel, EnhanceStyle = style };
+                install = _current.Shell.Install;
+                codex = _codexStatus;
+                allowed = [.. _remakeAllowed];
             }
+            if (install is null) return new(0, 0, 0, "no WoW folder is chosen");
+            if (codex is null) return new(0, 0, 0, "the Codex CLI is not on this PC");
+            if (!install.RosterDrawsEnhanced) return new(0, 0, 0, "the installed AltStable Roster cannot draw enhanced pictures");
+            var folder = new CutoutFolder(install.CutoutAddonDir);
+            if (!folder.Exists) return new(0, 0, 0);
+            var plan = PlanLaunches(folder, install, settings, allowed);
+            return new(plan.Launch.Count, plan.Held.Count, plan.Done, plan.Refused);
         }
-        if (changed) Changed?.Invoke();
-        return new Placement(under, generation, launch, done);
     }
 
     // Nothing to do, and why - said once in the log when it is a reason. Before the look, the

@@ -82,6 +82,10 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private bool _codexProbed;
     private bool _showHelp;
     private bool _confirmDiagnostics;
+    private bool _confirmEnhance;
+    private string _enhanceConfirmText = "";
+    private string _enhanceConfirmButton = "Turn on";
+    private int _planAsked;
     private string? _diagnosticsLine;
     private bool _diagnosticsFailed;
     private bool _checkUpdatesOnOpen;
@@ -105,6 +109,14 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         DismissRestartNotice = new Command(controller.DismissRestartNotice);
         GotIt = new Command(controller.AcknowledgeUpdate);
         RemakeEnhanced = new Command(controller.RemakeEnhanced);
+        StartEnhance = new Command(() =>
+        {
+            ConfirmEnhance = false;
+            _enhance = true;
+            Raise(nameof(Enhance));
+            Apply();
+        });
+        CancelEnhance = new Command(() => ConfirmEnhance = false);
         Resume = new Command(() => controller.SetPaused(false));
         StartWatching = new Command(controller.StartWatching);
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
@@ -300,10 +312,23 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     // ---- enhanced portraits: the one thing that leaves the PC, off unless chosen
+    /// <summary>
+    /// Ticking it asks first (<see cref="ConfirmEnhance"/>): it is on only once the player has
+    /// seen how many pictures it makes. Every time - turning it on again later asks again.
+    /// Unticking it while asked is Cancel.
+    /// </summary>
     public bool Enhance
     {
-        get => _enhance;
-        set { if (Set(ref _enhance, value)) Apply(); }
+        get => _enhance || _confirmEnhance;
+        set
+        {
+            if (value == Enhance) return;
+            if (value) { ConfirmEnhance = true; return; }
+            if (_confirmEnhance) { ConfirmEnhance = false; return; }
+            _enhance = false;
+            Raise(nameof(Enhance));
+            Apply();
+        }
     }
 
     /// <summary>
@@ -345,6 +370,58 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public bool HasEnhanceHeld => EnhanceHeld.Length > 0;
     public string EnhanceHeldButton => PassText.EnhanceHeldButton(_controller.Current.Shell.EnhanceHeld);
     public Command RemakeEnhanced { get; }
+    public Command StartEnhance { get; }
+    public Command CancelEnhance { get; }
+
+    // ---- the question before turning it on: how many pictures, counted the worker's way
+
+    /// <summary>The box was ticked and the player has not answered yet. The box shows ticked meanwhile.</summary>
+    public bool ConfirmEnhance
+    {
+        get => _confirmEnhance;
+        private set
+        {
+            if (!Set(ref _confirmEnhance, value)) return;
+            Raise(nameof(Enhance));
+            if (value) CountPictures();
+            else _planAsked++;   // a count still on its way answers nobody
+        }
+    }
+
+    public string EnhanceConfirmText
+    {
+        get => _enhanceConfirmText;
+        private set => Set(ref _enhanceConfirmText, value);
+    }
+
+    public string EnhanceConfirmButton
+    {
+        get => _enhanceConfirmButton;
+        private set => Set(ref _enhanceConfirmButton, value);
+    }
+
+    // Reads every account's file and hashes the portraits, under the pass gate: off the UI
+    // thread. Start waits for the count - the point is to know it before saying yes.
+    private void CountPictures()
+    {
+        var asked = ++_planAsked;
+        StartEnhance.Enabled = false;
+        EnhanceConfirmText = PassText.EnhanceCounting;
+        EnhanceConfirmButton = "Turn on";
+        var (level, style, paused) = (Level(), _enhanceStyle, _paused);
+        Task.Run(() => _controller.PlanEnhancement(level, style)).ContinueWith(t => Dispatcher.UIThread.Post(() =>
+        {
+            if (asked != _planAsked) return;
+            if (t.IsFaulted)
+            {
+                EnhanceConfirmText = $"The pictures could not be counted: {t.Exception?.InnerException?.Message}";
+                return;
+            }
+            EnhanceConfirmText = PassText.EnhanceConfirm(t.Result, paused);
+            EnhanceConfirmButton = PassText.EnhanceConfirmButton(t.Result);
+            StartEnhance.Enabled = true;
+        }), TaskScheduler.Default);
+    }
 
     public bool IsWowLike { get => _enhanceStyle == EnhanceStyles.WowLike; set { if (value) SetStyle(EnhanceStyles.WowLike); } }
     public bool IsRealistic { get => _enhanceStyle == EnhanceStyles.Realistic; set { if (value) SetStyle(EnhanceStyles.Realistic); } }
@@ -357,10 +434,14 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Apply();
     }
 
+    private int Level() => int.TryParse(_enhanceMinLevel.Trim(), out var l) && l >= 1 ? l : Settings.DefaultEnhanceMinLevel;
+
     private void Apply()
     {
-        var level = int.TryParse(_enhanceMinLevel.Trim(), out var l) && l >= 1 ? l : Settings.DefaultEnhanceMinLevel;
-        _controller.SetEnhance(_enhance, level, _enhanceStyle);
+        _controller.SetEnhance(_enhance, Level(), _enhanceStyle);
+        // The level or the style changed while the question is open: the count is of another
+        // batch now.
+        if (_confirmEnhance) CountPictures();
     }
 
     public string EnhanceExplanation => PassText.EnhanceExplanation(
@@ -568,6 +649,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Skin = now.Skin;
         // Enhancement, from the controller: through the fields, then the derived words.
         Set(ref _enhance, now.Enhance, nameof(Enhance));
+        // On already - nothing left to ask.
+        if (now.Enhance && _confirmEnhance) ConfirmEnhance = false;
         // The box's text follows the level when the level changed - not on every refresh, which
         // would overwrite what is being typed.
         if (_knownLevel != now.EnhanceMinLevel)

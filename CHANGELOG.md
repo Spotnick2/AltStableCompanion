@@ -6,6 +6,13 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Ticking **Enhance portraits with Codex** asks first: it says how many pictures it will make
+  at once - counted the way they are then made, leaving out the ones already tried or kept
+  from other settings - and nothing is sent until you press **Make N pictures**. **Cancel**
+  leaves it off. Turning it on again later asks again.
+
 ### Changed
 
 - **Save diagnostics…** writes to your Downloads folder, not the Desktop. A Desktop that
