@@ -458,17 +458,57 @@ public class EnhanceWorkerTests
         Until(() => folder.Inventory().Count == 2 && !c.Current.Shell.Converting, "B's portrait");
 
         // "Make 1 picture" is no longer true: it stays off, and the new count comes back.
-        Assert.Equal(new EnhancePlan(2, 0, 0), c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown));
+        Assert.Equal(new EnhancePlan(2, 0, 0), c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, c.PressEnhance()));
         Assert.False(c.Current.Enhance);
         Settle();
         Assert.Equal(0, fake.Calls);
 
         // Asked again, and answered: on, and exactly that.
-        Assert.Null(c.TurnOnEnhance(10, EnhanceStyles.WowLike, new EnhancePlan(2, 0, 0)));
+        Assert.Null(c.TurnOnEnhance(10, EnhanceStyles.WowLike, new EnhancePlan(2, 0, 0), c.PressEnhance()));
         Assert.True(c.Current.Enhance);
         Until(() => fake.Calls == 2, "the two pictures");
         Settle(1500);
         Assert.Equal(2, fake.Calls);
+    }
+
+    [Fact]
+    public async Task A_press_waiting_behind_a_pass_and_withdrawn_meanwhile_turns_nothing_on()
+    {
+        // Codex's sequence on 78b49e2: Make pressed while a pass holds the gate; the box
+        // unticked before the press gets through. Nothing may be turned on, sent or written.
+        using var t = new TempInstall();
+        CapableRoster(t);
+        Roster(t, "1#1", "Aaa", "Player-1-0000000A", T0);
+        var fake = new Fake();
+        using var c = Started(t, fake, enhance: false);
+        Until(() => c.Current.Shell.Report is not null && !c.Current.Shell.Converting, "the first pass");
+        Until(() => c.Current.CodexProbed, "Codex looked for");
+        var shown = c.PlanEnhancement(10, EnhanceStyles.WowLike);
+        Assert.Equal(new EnhancePlan(1, 0, 0), shown);
+
+        Task<EnhancePlan?> pressed;
+        using (c.PassGate.EnterScope())                                   // a pass that takes its time
+        {
+            var press = c.PressEnhance();
+            pressed = Task.Run(() => c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, press));
+            Thread.Sleep(300);
+            Assert.False(pressed.IsCompleted);                            // waiting behind the pass
+            c.WithdrawEnhance();                                          // the box unticked
+        }
+        Assert.Equal(shown, await pressed.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.False(c.Current.Enhance);
+        Assert.False(Settings.Load(Data(t)).Enhance);
+        Settle();
+        Assert.Equal(0, fake.Calls);
+
+        // A press after that, not withdrawn, is an ordinary yes; an older one is not.
+        var old = c.PressEnhance();
+        var fresh = c.PressEnhance();
+        Assert.Equal(shown, c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, old));
+        Assert.False(c.Current.Enhance);
+        Assert.Null(c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, fresh));
+        Assert.True(c.Current.Enhance);
+        Until(() => fake.Calls == 1, "the one picture");
     }
 
     [Fact]
@@ -486,7 +526,7 @@ public class EnhanceWorkerTests
         Assert.Equal("Looking for the Codex CLI on this PC…", PassText.EnhanceConfirm(early, paused: false));
         Assert.False(PassText.EnhanceConfirmable(early));
         // Nor can it be turned on from there.
-        Assert.Equal(early, c.TurnOnEnhance(10, EnhanceStyles.WowLike, early));
+        Assert.Equal(early, c.TurnOnEnhance(10, EnhanceStyles.WowLike, early, c.PressEnhance()));
         Assert.False(c.Current.Enhance);
 
         fake.ProbeHold.SetResult(true);

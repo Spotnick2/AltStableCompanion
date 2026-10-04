@@ -381,7 +381,12 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
             if (!Set(ref _confirmEnhance, value)) return;
             Raise(nameof(Enhance));
             if (value) CountPictures();
-            else _planAsked++;   // a count still on its way answers nobody
+            else
+            {
+                _planAsked++;   // a count still on its way answers nobody
+                // ...and a press still on its way turns nothing on: Core keeps that, not the window.
+                if (_turningOn) _controller.WithdrawEnhance();
+            }
         }
     }
 
@@ -443,7 +448,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         StartEnhance.Enabled = false;
         CancelEnhance.Enabled = false;
         var (level, style) = (Level(), _enhanceStyle);
-        Task.Run(() => _controller.TurnOnEnhance(level, style, shown)).ContinueWith(t => Dispatcher.UIThread.Post(() =>
+        var press = _controller.PressEnhance();
+        Task.Run(() => _controller.TurnOnEnhance(level, style, shown, press)).ContinueWith(t => Dispatcher.UIThread.Post(() =>
         {
             _turningOn = false;
             if (asked != _planAsked) return;
@@ -482,6 +488,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
 
     private void Apply()
     {
+        // A press waiting behind a pass was for the settings as they were.
+        if (_turningOn) _controller.WithdrawEnhance();
         _controller.SetEnhance(_enhance, Level(), _enhanceStyle);
         // The level or the style changed while the question is open: the count is of another
         // batch now.

@@ -464,18 +464,47 @@ public sealed partial class Controller
     }
 
     /// <summary>
-    /// "Make N pictures": on, but only if what it would make now is still what the player was
-    /// <paramref name="shown"/> - a capture converted while they read the question would make
-    /// it more. Counted and turned on under the pass gate, so no pass comes between. Null when
-    /// it is on; otherwise the count as it is now, to be asked again, and it stays off.
+    /// A press of "Make N pictures": the ticket <see cref="TurnOnEnhance"/> needs. The press
+    /// waits behind a pass for as long as the pass takes, and the player may back out
+    /// meanwhile - <see cref="WithdrawEnhance"/> - which no later turn-on may overrule.
     /// </summary>
-    public EnhancePlan? TurnOnEnhance(int minLevel, string style, EnhancePlan shown)
+    public int PressEnhance()
+    {
+        lock (_gate) return ++_enhancePress;
+    }
+
+    /// <summary>The player backed out of the question: a press still on its way turns nothing on.</summary>
+    public void WithdrawEnhance()
+    {
+        lock (_gate) _enhancePress++;
+    }
+
+    private int _enhancePress;                                // under _gate: the press that may still turn it on
+
+    /// <summary>For tests only: held, it stands in for a pass that takes its time.</summary>
+    internal Lock PassGate => _passGate;
+
+    /// <summary>
+    /// "Make N pictures": on, but only if the press was not withdrawn, and only if what it
+    /// would make now is still what the player was <paramref name="shown"/> - a capture
+    /// converted while they read the question would make it more. Counted under the pass gate,
+    /// so no pass comes between; the press is checked and the setting changed under the state
+    /// gate, as one step, so a withdrawal is either before it (off) or after it (an ordinary
+    /// turning off). Null when it is on; otherwise the count as it is now, and it stays off.
+    /// </summary>
+    public EnhancePlan? TurnOnEnhance(int minLevel, string style, EnhancePlan shown, int press)
     {
         lock (_passGate)
         {
             var now = Plan(minLevel, style);
             if (now != shown || now.WaitingForCodex) return now;
-            SetEnhance(true, minLevel, style);
+            CancellationTokenSource? cancel;
+            lock (_gate)
+            {
+                if (press != _enhancePress) return now;
+                cancel = ChangeEnhance(true, minLevel, style);
+            }
+            AfterEnhanceChange(cancel);
             return null;
         }
     }
@@ -725,19 +754,41 @@ public sealed partial class Controller
     /// </summary>
     public void SetEnhance(bool on, int minLevel, string style)
     {
-        CancellationTokenSource? cancel = null;
+        CancellationTokenSource? cancel;
         lock (_gate)
         {
-            var before = (_settings.Enhance, _settings.EnhanceMinLevel, _settings.EnhanceStyle);
-            var after = new Settings { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style };
-            if (before == (after.Enhance, after.EnhanceMinLevel, after.EnhanceStyle)) return;
-            _settings = _settings with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
-            Write();
-            if (!on || before.EnhanceStyle != after.EnhanceStyle) { cancel = _jobCts; _jobCts = null; }
-            _reprobeCodex = on;
-            _batch = null;
-            _current = _current with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
+            if (!Differs(on, minLevel, style)) return;
+            cancel = ChangeEnhance(on, minLevel, style);
         }
+        AfterEnhanceChange(cancel);
+    }
+
+    // Under _gate.
+    private bool Differs(bool on, int minLevel, string style)
+    {
+        var after = new Settings { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style };
+        return (_settings.Enhance, _settings.EnhanceMinLevel, _settings.EnhanceStyle) != (after.Enhance, after.EnhanceMinLevel, after.EnhanceStyle);
+    }
+
+    // Under _gate: the change itself, and the picture in flight to cancel, if any.
+    private CancellationTokenSource? ChangeEnhance(bool on, int minLevel, string style)
+    {
+        if (!Differs(on, minLevel, style)) return null;
+        CancellationTokenSource? cancel = null;
+        var before = _settings.EnhanceStyle;
+        var after = new Settings { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style };
+        _settings = _settings with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
+        Write();
+        if (!on || before != after.EnhanceStyle) { cancel = _jobCts; _jobCts = null; }
+        _reprobeCodex = on;
+        _batch = null;
+        _current = _current with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
+        return cancel;
+    }
+
+    // Outside _gate.
+    private void AfterEnhanceChange(CancellationTokenSource? cancel)
+    {
         cancel?.Cancel();
         Changed?.Invoke();
         WakeEnhancer();
