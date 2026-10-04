@@ -77,6 +77,20 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
     private readonly HashSet<string> _logged = [];
 
     /// <summary>
+    /// A warning for the log, once for the life of this object. The enhancer lists the same
+    /// folder between passes and finds the same things wrong with it: it says them through
+    /// here, so the log has each one once, whoever found it first.
+    /// </summary>
+    public void LogOnce(string message)
+    {
+        lock (_logged)
+        {
+            if (!_logged.Add(message)) return;
+        }
+        log?.Invoke(message);
+    }
+
+    /// <summary>
     /// Cancelling stops the pass BETWEEN captures and lets it finish: the manifest is still
     /// rebuilt and the report still returned, so a cutout written before the stop is listed
     /// and reported. It does not throw.
@@ -88,7 +102,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
         void Warn(string message)
         {
             warnings.Add(message);
-            if (_logged.Add(message)) log?.Invoke(message);
+            LogOnce(message);
         }
 
         var options = _options;

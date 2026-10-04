@@ -326,8 +326,20 @@ public sealed partial class CodexImageGen(string executable, string codexHome)
         string a, b;
         lock (stdout) a = stdout.ToString();
         lock (stderr) b = stderr.ToString();
-        var text = (b.Length > 0 ? b : a).Trim();
-        return text.Length > 600 ? text[^600..] : text;
+        return Tail((b.Length > 0 ? b : a).Trim(), 600);
+    }
+
+    /// <summary>
+    /// The end of the output, at most <paramref name="max"/> characters, starting at a line:
+    /// half a word at the top reads as if the output began there. A last line longer than the
+    /// bound is cut, and says so.
+    /// </summary>
+    public static string Tail(string text, int max)
+    {
+        if (text.Length <= max) return text;
+        var tail = text[^max..];
+        var start = tail.IndexOf('\n');
+        return start >= 0 && start < tail.Length - 1 ? tail[(start + 1)..] : "…" + tail;
     }
 
     [GeneratedRegex(@"^[a-z0-9.-]+\z", RegexOptions.IgnoreCase)]
