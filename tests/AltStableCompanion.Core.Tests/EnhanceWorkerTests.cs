@@ -228,7 +228,14 @@ public class EnhanceWorkerTests
                 catch (OperationCanceledException) { if (!FinishAnyway) return new CodexResult(null, "cancelled", ""); }
             }
             return Failure is { } f ? new CodexResult(null, f, "") : new CodexResult(Png, null, "");
-        }, _ => Task.FromResult(Status));
+        }, async _ =>
+        {
+            if (ProbeHold is { } probe) await probe.Task;
+            return Status;
+        });
+
+        /// <summary>Set before the start: Codex is not looked for until it is released.</summary>
+        public TaskCompletionSource<bool>? ProbeHold;
     }
 
     private static string Data(TempInstall t) => Path.Combine(t.Root, "data");
@@ -430,6 +437,73 @@ public class EnhanceWorkerTests
         var refused = new EnhancePlan(0, 0, 0, "1 account file(s) could not be read this time");
         Assert.StartsWith("Nothing can be made right now: 1 account file(s)", PassText.EnhanceConfirm(refused, false));
         Assert.Equal("Turn on", PassText.EnhanceConfirmButton(refused));
+    }
+
+    [Fact]
+    public void A_capture_converted_while_the_question_was_open_is_asked_about_and_nothing_turns_on()
+    {
+        using var t = new TempInstall();
+        CapableRoster(t);
+        Roster(t, "1#1", "Aaa", "Player-1-0000000A", T0);
+        var fake = new Fake();
+        using var c = Started(t, fake, enhance: false);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.Inventory().Count == 1 && !c.Current.Shell.Converting, "A's portrait");
+        Until(() => c.Current.CodexProbed, "Codex looked for");
+        var shown = c.PlanEnhancement(10, EnhanceStyles.WowLike);
+        Assert.Equal(new EnhancePlan(1, 0, 0), shown);
+
+        // The player reads; a capture comes in.
+        Roster(t, "2#1", "Bbb", "Player-1-0000000B", T0.AddMinutes(1), fw: 120);
+        Until(() => folder.Inventory().Count == 2 && !c.Current.Shell.Converting, "B's portrait");
+
+        // "Make 1 picture" is no longer true: it stays off, and the new count comes back.
+        Assert.Equal(new EnhancePlan(2, 0, 0), c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown));
+        Assert.False(c.Current.Enhance);
+        Settle();
+        Assert.Equal(0, fake.Calls);
+
+        // Asked again, and answered: on, and exactly that.
+        Assert.Null(c.TurnOnEnhance(10, EnhanceStyles.WowLike, new EnhancePlan(2, 0, 0)));
+        Assert.True(c.Current.Enhance);
+        Until(() => fake.Calls == 2, "the two pictures");
+        Settle(1500);
+        Assert.Equal(2, fake.Calls);
+    }
+
+    [Fact]
+    public void Asked_before_Codex_was_looked_for_the_count_waits_rather_than_saying_it_is_missing()
+    {
+        using var t = new TempInstall();
+        CapableRoster(t);
+        Roster(t, "1#1", "Aaa", "Player-1-0000000A", T0);
+        var fake = new Fake { ProbeHold = new TaskCompletionSource<bool>() };
+        using var c = Started(t, fake, enhance: false);
+        Until(() => c.Current.Shell.Report is not null && !c.Current.Shell.Converting, "the first pass");
+
+        var early = c.PlanEnhancement(10, EnhanceStyles.WowLike);
+        Assert.True(early.WaitingForCodex);
+        Assert.Equal("Looking for the Codex CLI on this PC…", PassText.EnhanceConfirm(early, paused: false));
+        Assert.False(PassText.EnhanceConfirmable(early));
+        // Nor can it be turned on from there.
+        Assert.Equal(early, c.TurnOnEnhance(10, EnhanceStyles.WowLike, early));
+        Assert.False(c.Current.Enhance);
+
+        fake.ProbeHold.SetResult(true);
+        Until(() => c.Current.CodexProbed, "Codex looked for");
+        Assert.Equal(new EnhancePlan(1, 0, 0), c.PlanEnhancement(10, EnhanceStyles.WowLike));
+    }
+
+    [Fact]
+    public void The_question_says_what_the_worker_waits_for_and_when_the_count_changed()
+    {
+        var two = new EnhancePlan(2, 0, 0);
+        Assert.Contains("Nothing is made before you press Start watching.", PassText.EnhanceConfirm(two, paused: true, firstStart: true));
+        Assert.DoesNotContain("paused", PassText.EnhanceConfirm(two, paused: true, firstStart: true));
+        Assert.DoesNotContain("Start watching", PassText.EnhanceConfirm(new EnhancePlan(0, 0, 1), paused: false, firstStart: true));
+        Assert.StartsWith("That changed while the question was open. This makes 2 pictures now",
+            PassText.EnhanceConfirm(two, paused: false, changed: true));
+        Assert.True(PassText.EnhanceConfirmable(two));
     }
 
     [Fact]

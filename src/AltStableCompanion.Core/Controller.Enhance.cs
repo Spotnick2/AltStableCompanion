@@ -27,7 +27,13 @@ public sealed record EnhanceHooks(
 /// made before with other settings and kept until asked, <see cref="Done"/> already attempted
 /// for these settings. <see cref="Refused"/> says why nothing would be made at all right now.
 /// </summary>
-public sealed record EnhancePlan(int Launch, int Held, int Done, string? Refused = null);
+public sealed record EnhancePlan(int Launch, int Held, int Done, string? Refused = null)
+{
+    /// <summary>The <see cref="Refused"/> of a count asked for before the Codex CLI was looked for: ask again once it has been.</summary>
+    public const string CodexNotLookedFor = "the Codex CLI has not been looked for yet";
+
+    public bool WaitingForCodex => Refused == CodexNotLookedFor;
+}
 
 public sealed partial class Controller
 {
@@ -454,27 +460,51 @@ public sealed partial class Controller
     /// </summary>
     public EnhancePlan PlanEnhancement(int minLevel, string style)
     {
+        lock (_passGate) return Plan(minLevel, style);
+    }
+
+    /// <summary>
+    /// "Make N pictures": on, but only if what it would make now is still what the player was
+    /// <paramref name="shown"/> - a capture converted while they read the question would make
+    /// it more. Counted and turned on under the pass gate, so no pass comes between. Null when
+    /// it is on; otherwise the count as it is now, to be asked again, and it stays off.
+    /// </summary>
+    public EnhancePlan? TurnOnEnhance(int minLevel, string style, EnhancePlan shown)
+    {
         lock (_passGate)
         {
-            Settings settings;
-            WowInstall? install;
-            string? codex;
-            HashSet<string> allowed;
-            lock (_gate)
-            {
-                settings = _settings with { Enhance = true, EnhanceMinLevel = minLevel, EnhanceStyle = style };
-                install = _current.Shell.Install;
-                codex = _codexStatus;
-                allowed = [.. _remakeAllowed];
-            }
-            if (install is null) return new(0, 0, 0, "no WoW folder is chosen");
-            if (codex is null) return new(0, 0, 0, "the Codex CLI is not on this PC");
-            if (!install.RosterDrawsEnhanced) return new(0, 0, 0, "the installed AltStable Roster cannot draw enhanced pictures");
-            var folder = new CutoutFolder(install.CutoutAddonDir);
-            if (!folder.Exists) return new(0, 0, 0);
-            var plan = PlanLaunches(folder, install, settings, allowed);
-            return new(plan.Launch.Count, plan.Held.Count, plan.Done, plan.Refused);
+            var now = Plan(minLevel, style);
+            if (now != shown || now.WaitingForCodex) return now;
+            SetEnhance(true, minLevel, style);
+            return null;
         }
+    }
+
+    // Under _passGate.
+    private EnhancePlan Plan(int minLevel, string style)
+    {
+        Settings settings;
+        WowInstall? install;
+        string? codex;
+        bool probed;
+        HashSet<string> allowed;
+        lock (_gate)
+        {
+            settings = _settings with { Enhance = true, EnhanceMinLevel = minLevel, EnhanceStyle = style };
+            install = _current.Shell.Install;
+            codex = _codexStatus;
+            probed = _codexProbed;
+            allowed = [.. _remakeAllowed];
+        }
+        if (install is null) return new(0, 0, 0, "no WoW folder is chosen");
+        // Not looked for is not "not there": the window asks again once it has been.
+        if (!probed) return new(0, 0, 0, EnhancePlan.CodexNotLookedFor);
+        if (codex is null) return new(0, 0, 0, "the Codex CLI is not on this PC");
+        if (!install.RosterDrawsEnhanced) return new(0, 0, 0, "the installed AltStable Roster cannot draw enhanced pictures");
+        var folder = new CutoutFolder(install.CutoutAddonDir);
+        if (!folder.Exists) return new(0, 0, 0);
+        var plan = PlanLaunches(folder, install, settings, allowed);
+        return new(plan.Launch.Count, plan.Held.Count, plan.Done, plan.Refused);
     }
 
     // Nothing to do, and why - said once in the log when it is a reason. Before the look, the

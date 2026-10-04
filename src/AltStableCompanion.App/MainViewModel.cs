@@ -86,6 +86,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private string _enhanceConfirmText = "";
     private string _enhanceConfirmButton = "Turn on";
     private int _planAsked;
+    private EnhancePlan? _plan;          // the count the question shows, once it is in
+    private bool _planChanged;           // the count changed under a press of Start: say so
+    private bool _turningOn;             // Start pressed, Core not answered yet: the buttons stay off
     private string? _diagnosticsLine;
     private bool _diagnosticsFailed;
     private bool _checkUpdatesOnOpen;
@@ -109,13 +112,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         DismissRestartNotice = new Command(controller.DismissRestartNotice);
         GotIt = new Command(controller.AcknowledgeUpdate);
         RemakeEnhanced = new Command(controller.RemakeEnhanced);
-        StartEnhance = new Command(() =>
-        {
-            ConfirmEnhance = false;
-            _enhance = true;
-            Raise(nameof(Enhance));
-            Apply();
-        });
+        StartEnhance = new Command(TurnOn);
         CancelEnhance = new Command(() => ConfirmEnhance = false);
         Resume = new Command(() => controller.SetPaused(false));
         StartWatching = new Command(controller.StartWatching);
@@ -405,10 +402,12 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private void CountPictures()
     {
         var asked = ++_planAsked;
+        _plan = null;
+        _planChanged = false;
         StartEnhance.Enabled = false;
         EnhanceConfirmText = PassText.EnhanceCounting;
         EnhanceConfirmButton = "Turn on";
-        var (level, style, paused) = (Level(), _enhanceStyle, _paused);
+        var (level, style) = (Level(), _enhanceStyle);
         Task.Run(() => _controller.PlanEnhancement(level, style)).ContinueWith(t => Dispatcher.UIThread.Post(() =>
         {
             if (asked != _planAsked) return;
@@ -417,9 +416,54 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
                 EnhanceConfirmText = $"The pictures could not be counted: {t.Exception?.InnerException?.Message}";
                 return;
             }
-            EnhanceConfirmText = PassText.EnhanceConfirm(t.Result, paused);
-            EnhanceConfirmButton = PassText.EnhanceConfirmButton(t.Result);
-            StartEnhance.Enabled = true;
+            _plan = t.Result;
+            ShowPlan();
+        }), TaskScheduler.Default);
+    }
+
+    // The question's words from the count in hand and the state as it is NOW: pausing, or the
+    // first start ending, while it is open changes what it has to say.
+    private void ShowPlan()
+    {
+        if (_plan is not { } plan) return;
+        EnhanceConfirmText = PassText.EnhanceConfirm(plan, _paused, _controller.Current.Shell.FirstStart, _planChanged);
+        EnhanceConfirmButton = PassText.EnhanceConfirmButton(plan);
+        if (_turningOn) return;
+        StartEnhance.Enabled = PassText.EnhanceConfirmable(plan);
+        CancelEnhance.Enabled = true;
+    }
+
+    // Start: on only if the count is still the one shown - checked and done in one step, in
+    // Core. When it changed, it stays off and the new count is asked about.
+    private void TurnOn()
+    {
+        if (_plan is not { } shown) return;
+        var asked = ++_planAsked;
+        _turningOn = true;
+        StartEnhance.Enabled = false;
+        CancelEnhance.Enabled = false;
+        var (level, style) = (Level(), _enhanceStyle);
+        Task.Run(() => _controller.TurnOnEnhance(level, style, shown)).ContinueWith(t => Dispatcher.UIThread.Post(() =>
+        {
+            _turningOn = false;
+            if (asked != _planAsked) return;
+            CancelEnhance.Enabled = true;
+            if (t.IsFaulted)
+            {
+                EnhanceConfirmText = $"It could not be turned on: {t.Exception?.InnerException?.Message}";
+                StartEnhance.Enabled = true;
+                return;
+            }
+            if (t.Result is { } now)
+            {
+                _plan = now;
+                _planChanged = true;
+                ShowPlan();
+                return;
+            }
+            ConfirmEnhance = false;
+            _enhance = true;
+            Raise(nameof(Enhance));
         }), TaskScheduler.Default);
     }
 
@@ -651,6 +695,12 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Set(ref _enhance, now.Enhance, nameof(Enhance));
         // On already - nothing left to ask.
         if (now.Enhance && _confirmEnhance) ConfirmEnhance = false;
+        if (_confirmEnhance)
+        {
+            // Asked before Codex had been looked for: count now that it has been.
+            if (_plan is { WaitingForCodex: true } && now.CodexProbed) CountPictures();
+            else ShowPlan();
+        }
         // The box's text follows the level when the level changed - not on every refresh, which
         // would overwrite what is being typed.
         if (_knownLevel != now.EnhanceMinLevel)
