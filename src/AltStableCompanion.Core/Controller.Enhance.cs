@@ -588,7 +588,11 @@ public sealed partial class Controller
         IReadOnlyDictionary<string, DateTime> times;
         try
         {
-            entries = folder.Inventory(m => _log?.Write(m));
+            // The pass of this install has already said what is wrong with the folder, or will:
+            // its memory decides, so the log has each warning once.
+            ConvertPass? pass;
+            lock (_gate) pass = generation == _generation ? _pass : null;
+            entries = folder.Inventory(m => { if (pass is not null) pass.LogOnce(m); else _log?.Write(m); });
             times = folder.FileTimes(entries);
             folder.WriteManifest(entries, _clock());
         }

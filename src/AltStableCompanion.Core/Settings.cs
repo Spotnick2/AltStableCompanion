@@ -236,12 +236,30 @@ public sealed class Log(string dir)
                 {
                     File.Move(Path, Path + ".old", overwrite: true);
                 }
-                File.AppendAllText(Path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {message}{Environment.NewLine}");
+                File.AppendAllText(Path, Format(DateTime.Now, message));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // A log that cannot be written must not take the app with it.
             }
         }
+    }
+
+    /// <summary>
+    /// The lines one message becomes. EVERY line carries the time - an exception's stack, a
+    /// piece of Codex's output - and the ones after the first say they continue it: a line
+    /// without a time cannot be placed, and a reader that splits on it cannot parse it.
+    /// </summary>
+    public static string Format(DateTime when, string message)
+    {
+        var stamp = when.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        var lines = message.Replace("\r\n", "\n").Split('\n');
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (i > 0 && lines[i].Trim().Length == 0) continue;
+            sb.Append(stamp).Append(i == 0 ? "  " : "  | ").Append(lines[i].TrimEnd()).Append(Environment.NewLine);
+        }
+        return sb.ToString();
     }
 }

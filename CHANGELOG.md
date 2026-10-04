@@ -11,6 +11,13 @@ version's section, as it stands here, for the notes of its GitHub Release.
 - **Save diagnostics…** writes to your Downloads folder, not the Desktop. A Desktop that
   OneDrive syncs - Windows' default - uploaded the file the moment it was written.
 
+### Fixed
+
+- The log is easier to read in a report: every line of a multi-line entry (Codex's output
+  after a picture that did not come back, an error's details) now carries the time, and
+  Codex's output starts at a line instead of mid-word. "Enhanced\… is not drawn" is written
+  once, not again each time a picture is started.
+
 ## [0.1.0-beta.3]
 
 A file to attach to a bug report, and the right advice after your first portrait.

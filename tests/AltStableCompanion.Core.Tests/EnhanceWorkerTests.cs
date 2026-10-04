@@ -363,6 +363,27 @@ public class EnhanceWorkerTests
     }
 
     [Fact]
+    public void A_picture_left_behind_by_a_new_capture_is_logged_once_by_the_pass_and_the_enhancer()
+    {
+        // Measured on beta.3: the pass said it, then the enhancer's look before its next job
+        // said it again.
+        using var t = new TempInstall();
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
+        CapableRoster(t);
+        var fake = new Fake();
+        using var c = Started(t, fake);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the first picture");
+
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0.AddMinutes(10), fw: 120);
+        Until(() => fake.Calls == 2, "the new capture's picture");
+        Until(() => c.Current.Shell.Enhancing is null, "the job over");
+
+        var said = File.ReadAllLines(Path.Combine(Data(t), "log.txt")).Count(l => l.Contains("is not the portrait it was made from"));
+        Assert.Equal(1, said);
+    }
+
+    [Fact]
     public void A_character_with_an_earlier_picture_still_says_Enhancing_while_the_next_is_made()
     {
         using var t = new TempInstall();
