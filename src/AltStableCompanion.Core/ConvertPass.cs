@@ -75,19 +75,19 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
 
     private readonly Dictionary<string, (CharacterState State, string Note, bool Transient)> _unusable = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _logged = [];
+    private HashSet<string> _listed = [];
 
     /// <summary>
-    /// A warning for the log, once for the life of this object. The enhancer lists the same
-    /// folder between passes and finds the same things wrong with it: it says them through
-    /// here, so the log has each one once, whoever found it first.
+    /// What the last listing of the cutouts found wrong with them, said in the log only where
+    /// it is new since the listing before: a warning is written when it appears, not at every
+    /// look - and written again if it goes away and comes back. The pass and the enhancer's
+    /// looks between passes both list the folder; both report here. Callers hold the pass
+    /// gate, as every user of this object does.
     /// </summary>
-    public void LogOnce(string message)
+    public void Listed(IReadOnlyList<string> warnings)
     {
-        lock (_logged)
-        {
-            if (!_logged.Add(message)) return;
-        }
-        log?.Invoke(message);
+        foreach (var message in warnings.Distinct().Where(m => !_listed.Contains(m))) log?.Invoke(message);
+        _listed = [.. warnings];
     }
 
     /// <summary>
@@ -102,7 +102,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
         void Warn(string message)
         {
             warnings.Add(message);
-            LogOnce(message);
+            if (_logged.Add(message)) log?.Invoke(message);
         }
 
         var options = _options;
@@ -280,7 +280,10 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             if (folder.Exists)
             {
                 if (folder.EnsureToc()) folderCreated = true;
-                entries = folder.Inventory(Warn);
+                var listed = new List<string>();
+                entries = folder.Inventory(listed.Add);
+                warnings.AddRange(listed);
+                Listed(listed);
                 fileTimes = folder.FileTimes(entries);
                 folder.WriteManifest(entries, DateTime.Now);
             }

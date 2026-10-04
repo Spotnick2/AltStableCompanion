@@ -366,7 +366,7 @@ public class EnhanceWorkerTests
     public void A_picture_left_behind_by_a_new_capture_is_logged_once_by_the_pass_and_the_enhancer()
     {
         // Measured on beta.3: the pass said it, then the enhancer's look before its next job
-        // said it again.
+        // said it again. Once - and once more when it goes away and comes back.
         using var t = new TempInstall();
         Roster(t, "1#1", "Kaleid Sumner", Guid1, T0);
         CapableRoster(t);
@@ -379,8 +379,14 @@ public class EnhanceWorkerTests
         Until(() => fake.Calls == 2, "the new capture's picture");
         Until(() => c.Current.Shell.Enhancing is null, "the job over");
 
-        var said = File.ReadAllLines(Path.Combine(Data(t), "log.txt")).Count(l => l.Contains("is not the portrait it was made from"));
-        Assert.Equal(1, said);
+        int Said() => File.ReadAllLines(Path.Combine(Data(t), "log.txt")).Count(l => l.Contains("is not the portrait it was made from"));
+        Assert.Equal(1, Said());
+
+        // The new picture is attached: the warning is gone. A third capture brings it back.
+        Roster(t, "1#1", "Kaleid Sumner", Guid1, T0.AddMinutes(20), fw: 140);
+        Until(() => fake.Calls == 3, "the third capture's picture");
+        Until(() => c.Current.Shell.Enhancing is null, "the job over");
+        Assert.Equal(2, Said());
     }
 
     [Fact]

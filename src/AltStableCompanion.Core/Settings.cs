@@ -248,17 +248,23 @@ public sealed class Log(string dir)
     /// <summary>
     /// The lines one message becomes. EVERY line carries the time - an exception's stack, a
     /// piece of Codex's output - and the ones after the first say they continue it: a line
-    /// without a time cannot be placed, and a reader that splits on it cannot parse it.
+    /// without a time cannot be placed, and a reader that splits on it cannot parse it. Any
+    /// line break counts (a lone CR too), and blank lines are left out - the first written is
+    /// the first with something in it.
     /// </summary>
     public static string Format(DateTime when, string message)
     {
         var stamp = when.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
-        var lines = message.Replace("\r\n", "\n").Split('\n');
+        var lines = message.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')
+            .Select(l => l.TrimEnd())
+            .Where(l => l.Trim().Length > 0)
+            .DefaultIfEmpty("");
         var sb = new System.Text.StringBuilder();
-        for (var i = 0; i < lines.Length; i++)
+        var first = true;
+        foreach (var line in lines)
         {
-            if (i > 0 && lines[i].Trim().Length == 0) continue;
-            sb.Append(stamp).Append(i == 0 ? "  " : "  | ").Append(lines[i].TrimEnd()).Append(Environment.NewLine);
+            sb.Append(stamp).Append(first ? "  " : "  | ").Append(line).Append(Environment.NewLine);
+            first = false;
         }
         return sb.ToString();
     }

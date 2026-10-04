@@ -15,8 +15,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 - The log is easier to read in a report: every line of a multi-line entry (Codex's output
   after a picture that did not come back, an error's details) now carries the time, and
-  Codex's output starts at a line instead of mid-word. "Enhanced\… is not drawn" is written
-  once, not again each time a picture is started.
+  Codex's output starts at a line instead of mid-word, unless that would lose the error. A
+  problem with the portraits folder, such as "Enhanced\… is not drawn", is written when it
+  appears, not again each time a picture is started; if it goes away and comes back, it is
+  written again.
 
 ## [0.1.0-beta.3]
 
