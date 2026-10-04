@@ -11,7 +11,7 @@
     <!-- Symbols inside each assembly: a stack trace in a player's log has files and
          lines whatever was copied, and nothing is copied beside the exe. -->
     <DebugType>embedded</DebugType>
-    <Version>0.1.0-beta.3</Version>
+    <Version>0.1.0-beta.4</Version>
     <Authors>Spotnick</Authors>
     <Copyright>Copyright (c) 2026 Spotnick</Copyright>
   </PropertyGroup>
