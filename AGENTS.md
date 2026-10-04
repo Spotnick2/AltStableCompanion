@@ -2,7 +2,7 @@
 
 A Windows tray app that turns AltStable's in-game portrait captures into the cutouts the
 addon's Roster scene draws. The addon lives in `C:\Projects\AltStable`
-(`Spotnick2/AltStable`); the work is tracked in AltStable#89.
+(`Spotnick2/AltStable`); the app's own work is tracked in this repo's issues.
 
 ## The contract is the source of truth
 
@@ -30,6 +30,7 @@ Tools/deploy.ps1                    put the exe where the owner runs it from
 Tools/Release.ps1                   what a tag builds: version check, CHANGELOG notes, exe, SHA256SUMS
 .github/workflows/                  ci.yml (build + test), release.yml (a v* tag -> a GitHub Release)
 CHANGELOG.md                        one section per version; the release notes come from it
+README.md                           for players only; docs/DEVELOPING.md has how it works and releasing
 ```
 
 ## Build & test
