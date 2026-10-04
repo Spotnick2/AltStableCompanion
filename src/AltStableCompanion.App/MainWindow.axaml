@@ -268,9 +268,23 @@
         <WrapPanel Margin="0,4,0,0">
           <Button Content="Open Cutouts folder" Command="{Binding OpenCutouts}" Margin="0,0,8,0"
                   ToolTip.Tip="The AltStableCutouts addon folder, where the portraits are written" />
-          <Button Content="Open log" Command="{Binding OpenLog}"
+          <Button Content="Open log" Command="{Binding OpenLog}" Margin="0,0,8,0"
                   ToolTip.Tip="What every check did, in detail (its folder, before the first)" />
+          <Button Content="Save diagnostics…" Command="{Binding AskDiagnostics}"
+                  ToolTip.Tip="One text file for a bug report: what is in it is shown before it is written" />
         </WrapPanel>
+        <!-- What goes in the file, said before it is written; then where it went. -->
+        <Border Classes="pane" IsVisible="{Binding ConfirmDiagnostics}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding DiagnosticsExplanation}" TextWrapping="Wrap" />
+            <WrapPanel>
+              <Button Content="Save to Desktop" Command="{Binding SaveDiagnostics}" Margin="0,0,8,0" />
+              <Button Classes="link" Content="Cancel" Command="{Binding CancelDiagnostics}" VerticalAlignment="Center" />
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+        <TextBlock Text="{Binding DiagnosticsLine}" IsVisible="{Binding HasDiagnosticsLine}" TextWrapping="Wrap"
+                   Classes.warn="{Binding DiagnosticsFailed}" />
         <StackPanel Spacing="3" IsVisible="{Binding HasWarnings}">
           <TextBlock Text="Warnings" FontWeight="SemiBold" />
           <ItemsControl ItemsSource="{Binding Warnings}">

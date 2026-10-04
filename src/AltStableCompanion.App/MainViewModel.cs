@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 
 namespace AltStableCompanion.App;
 
@@ -80,6 +81,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private bool _rosterCapable;
     private bool _codexProbed;
     private bool _showHelp;
+    private bool _confirmDiagnostics;
+    private string? _diagnosticsLine;
+    private bool _diagnosticsFailed;
     private bool _checkUpdatesOnOpen;
     private UpdateState _update = new();
     private string _search = "";
@@ -110,6 +114,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         DownloadUpdate = new Command(controller.DownloadUpdate);
         RestartToUpdate = new Command(() => RestartRequested?.Invoke());
         OpenReleasePage = new Command(() => OpenUrl(_update.Release?.Page));
+        AskDiagnostics = new Command(() => ConfirmDiagnostics = true);
+        CancelDiagnostics = new Command(() => ConfirmDiagnostics = false);
+        SaveDiagnostics = new Command(SaveDiagnosticsFile);
         AboutLinks = [.. PassText.AboutLinks.Select(l => new AboutLink(l.Label, l.Url, l.Tip))];
         VersionLine = PassText.VersionLine(controller.Version);
         Refresh();
@@ -130,6 +137,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public Command DownloadUpdate { get; }
     public Command RestartToUpdate { get; }
     public Command OpenReleasePage { get; }
+    public Command AskDiagnostics { get; }
+    public Command CancelDiagnostics { get; }
+    public Command SaveDiagnostics { get; }
 
     /// <summary>"Restart now" was pressed with an update ready: the app's to do, not the window's.</summary>
     public event Action? RestartRequested;
@@ -377,6 +387,62 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ---- diagnostics: what is in the file is said BEFORE it is written
+    public string DiagnosticsExplanation => Diagnostics.Explanation;
+
+    public bool ConfirmDiagnostics
+    {
+        get => _confirmDiagnostics;
+        set
+        {
+            if (!Set(ref _confirmDiagnostics, value)) return;
+            if (value) DiagnosticsLine = null;
+        }
+    }
+
+    public string? DiagnosticsLine
+    {
+        get => _diagnosticsLine;
+        private set { if (Set(ref _diagnosticsLine, value)) Raise(nameof(HasDiagnosticsLine)); }
+    }
+
+    public bool HasDiagnosticsLine => _diagnosticsLine is not null;
+
+    public bool DiagnosticsFailed
+    {
+        get => _diagnosticsFailed;
+        private set => Set(ref _diagnosticsFailed, value);
+    }
+
+    // It reads every account's file and the cutouts: off the UI thread, one at a time.
+    private void SaveDiagnosticsFile()
+    {
+        SaveDiagnostics.Enabled = false;
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Task.Run(() =>
+        {
+            try
+            {
+                return (Path: _controller.SaveDiagnostics(desktop, profile), Error: (string?)null);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return (Path: (string?)null, Error: ex.Message);
+            }
+        }).ContinueWith(t => Dispatcher.UIThread.Post(() =>
+        {
+            SaveDiagnostics.Enabled = true;
+            ConfirmDiagnostics = false;
+            var (path, error) = t.IsFaulted ? (null, t.Exception?.InnerException?.Message) : t.Result;
+            DiagnosticsFailed = path is null;
+            DiagnosticsLine = path is null
+                ? $"The file could not be written: {error}"
+                : $"Saved to your Desktop as {Path.GetFileName(path)}.";
+            if (path is not null) Reveal(path);
+        }), TaskScheduler.Default);
+    }
+
     // ---- about, and updates
     public string VersionLine { get; }
     public string AboutText => PassText.About;
@@ -596,6 +662,19 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrEmpty(url) || !url.StartsWith("https://", StringComparison.Ordinal)) return;
         Open(url);
+    }
+
+    /// <summary>An Explorer window on the file's folder, with the file selected.</summary>
+    private static void Reveal(string path)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true })?.Dispose();
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+        {
+            // The line under the button says where it is.
+        }
     }
 
     private static void Open(string? path)

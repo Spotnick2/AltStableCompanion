@@ -102,9 +102,12 @@ public static class Eligibility
         return new(out_);
     }
 
-    // The account folder's name, for a message: WTF\Account\<name>\SavedVariables\AltStable.lua.
+    // The account, for a message that goes to the log: as WTF\Account\<name>, the form the
+    // diagnostics file finds and masks. A bare name there would be written out as it is.
     private static string Account(string storePath) =>
-        Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(storePath))) ?? storePath;
+        Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(storePath))) is { Length: > 0 } name
+            ? Path.Combine("WTF", "Account", name)
+            : storePath;
 }
 
 /// <summary>

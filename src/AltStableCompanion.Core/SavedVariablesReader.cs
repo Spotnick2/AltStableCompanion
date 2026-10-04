@@ -204,10 +204,12 @@ public static class SavedVariablesReader
                 try
                 {
                     var text = ReadShared(path);
-                    // The roster first: it is never a reason to refuse, and an account whose
-                    // capture store is nil, or too new, still hides characters.
-                    rosters.Add(ParseRoster(text, path));
+                    // The roster whatever the capture store says: an account whose store is nil,
+                    // or too new, still hides characters. Added once the whole file has been
+                    // read - a file that is retried, or skipped, must not leave a roster per try.
+                    var roster = ParseRoster(text, path);
                     var store = Parse(text, path);
+                    rosters.Add(roster);
                     if (store is not null) stores.Add(store);
                     break;
                 }
