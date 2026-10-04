@@ -103,6 +103,52 @@ public class DetectionTests
     }
 
     [Fact]
+    public void A_game_whose_addon_folder_is_gone_for_a_moment_is_still_the_one_detected()
+    {
+        // A redeploy or a reinstall: AltStable's folder is gone, its saved data is not. An old
+        // AltStable in another game must not take over - the next pass would convert there.
+        using var t = new TempInstall();
+        t.WriteStore("1#1", TestData.SavedVariables([]));
+        Flavor(t, "_anniversary_", altStable: true);
+
+        Assert.Equal(t.Install.FlavorDir, WowInstallLocator.Detect([t.Install.FlavorDir])!.FlavorDir);
+        Assert.True(WowInstallLocator.PlaysAltStable(t.Install.FlavorDir));
+    }
+
+    [Fact]
+    public void Browsing_to_the_WoW_folder_picks_the_game_detection_would()
+    {
+        using var t = new TempInstall();                                   // _classic_beta_, no AltStable
+        var anniversary = Flavor(t, "_anniversary_", altStable: true);
+        Assert.Equal(anniversary, ResolvedInstall.FromPicked(t.Root)!.FlavorDir);
+        Assert.Equal(t.Install.FlavorDir, ResolvedInstall.FromPicked(t.Install.FlavorDir)!.FlavorDir);
+    }
+
+    [Fact]
+    public void A_folder_beside_the_game_that_cannot_be_read_is_skipped_not_thrown()
+    {
+        // Measured stand-in for a locked or half-removed folder: a junction whose target is gone.
+        // Enumerating it fails at the file system, as an unreadable folder does.
+        using var t = new TempInstall();
+        AltStable(t.Install.FlavorDir);
+        var target = Path.Combine(t.Root, "gone");
+        Directory.CreateDirectory(target);
+        var junction = Path.Combine(t.Root, "_broken_");
+        using (var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junction}\" \"{target}\"")
+               { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true }))
+        {
+            mk!.WaitForExit();
+        }
+        Directory.Delete(target);
+        Assert.Throws<DirectoryNotFoundException>(() => Directory.EnumerateFiles(junction, "Wow*.exe").Any());
+
+        Assert.Equal(t.Install.FlavorDir, WowInstallLocator.Detect([t.Install.FlavorDir])!.FlavorDir);
+        Assert.Empty(WowInstallLocator.AltStableElsewhere(t.Install));
+        Assert.False(WowInstallLocator.IsFlavorDir(junction));
+        Directory.Delete(junction);
+    }
+
+    [Fact]
     public void Two_or_more_others_are_listed_by_name()
     {
         Assert.Null(PassText.AltStableElsewhere(null));

@@ -22,9 +22,10 @@ public sealed record Snapshot(
     /// <summary>The player asked for a check whenever the window opens.</summary>
     bool CheckUpdatesOnOpen = false,
     /// <summary>
-    /// The install was detected, and AltStable is installed in these other flavour folders
-    /// beside it too: the window says so, and that Browse switches. Empty for a folder the
-    /// player chose, or pinned.
+    /// The install was detected, and AltStable is played in these other flavour folders beside
+    /// it too: the window says so, and that Browse switches. Null when there are none, and for
+    /// a folder the player chose, or pinned - never an empty list. Looked at when the install
+    /// is set (at the start, Browse, Detect again), not after.
     /// </summary>
     IReadOnlyList<string>? AltStableElsewhere = null);
 

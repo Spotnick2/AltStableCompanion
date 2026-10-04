@@ -54,17 +54,57 @@ public static class WowInstallLocator
     private const string DefaultRoot = @"C:\Program Files (x86)\World of Warcraft";
     private const string BlizzardKey = @"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft";
 
-    public static bool IsFlavorDir(string dir) =>
-        Directory.Exists(dir) && Directory.EnumerateFiles(dir, "Wow*.exe").Any();
+    /// <summary>A folder with a WoW executable in it. One that cannot be read is not one.</summary>
+    public static bool IsFlavorDir(string dir)
+    {
+        try
+        {
+            return Directory.Exists(dir) && Directory.EnumerateFiles(dir, "Wow*.exe").Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
-    /// <summary>Flavour folders under a root: <c>_name_</c> directories that hold a WoW executable.</summary>
+    /// <summary>
+    /// Flavour folders under a root: <c>_name_</c> directories that hold a WoW executable. A root
+    /// that cannot be listed has none: detection runs at the start, and a locked folder beside
+    /// the game must not keep the app from starting.
+    /// </summary>
     public static IReadOnlyList<string> FlavorsUnder(string root)
     {
-        if (!Directory.Exists(root)) return [];
-        return [.. Directory.EnumerateDirectories(root)
-            .Where(d => Path.GetFileName(d) is { Length: > 2 } n && n.StartsWith('_') && n.EndsWith('_'))
-            .Where(IsFlavorDir)
-            .Order(StringComparer.OrdinalIgnoreCase)];
+        try
+        {
+            if (!Directory.Exists(root)) return [];
+            return [.. Directory.EnumerateDirectories(root)
+                .Where(d => Path.GetFileName(d) is { Length: > 2 } n && n.StartsWith('_') && n.EndsWith('_'))
+                .Where(IsFlavorDir)
+                .Order(StringComparer.OrdinalIgnoreCase)];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// AltStable is this game's: its addon is installed, or its saved data is in an account. The
+    /// saved data outlives the addon's folder - a redeploy or a reinstall removes the folder for
+    /// a moment, and detection at that moment must not move to another game and convert there.
+    /// </summary>
+    public static bool PlaysAltStable(string flavorDir)
+    {
+        var install = new WowInstall(flavorDir);
+        if (install.AltStableInstalled) return true;
+        try
+        {
+            return SavedVariablesReader.FindStores(install.AccountsDir).Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -92,8 +132,8 @@ public static class WowInstallLocator
     }
 
     /// <summary>
-    /// The flavour folders that hold AltStable: the candidates first, in their order, then the
-    /// others under the candidates' WoW folders, by name.
+    /// The flavour folders AltStable is played in (<see cref="PlaysAltStable"/>): the candidates
+    /// first, in their order, then the others under the candidates' WoW folders, by name.
     /// </summary>
     public static IReadOnlyList<string> WithAltStable(IReadOnlyList<string> candidates)
     {
@@ -110,22 +150,14 @@ public static class WowInstallLocator
         {
             foreach (var dir in FlavorsUnder(root)) Add(dir);
         }
-        return [.. ordered.Where(d => new WowInstall(d).AltStableInstalled)];
+        return [.. ordered.Where(PlaysAltStable)];
     }
 
-    /// <summary>The other flavour folders beside this one where AltStable is installed, by name.</summary>
+    /// <summary>The other flavour folders beside this one that AltStable is played in, by name.</summary>
     public static IReadOnlyList<string> AltStableElsewhere(WowInstall install)
     {
-        try
-        {
-            return [.. FlavorsUnder(install.Root)
-                .Where(d => !string.Equals(Path.TrimEndingDirectorySeparator(d), Path.TrimEndingDirectorySeparator(install.FlavorDir), StringComparison.OrdinalIgnoreCase))
-                .Where(d => new WowInstall(d).AltStableInstalled)];
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return [];
-        }
+        var self = Path.TrimEndingDirectorySeparator(install.FlavorDir);
+        return [.. WithAltStable([self]).Where(d => !string.Equals(d, self, StringComparison.OrdinalIgnoreCase))];
     }
 
     private static IEnumerable<string> CandidateFlavorDirs()

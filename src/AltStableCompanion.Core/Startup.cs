@@ -129,14 +129,14 @@ public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool 
     }
 
     /// <summary>
-    /// What the player picked with Browse: a flavour folder, or a WoW folder holding Forever's.
-    /// Null when it is neither - the current install then stays as it is.
+    /// What the player picked with Browse: a flavour folder, or a WoW folder - and then the game
+    /// in it that detection would pick from there: the one AltStable is played in, else
+    /// Forever's. Null when it is neither - the current install then stays as it is.
     /// </summary>
     public static WowInstall? FromPicked(string folder)
     {
         folder = Path.TrimEndingDirectorySeparator(folder);
         if (WowInstallLocator.IsFlavorDir(folder)) return new WowInstall(folder);
-        var forever = Path.Combine(folder, WowInstallLocator.DefaultFlavor);
-        return WowInstallLocator.IsFlavorDir(forever) ? new WowInstall(forever) : null;
+        return WowInstallLocator.Detect([Path.Combine(folder, WowInstallLocator.DefaultFlavor)]);
     }
 }

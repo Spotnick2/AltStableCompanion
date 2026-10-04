@@ -557,7 +557,6 @@ public static class PassText
         };
     }
 
-    /// <summary>The generated .toc says Interface 16001: only Forever reads it as current.</summary>
     /// <summary>
     /// A detected install, and AltStable in other games beside it: which ones, and how to
     /// switch. Null when there is nothing to say.
@@ -570,6 +569,7 @@ public static class PassText
         return $"AltStable is also installed in {list}. To use {(names.Count == 1 ? "that game" : "one of those")} instead, Browse to it in Settings.";
     }
 
+    /// <summary>The generated .toc says Interface 16001: only Forever reads it as current.</summary>
     public static string? FlavorWarning(WowInstall install) =>
         string.Equals(install.Flavor, WowInstallLocator.DefaultFlavor, StringComparison.OrdinalIgnoreCase)
             ? null
