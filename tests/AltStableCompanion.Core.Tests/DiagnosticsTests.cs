@@ -25,6 +25,9 @@ public class DiagnosticsTests
         [
             $@"2026-09-29 01:06:40  skipped {t.Install.AccountsDir}\SECRETACCT\SavedVariables\AltStable.lua this pass: in use",
             @"2026-09-29 01:06:41  skipped D:\Games\WoW\_classic_beta_\WTF\Account\OTHERACCT\SavedVariables\AltStable.lua",
+            // An exception's way of quoting a path: the name ends at the quote, not the line.
+            @"2026-09-29 01:06:41  Access to the path 'D:\Games\WoW\_classic_beta_\WTF\Account\QUOTEDACCT' is denied.",
+            "2026-09-29 01:06:41  read QUOTEDACCT's store",
             "2026-09-29 01:06:42  read 12345678#1's store, and secretacct's",
             $@"2026-09-29 01:06:43  settings in {Profile}\AppData\Roaming\AltStableCompanion; not {Profile}2\x",
         ]);
@@ -40,7 +43,7 @@ public class DiagnosticsTests
 
         var text = Diagnostics.Build(facts, T0, Profile);
 
-        foreach (var raw in new[] { "SECRETACCT", "12345678#1", "OTHERACCT", Profile + @"\" })
+        foreach (var raw in new[] { "SECRETACCT", "12345678#1", "OTHERACCT", "QUOTEDACCT", Profile + @"\" })
         {
             Assert.DoesNotContain(raw, text, StringComparison.OrdinalIgnoreCase);
         }
@@ -48,6 +51,8 @@ public class DiagnosticsTests
         Assert.Contains(@"WTF\Account\Account2\SavedVariables", text);
         Assert.Contains(@"WTF\Account\Account3\SavedVariables", text);
         Assert.Contains("read Account1's store, and Account2's", text);
+        Assert.Contains(@"WTF\Account\Account4' is denied.", text);
+        Assert.Contains("read Account4's store", text);
         Assert.Contains(@"settings in %USERPROFILE%\AppData\Roaming", text);
         // A folder that only begins like the profile is somebody else's.
         Assert.Contains(Profile + @"2\x", text);
@@ -108,6 +113,52 @@ public class DiagnosticsTests
         Assert.Contains("Alt0 (Player-1-00000000): captures 1, cutouts 2, enhanced 1", text);
         Assert.Contains("Alt1 (Player-1-00000001): captures 1, cutouts 0, enhanced 0", text);
         Assert.Contains("No Sidecar (file no-sidecar): captures 0, cutouts 1, enhanced 0", text);
+    }
+
+    [Fact]
+    public void An_enhanced_picture_counts_for_the_character_its_own_sidecar_names()
+    {
+        // Alt0's enhanced picture; the cutout beside it has since been written for Alt1, who
+        // took the file name over.
+        var (t, facts) = Setup();
+        using var _ = t;
+        var f = new CutoutFolder(t.Install.CutoutAddonDir);
+        var meta = new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = "Player-1-00000000", Epoch = 1 };
+        f.WriteEnhanced("shared", TestData.Solid(4, 4, 1, 2, 3), meta);
+        f.WriteCutout("shared", TestData.Solid(4, 4, 1, 2, 3), meta with { Guid = "Player-1-00000001", Epoch = 2 });
+
+        var text = Diagnostics.Build(facts, T0, Profile);
+
+        Assert.Contains("Alt0 (Player-1-00000000): captures 1, cutouts 0, enhanced 1", text);
+        Assert.Contains("Alt1 (Player-1-00000001): captures 1, cutouts 1, enhanced 0", text);
+    }
+
+    [Fact]
+    public void A_second_save_in_the_same_second_is_a_second_file()
+    {
+        using var t = new TempInstall();
+        var desktop = Path.Combine(t.Root, "Desktop");
+
+        var first = Diagnostics.Save("one", desktop, T0);
+        var second = Diagnostics.Save("two", desktop, T0);
+
+        Assert.NotEqual(first, second);
+        Assert.Equal("one", File.ReadAllText(first));
+        Assert.Equal("two", File.ReadAllText(second));
+    }
+
+    [Fact]
+    public void Two_logs_on_one_file_lose_no_line()
+    {
+        // The crash handler's log and the controller's, writing at once.
+        using var t = new TempInstall();
+        var dir = Path.Combine(t.Root, "appdata");
+        Log a = new(dir), b = new(dir);
+
+        Parallel.For(0, 2000, new ParallelOptions { MaxDegreeOfParallelism = 8 },
+            i => (i % 2 == 0 ? a : b).Write($"line {i}"));
+
+        Assert.Equal(2000, File.ReadAllLines(a.Path).Length);
     }
 
     [Fact]

@@ -75,13 +75,30 @@ public static partial class Diagnostics
         return Mask(sb.ToString(), accounts, userProfile);
     }
 
-    /// <summary>Write <paramref name="text"/> to the folder, under a name of its own; the path written.</summary>
+    /// <summary>
+    /// Write <paramref name="text"/> to the folder under a name of its own - never over another
+    /// file, a save from the same second included; the path written.
+    /// </summary>
     public static string Save(string text, string folder, DateTime now)
     {
         Directory.CreateDirectory(folder);
-        var path = Path.Combine(folder, $"AltStableCompanion-diagnostics-{now:yyyyMMdd-HHmmss}.txt");
-        File.WriteAllText(path, text);
-        return path;
+        var stem = Path.Combine(folder, $"AltStableCompanion-diagnostics-{now:yyyyMMdd-HHmmss}");
+        for (var n = 1; ; n++)
+        {
+            var path = n == 1 ? stem + ".txt" : $"{stem}-{n}.txt";
+            if (File.Exists(path)) continue;
+            try
+            {
+                using var s = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
+                using var w = new StreamWriter(s);
+                w.Write(text);
+                return path;
+            }
+            catch (IOException) when (File.Exists(path) && n < 100)
+            {
+                // Taken between the look and the write: the next name.
+            }
+        }
     }
 
     /// <summary>
@@ -117,9 +134,10 @@ public static partial class Diagnostics
         return text;
     }
 
-    // A WTF\Account\<name> in a path, either slash. The name ends at the next separator, a
-    // quote or the end of the line - an account folder can hold a space.
-    [GeneratedRegex(@"WTF[\\/]Account[\\/]([^\\/\r\n""]+)", RegexOptions.IgnoreCase)]
+    // A WTF\Account\<name> in a path, either slash. The name ends at the next separator, at
+    // white space, a quote or punctuation: an exception message quotes its path in '...', and
+    // a name that ran on into the sentence would be masked only in that sentence.
+    [GeneratedRegex(@"WTF[\\/]Account[\\/]([^\\/\s""'.,;:()\[\]<>|*?]+)", RegexOptions.IgnoreCase)]
     private static partial Regex AccountPath();
 
     /// <summary>The account folders, by name, sorted. Not <c>SavedVariables</c>, which is WoW's own.</summary>
@@ -188,7 +206,7 @@ public static partial class Diagnostics
                 foreach (var tga in Directory.EnumerateFiles(folder.CutoutsDir, "*.tga"))
                 {
                     var fileBase = Path.GetFileNameWithoutExtension(tga);
-                    var guid = folder.ReadMeta(fileBase)?.Guid;
+                    var guid = folder.OwnerOf(fileBase);
                     Bump(guid ?? "file " + fileBase, Collection.Label(fileBase), cutouts: 1);
                 }
             }
@@ -197,7 +215,8 @@ public static partial class Diagnostics
                 foreach (var tga in Directory.EnumerateFiles(folder.EnhancedDir, "*.tga"))
                 {
                     var fileBase = Path.GetFileNameWithoutExtension(tga);
-                    var guid = folder.ReadMeta(fileBase)?.Guid ?? folder.ReadEnhancedMeta(fileBase)?.Guid;
+                    // Its own sidecar first: the cutout beside it may since be another character's.
+                    var guid = folder.ReadEnhancedMeta(fileBase)?.Guid ?? folder.OwnerOf(fileBase);
                     Bump(guid ?? "file " + fileBase, Collection.Label(fileBase), enhanced: 1);
                 }
             }
@@ -218,26 +237,36 @@ public static partial class Diagnostics
 
     private sealed record Counts(string Name, int Captures, int Cutouts, int Enhanced);
 
-    /// <summary>The last lines of the log, reaching into the rolled-over file when the current one is short.</summary>
+    /// <summary>
+    /// The last lines of the log, reaching into the rolled-over file only when the current one
+    /// is short. Never more than <paramref name="count"/> lines held.
+    /// </summary>
     public static IReadOnlyList<string> LogTail(string logPath, int count)
     {
-        var lines = new List<string>();
-        foreach (var path in new[] { logPath + ".old", logPath })
+        var tail = Tail(logPath, count);
+        if (tail.Count < count) tail.InsertRange(0, Tail(logPath + ".old", count - tail.Count));
+        return tail.Count == 0 ? ["(no log yet)"] : tail;
+    }
+
+    private static List<string> Tail(string path, int count)
+    {
+        var lines = new Queue<string>(count);
+        try
         {
-            try
+            if (!File.Exists(path)) return [];
+            // The log may be being written: share it, as WoW's files are shared.
+            using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(s);
+            while (reader.ReadLine() is { } line)
             {
-                if (!File.Exists(path)) continue;
-                // The log may be being written: share it, as WoW's files are shared.
-                using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                using var reader = new StreamReader(s);
-                while (reader.ReadLine() is { } line) lines.Add(line);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                lines.Add($"({Path.GetFileName(path)} could not be read: {ex.Message})");
+                if (lines.Count == count) lines.Dequeue();
+                lines.Enqueue(line);
             }
         }
-        if (lines.Count == 0) return ["(no log yet)"];
-        return lines.Count <= count ? lines : lines[^count..];
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [$"({Path.GetFileName(path)} could not be read: {ex.Message})"];
+        }
+        return [.. lines];
     }
 }

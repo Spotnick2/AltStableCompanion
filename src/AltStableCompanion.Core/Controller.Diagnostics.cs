@@ -21,7 +21,8 @@ public sealed partial class Controller
             facts = new DiagnosticsFacts(Version, shell.Install, how, _settings.Enhance, _current.CodexProbed,
                 _current.CodexStatus, LogPath);
         }
-        var path = Diagnostics.Save(Diagnostics.Build(facts, _clock(), userProfile), folder, _clock());
+        var now = _clock();
+        var path = Diagnostics.Save(Diagnostics.Build(facts, now, userProfile), folder, now);
         _log?.Write("diagnostics saved");
         return path;
     }

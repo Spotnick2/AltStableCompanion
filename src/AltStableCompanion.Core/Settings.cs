@@ -210,13 +210,20 @@ public static class Skins
             : Clear;
 }
 
-/// <summary>A plain text log beside the settings, rolled over at 1 MB. No logging library.</summary>
+/// <summary>
+/// A plain text log beside the settings, rolled over at 1 MB. No logging library. Two logs on
+/// one file - the crash handler's and the controller's - share one lock: an append that met
+/// the other's would be dropped, and the line it dropped could be the crash.
+/// </summary>
 public sealed class Log(string dir)
 {
     private const long MaxBytes = 1024 * 1024;
-    private readonly Lock _gate = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lock> Gates =
+        new(StringComparer.OrdinalIgnoreCase);
 
-    public string Path { get; } = System.IO.Path.Combine(dir, "log.txt");
+    public string Path { get; } = System.IO.Path.GetFullPath(System.IO.Path.Combine(dir, "log.txt"));
+
+    private Lock _gate => Gates.GetOrAdd(Path, _ => new Lock());
 
     public void Write(string message)
     {
