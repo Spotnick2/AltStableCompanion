@@ -212,4 +212,34 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     public static extern nint GetModuleHandleW(string? name);
+
+    // Downloads has no Environment.SpecialFolder: ask the shell, which knows where it was moved.
+    private static readonly Guid FOLDERID_Downloads = new("374DE290-123F-4565-9164-39C4925E467B");
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHGetKnownFolderPath(in Guid rfid, uint dwFlags, nint hToken, out nint ppszPath);
+
+    [DllImport("ole32.dll")]
+    private static extern void CoTaskMemFree(nint pv);
+
+    /// <summary>The player's Downloads folder; %USERPROFILE%\Downloads when the shell does not say.</summary>
+    public static string DownloadsFolder()
+    {
+        if (SHGetKnownFolderPath(FOLDERID_Downloads, 0, 0, out var p) == 0 && p != 0)
+        {
+            try
+            {
+                if (Marshal.PtrToStringUni(p) is { Length: > 0 } path) return path;
+            }
+            finally
+            {
+                CoTaskMemFree(p);
+            }
+        }
+        else if (p != 0)
+        {
+            CoTaskMemFree(p);
+        }
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+    }
 }
