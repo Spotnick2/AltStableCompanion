@@ -18,7 +18,7 @@ the cutouts the addon's Roster scene draws your characters with.
 
 ## Install
 
-1. Have the AltStable addon installed. The captures come from it, and the portraits go
+1. Have the AltStable addon installed, from [CurseForge](https://www.curseforge.com/wow/addons/altstable). The captures come from it, and the portraits go
    back to it.
 2. From the [releases page](https://github.com/Spotnick2/AltStableCompanion/releases),
    download `AltStableCompanion-<version>-win-x64.exe` (the newest one at the top). It is the
