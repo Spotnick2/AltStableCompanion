@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Save diagnostics…** writes to your Downloads folder, not the Desktop. A Desktop that
+  OneDrive syncs - Windows' default - uploaded the file the moment it was written.
+
 ## [0.1.0-beta.3]
 
 A file to attach to a bug report, and the right advice after your first portrait.

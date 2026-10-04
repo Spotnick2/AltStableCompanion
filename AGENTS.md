@@ -101,7 +101,7 @@ changes says `-dirty` in its version.
 - **No network, ever - with one exception the player switches on.** It is a promise in the
   README. The app touches only screenshots it matched to a capture, the `AltStableCutouts`
   folder and `%APPDATA%\AltStableCompanion` - and, when the player presses Save diagnostics,
-  one text file on the Desktop. The published single-file exe also unpacks its
+  one text file in the Downloads folder (not the Desktop, which OneDrive syncs by default). The published single-file exe also unpacks its
   own native libraries under `%TEMP%\.net`; that is the .NET host, it is stated in the README,
   and nothing else may be added to it. The exception (#17, the contract's section 3): enhanced
   portraits, **off by default**, hand a character's cropped portrait and its race, gender and

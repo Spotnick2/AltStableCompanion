@@ -29,7 +29,7 @@ public static partial class Diagnostics
 
     /// <summary>What the window says before anything is written.</summary>
     public const string Explanation =
-        "Writes one text file to your Desktop for a bug report: the app and Windows versions, the WoW folder, "
+        "Writes one text file to your Downloads folder for a bug report: the app and Windows versions, the WoW folder, "
         + "the AltStable versions, whether enhanced portraits are on, how many captures, portraits and enhanced "
         + "pictures each character has, and the last 300 lines of the log. Your characters' names and IDs are in it. "
         + "Your account folder names and your Windows user folder are not. No pictures, and nothing is sent: "

@@ -278,7 +278,7 @@
           <StackPanel Spacing="8">
             <TextBlock Text="{Binding DiagnosticsExplanation}" TextWrapping="Wrap" />
             <WrapPanel>
-              <Button Content="Save to Desktop" Command="{Binding SaveDiagnostics}" Margin="0,0,8,0" />
+              <Button Content="Save to Downloads" Command="{Binding SaveDiagnostics}" Margin="0,0,8,0" />
               <Button Classes="link" Content="Cancel" Command="{Binding CancelDiagnostics}" VerticalAlignment="Center" />
             </WrapPanel>
           </StackPanel>

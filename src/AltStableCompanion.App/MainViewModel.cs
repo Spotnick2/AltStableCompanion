@@ -418,13 +418,14 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private void SaveDiagnosticsFile()
     {
         SaveDiagnostics.Enabled = false;
-        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        // Downloads, not the Desktop: OneDrive syncs the Desktop by default, and the file would be uploaded.
+        var downloads = Platform.NativeMethods.DownloadsFolder();
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         Task.Run(() =>
         {
             try
             {
-                return (Path: _controller.SaveDiagnostics(desktop, profile), Error: (string?)null);
+                return (Path: _controller.SaveDiagnostics(downloads, profile), Error: (string?)null);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -438,7 +439,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
             DiagnosticsFailed = path is null;
             DiagnosticsLine = path is null
                 ? $"The file could not be written: {error}"
-                : $"Saved to your Desktop as {Path.GetFileName(path)}.";
+                : $"Saved to your Downloads folder as {Path.GetFileName(path)}.";
             if (path is not null) Reveal(path);
         }), TaskScheduler.Default);
     }
