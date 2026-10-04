@@ -493,7 +493,7 @@ public class EnhanceWorkerTests
             pressed = Task.Run(() => c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, press));
             Thread.Sleep(300);
             Assert.False(pressed.IsCompleted);                            // waiting behind the pass
-            c.WithdrawEnhance();                                          // the box unticked
+            c.WithdrawEnhance(press);                                     // the box unticked
         }
         Assert.Equal(shown, await pressed.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.False(c.Current.Enhance);
@@ -509,6 +509,42 @@ public class EnhanceWorkerTests
         Assert.Null(c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, fresh));
         Assert.True(c.Current.Enhance);
         Until(() => fake.Calls == 1, "the one picture");
+    }
+
+    [Fact]
+    public void A_press_withdrawn_after_it_turned_enhancement_on_turns_it_off_again()
+    {
+        // Codex's sequence on 6a348fc: Core has turned it on, the window has not heard yet, the
+        // box is unticked. Paused, so the order is certain: nothing could launch in between.
+        using var t = new TempInstall();
+        CapableRoster(t);
+        Roster(t, "1#1", "Aaa", "Player-1-0000000A", T0);
+        var fake = new Fake();
+        using var c = Started(t, fake, enhance: false);
+        Until(() => c.Current.Shell.Report is not null && !c.Current.Shell.Converting, "the first pass");
+        Until(() => c.Current.CodexProbed, "Codex looked for");
+        c.SetPaused(true);
+        var shown = c.PlanEnhancement(10, EnhanceStyles.WowLike);
+
+        var press = c.PressEnhance();
+        Assert.Null(c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, press));
+        Assert.True(c.Current.Enhance);                                   // committed
+        c.WithdrawEnhance(press);                                         // ...and backed out of
+        Assert.False(c.Current.Enhance);
+        Assert.False(Settings.Load(Data(t)).Enhance);
+
+        c.SetPaused(false);
+        Settle(1500);
+        Assert.Equal(0, fake.Calls);
+
+        // Backing out of an OLDER press touches nothing a newer one turned on.
+        c.SetPaused(true);
+        var older = c.PressEnhance();
+        var newer = c.PressEnhance();
+        Assert.Null(c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, newer));
+        c.WithdrawEnhance(older);
+        Assert.True(c.Current.Enhance);
+        Assert.True(Settings.Load(Data(t)).Enhance);
     }
 
     [Fact]

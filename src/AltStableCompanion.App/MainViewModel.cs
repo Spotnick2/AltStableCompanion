@@ -89,6 +89,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private EnhancePlan? _plan;          // the count the question shows, once it is in
     private bool _planChanged;           // the count changed under a press of Start: say so
     private bool _turningOn;             // Start pressed, Core not answered yet: the buttons stay off
+    private int _press;                  // that press's ticket: what the player's backing out withdraws
     private string? _diagnosticsLine;
     private bool _diagnosticsFailed;
     private bool _checkUpdatesOnOpen;
@@ -113,7 +114,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         GotIt = new Command(controller.AcknowledgeUpdate);
         RemakeEnhanced = new Command(controller.RemakeEnhanced);
         StartEnhance = new Command(TurnOn);
-        CancelEnhance = new Command(() => ConfirmEnhance = false);
+        CancelEnhance = new Command(BackOut);
         Resume = new Command(() => controller.SetPaused(false));
         StartWatching = new Command(controller.StartWatching);
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
@@ -321,7 +322,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (value == Enhance) return;
             if (value) { ConfirmEnhance = true; return; }
-            if (_confirmEnhance) { ConfirmEnhance = false; return; }
+            if (_confirmEnhance) { BackOut(); return; }
             _enhance = false;
             Raise(nameof(Enhance));
             Apply();
@@ -381,12 +382,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
             if (!Set(ref _confirmEnhance, value)) return;
             Raise(nameof(Enhance));
             if (value) CountPictures();
-            else
-            {
-                _planAsked++;   // a count still on its way answers nobody
-                // ...and a press still on its way turns nothing on: Core keeps that, not the window.
-                if (_turningOn) _controller.WithdrawEnhance();
-            }
+            else _planAsked++;   // a count still on its way answers nobody
         }
     }
 
@@ -438,6 +434,15 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         CancelEnhance.Enabled = true;
     }
 
+    // The player's own way out of the question: Cancel, or the box unticked. A press on its way
+    // is withdrawn in Core - which also turns it off again if the press got there first. The
+    // question closing because it is on is NOT this, and never turns it off.
+    private void BackOut()
+    {
+        if (_turningOn) _controller.WithdrawEnhance(_press);
+        ConfirmEnhance = false;
+    }
+
     // Start: on only if the count is still the one shown - checked and done in one step, in
     // Core. When it changed, it stays off and the new count is asked about.
     private void TurnOn()
@@ -448,7 +453,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         StartEnhance.Enabled = false;
         CancelEnhance.Enabled = false;
         var (level, style) = (Level(), _enhanceStyle);
-        var press = _controller.PressEnhance();
+        var press = _press = _controller.PressEnhance();
         Task.Run(() => _controller.TurnOnEnhance(level, style, shown, press)).ContinueWith(t => Dispatcher.UIThread.Post(() =>
         {
             _turningOn = false;
@@ -489,7 +494,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private void Apply()
     {
         // A press waiting behind a pass was for the settings as they were.
-        if (_turningOn) _controller.WithdrawEnhance();
+        if (_turningOn) _controller.WithdrawEnhance(_press);
         _controller.SetEnhance(_enhance, Level(), _enhanceStyle);
         // The level or the style changed while the question is open: the count is of another
         // batch now.

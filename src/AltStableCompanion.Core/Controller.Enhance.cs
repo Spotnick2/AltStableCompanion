@@ -473,13 +473,39 @@ public sealed partial class Controller
         lock (_gate) return ++_enhancePress;
     }
 
-    /// <summary>The player backed out of the question: a press still on its way turns nothing on.</summary>
-    public void WithdrawEnhance()
+    /// <summary>
+    /// The player backed out of the question after pressing - unticked, cancelled, changed the
+    /// level or the style - before the window heard back. Whichever way the press went, it is
+    /// off afterwards: a press still on its way turns nothing on, and one that already turned
+    /// it on is turned off again, under the same gate. Only for the player's own backing out:
+    /// the window closing the question because it is on is not one.
+    /// </summary>
+    public void WithdrawEnhance(int press)
     {
-        lock (_gate) _enhancePress++;
+        CancellationTokenSource? cancel = null;
+        var changed = false;
+        lock (_gate)
+        {
+            if (press == _enhancePress) _enhancePress++;
+            if (press == _committedPress)
+            {
+                _committedPress = 0;
+                if (_settings.Enhance)
+                {
+                    cancel = ChangeEnhance(false, _settings.EnhanceMinLevel, _settings.EnhanceStyle);
+                    changed = true;
+                }
+            }
+        }
+        if (changed)
+        {
+            _log?.Write("enhance: turned off again - the player backed out right after pressing Make");
+            AfterEnhanceChange(cancel);
+        }
     }
 
     private int _enhancePress;                                // under _gate: the press that may still turn it on
+    private int _committedPress;                              // under _gate: the press that did, if the window has not heard yet
 
     /// <summary>For tests only: held, it stands in for a pass that takes its time.</summary>
     internal Lock PassGate => _passGate;
@@ -503,6 +529,7 @@ public sealed partial class Controller
             {
                 if (press != _enhancePress) return now;
                 cancel = ChangeEnhance(true, minLevel, style);
+                _committedPress = press;
             }
             AfterEnhanceChange(cancel);
             return null;
