@@ -1,156 +1,166 @@
 # AltStable Companion
 
-A small Windows tray app that turns the portrait captures taken by the
-[AltStable](https://github.com/Spotnick2/AltStable) World of Warcraft: Forever addon
-into the transparent cutouts its Roster scene draws.
+A free Windows app for players of the [AltStable](https://github.com/Spotnick2/AltStable)
+addon for World of Warcraft: Forever. It turns the portraits you capture in the game into
+the cutouts the addon's Roster scene draws your characters with.
+
+**Three pieces, and only the first is required:**
+
+| Piece | What it is | Do you need it? |
+|---|---|---|
+| **AltStable** (the addon) | Tracks and compares your characters in the game | Yes. It is useful on its own |
+| **AltStable Companion** (this app) | Turns your `/alts portrait` captures into Roster portraits | Only for portraits in the Roster |
+| **Enhanced portraits** (a setting in this app) | Asks the Codex CLI on your PC for a nicer picture of each portrait | No: off by default, and it uses your ChatGPT account's usage |
 
 ## Install
 
-1. Have the [AltStable](https://github.com/Spotnick2/AltStable) addon installed: the
-   captures come from it, and the cutouts go back to it.
-2. On the [latest release](https://github.com/Spotnick2/AltStableCompanion/releases/latest),
-   download `AltStableCompanion-<version>-win-x64.exe`. It is the whole app: Windows 10 or
-   11, 64-bit, nothing else to install (not .NET either). Put it in a folder you will keep -
-   `Documents\AltStable Companion`, say - and run it.
-3. Windows may show "Windows protected your PC", because the file is not code-signed: if
-   it offers **More info → Run anyway**, that is the way through. (A Windows 11 PC with
-   Smart App Control turned on may not offer it; unsigned distribution is a limitation of
-   this free tool for now.)
-4. The window opens by the tray. Read its first-start card - it says what will be
-   converted and that the two screenshots a portrait was made from are deleted unless you
-   keep them - and press **Start watching**.
+1. Have the AltStable addon installed. The captures come from it, and the portraits go
+   back to it.
+2. From the [releases page](https://github.com/Spotnick2/AltStableCompanion/releases),
+   download `AltStableCompanion-<version>-win-x64.exe` (the newest one at the top). It is the
+   whole app: Windows 10 or 11, 64-bit, nothing else to install (not .NET either). Put it in a
+   folder you will keep, such as `Documents\AltStable Companion`, and run it.
+3. Windows may show "Windows protected your PC", because the file is not code-signed. If
+   it offers **More info → Run anyway**, that is the way through. A Windows 11 PC with Smart
+   App Control turned on may not offer it; unsigned distribution is a limitation of this free
+   tool for now.
+4. The window opens near the tray. Read its first-start card, then press **Start watching**.
+   The card says what will be converted, and that the two screenshots a portrait is made from
+   are deleted afterwards unless you tick the box to keep them.
 
-From then on: in the game, `/alts portrait`, then `/reload`; the portrait is made within
-seconds, and a `/reload` shows it. The very first portrait needs the game restarted once,
-because WoW only finds a new addon folder when it starts.
+The app finds your game folder by itself. **Settings** shows which one it chose; use
+**Browse...** if that is not the game you play AltStable in.
 
-**Enhanced portraits** (optional, off by default - see below) need one more thing on the
-PC: the [Codex CLI](https://github.com/openai/codex) - `npm install -g @openai/codex`, then
-`codex login` with a ChatGPT account - on the PATH. The app runs that command line and
-nothing else: the pictures come from the CLI's built-in image tool, on the ChatGPT account
-it is signed in to, and the app has no say over that tool's quality - there is no setting
-for it in the CLI, and the Codex desktop app is the same tool with a window. No OpenAI API
-key is used, needed, or read.
+## Your first portrait
 
-Closing the window leaves the app running in the tray; **Quit** is in the tray icon's menu.
-It does not start with Windows: start it again after logging in. To upgrade, press **Check
-for updates** under Help → About (see below), or quit the old one and run the new file -
-starting a second copy only brings the running one's window forward.
+1. In the game, on the character you want, type `/alts portrait` (or press the spyglass
+   button on AltStable's title bar). The interface hides for about three seconds while two
+   screenshots are taken.
+2. Accept the **reload** the addon offers, or type `/reload`. The capture is only saved
+   to disk on a reload or logout, and that is when this app sees it.
+3. Within seconds the app writes the portrait and says so.
+4. **The very first time only: quit the game completely and start it again.** WoW only
+   discovers a new addon folder (`AltStableCutouts`, which the app creates) when it starts.
+   A `/reload` is not enough for that first one; the app's window says so too.
 
-Settings (`settings.json`) and the log (`log.txt`) live in `%APPDATA%\AltStableCompanion`.
-Work on the app is tracked in [AltStable#89](https://github.com/Spotnick2/AltStable/issues/89).
+From then on, every new portrait shows after a `/reload`. Capture again whenever your
+character's look changes; the spyglass button glows when a new portrait is due.
 
-## Why it exists
-
-The addon photographs your character twice, on a black and on a white backdrop
-(`/alts portrait`). Turning that pair into a cutout needs image processing, and a
-World of Warcraft addon can neither write an image file nor read the Screenshots
-folder. This app does that part outside the game:
-
-1. It watches your WoW `Screenshots` folder and the addon's saved capture records.
-2. It pairs each capture with its two screenshots and recovers exact transparency:
-   `alpha = 1 - (white - black)`, `colour = black / alpha`.
-3. It writes `Interface\AddOns\AltStableCutouts\`, which the Roster loads.
-
-What it reads and writes is specified in
-[`docs/PORTRAIT-CONTRACT.md`](https://github.com/Spotnick2/AltStable/blob/main/docs/PORTRAIT-CONTRACT.md)
-in the addon's repository.
-
-## Shape
-
-.NET 10 and Avalonia; a single self-contained Windows executable; no network access
-at all - except the two things below that you ask for: the enhanced portraits, which you
-switch on, and the update check, which is a button (or a box you tick). It only touches
-screenshots it matched to a capture, the `AltStableCutouts` folder and its own settings in
-`%APPDATA%\AltStableCompanion` (and, for enhanced portraits, Codex's own `generated_images`,
-read only). The file on the releases
-page is built by GitHub Actions from the tagged commit (`.github/workflows/release.yml`),
-with a `SHA256SUMS` beside it; nothing in the app fetches anything unless you press.
-
-One exception, which is .NET's and not the app's: a single-file executable unpacks the
-native libraries it carries (Skia, HarfBuzz, ANGLE) into `%TEMP%\.net\AltStableCompanion`
-the first time it starts.
+The app has to be running to make portraits. It does not start with Windows: run it
+again after you log in to Windows. Captures taken while it was closed are converted the
+next time it starts, unless automatic processing is off.
 
 ## Enhanced portraits (optional)
 
-Off unless you turn it on, in Settings. It is the one exception to "no network": with it
-on, the app asks the **Codex CLI on this PC** (`codex`, installed and signed in by you) for
-a better picture of each character of the chosen level or more that has a portrait and is
-not hidden - the existing ones too, all of them, when you turn it on. What leaves the PC:
-the portrait's cropped image and the character's race, gender and class, plus any
-instructions your Codex CLI is configured with, to the account Codex is signed in to.
+Off unless you turn it on, in Settings. It needs the [Codex CLI](https://github.com/openai/codex)
+on this PC: `npm install -g @openai/codex`, then `codex login` with a ChatGPT account. The
+app runs that command line and nothing else. The pictures come from the CLI's built-in
+image tool, on the ChatGPT account it is signed in to, and the app has no say over that
+tool's quality. No OpenAI API key is used, needed or read.
 
-A picture is made on its own only for a character who has none yet, or whose portrait was
-captured again. When only the style, the model, the effort or the app's wording changed (an
-update may change the wording), the pictures already made stay, and the Settings page says
-how many and offers to make them again - a settings change is never a decision to spend; the
-offer is for exactly those pictures, and a quit mid-way does not take it back. One attempt
-for each combination of capture, style, model, effort and wording; an attempt uses Codex usage
-whether or not a picture comes back, and a picture that was refused or
-failed is not tried again for that combination. Turning it off stops new attempts and
-cancels the one running (that one is tried once more when it is on again, as is one the
-app did not live to finish); pictures already made stay in `AltStableCutouts\Cutouts\Enhanced\`
-and the addon keeps drawing them (it needs an AltStable Roster that knows enhanced
-textures; the Settings page says so when yours does not). Codex writes its own copy of
-every picture under its `generated_images` folder; the app reads it and never cleans it.
+**What it spends.** With it on, the app asks Codex for a picture of each character of the
+chosen level or more that has a portrait and is not hidden. When you first turn it on, that
+includes **all of your existing portraits**. Each attempt uses Codex usage on your account,
+whether or not a picture comes back.
 
-To take an enhanced picture back, delete `Cutouts\Enhanced\<name>.tga`: the plain portrait
-is drawn again, and that picture is not made again until you capture again or change the
-style.
+**What leaves your PC.** The portrait's cropped image and the character's race, gender
+and class, plus any instructions your Codex CLI is configured with, go to the account Codex
+is signed in to.
+
+**When it makes a picture.** Only for a character who has none yet, or whose portrait
+was captured again.
+- If only the style, the model, the effort or the app's wording changed (an update may
+  change the wording), the pictures already made stay. The Settings page says how many
+  could be remade and offers to make them again. A settings change is never a decision to
+  spend.
+- A picture that was refused or failed is not tried again for the same combination.
+- An attempt that was cancelled (the box unticked, the app quit) is tried once more.
+
+**Turning it off** stops new attempts and cancels the one running. Pictures already made
+stay, and the addon keeps drawing them. The addon's Roster must be new enough to know
+enhanced pictures; the Settings page says so when yours is not.
+
+**Going back to the plain portrait for one character:**
+1. With the app running (and automatic processing on), delete
+   `Interface\AddOns\AltStableCutouts\Cutouts\Enhanced\<name>.tga`. The **Open Cutouts
+   folder** button under Help takes you there.
+2. Within a minute the app rewrites the list of portraits the game reads. To make it
+   immediate, choose **Check for new captures** in the tray menu.
+3. `/reload` in the game.
+
+That picture is not made again until you capture that character again or change the
+style. Codex keeps its own copy of every picture in its `generated_images` folder; the app
+reads it and never cleans it.
 
 ## Updates
 
-Under Help → About the window says which version and build this is, and **Check for
-updates** asks GitHub for the list of this project's releases - that one request, nothing
-else leaves the PC. When a newer release exists, the About section says so and the
-dashboard's footer points at it. Nothing is downloaded until you press **Update now**: the
-new exe then lands beside the running one (as `<the file>.update`), is checked against the
-release's `SHA256SUMS`, and waits. **Restart now** finishes the portraits in hand, renames
-the running file to `<the file>.old`, moves the new one into its place - same path, same
-name, so a shortcut keeps working - and starts it; the `.old` file is deleted at that next
-start. If the swap fails, the version you had starts again, and the log says why. A file
-the app downloads itself is not marked as from the internet, so Windows does not show the
-"protected your PC" screen for it.
+**Help → About** says which version this is. **Check for updates** asks GitHub for the
+list of this project's releases; that one request is all that leaves the PC.
+- Nothing is downloaded until you press **Update now**. The new file is checked against
+  the release's `SHA256SUMS` before it is used.
+- **Restart now** puts it in place of the running file (same path, same name, so your
+  shortcut keeps working) and starts it. If that fails, the version you had starts again
+  and the log says why.
+- A beta is offered betas and releases; a release is offered only releases.
+- The Settings box **Check for updates when the window opens** (off by default) runs the
+  check by itself, at most once an hour. A download is always your press.
 
-A beta is offered betas and releases; a release is offered only releases. The Settings box
-**Check for updates when the window opens** (off by default) runs the check by itself, at
-most once an hour - still only the list of releases; a download is always your press.
+You can also quit the app and run a newer file from the releases page. Starting a second
+copy only brings the running one's window forward.
 
 The running file keeps its name: if you kept the release's name
-(`AltStableCompanion-0.1.0-beta.1-win-x64.exe`), it will carry an older version in its
-name than the one it is. The Help page is the authority on what is running.
+(`AltStableCompanion-0.1.0-beta.1-win-x64.exe`), it carries an older version in its name than
+the one it is. **Help → About** is the authority on what is running.
 
-## Command line
+## What it touches
+
+No network access, except the two things you ask for: enhanced portraits, which you
+switch on, and the update check.
+
+It touches only:
+- the screenshots it matched to a capture;
+- the `AltStableCutouts` addon folder;
+- its own settings and log in `%APPDATA%\AltStableCompanion`;
+- for enhanced portraits, Codex's own `generated_images` folder, read only.
+
+It also has a one-time side effect of .NET, not of the app: a single-file app unpacks
+the native libraries it carries into `%TEMP%\.net\AltStableCompanion` the first time it
+starts.
+
+Closing the window leaves the app running in the tray; **Quit** is in the tray icon's
+menu.
+
+## Troubleshooting
+
+- **No portrait after a capture.** Did you reload or log out after `/alts portrait`?
+  Is the app running, and not paused (tray menu: **Process new captures automatically**)?
+  The window's headline and the list say what happened to each capture.
+- **The portrait is written but the game does not show it.** If it is your first one,
+  quit the game completely and start it again. Otherwise `/reload`.
+- **The app is watching the wrong game.** Settings → **Browse...** and choose the game
+  folder you play AltStable in (the one with `Interface` and `WTF` inside, such as
+  `...\World of Warcraft\_classic_beta_`).
+- **Reporting a problem.** Open an [issue](https://github.com/Spotnick2/AltStableCompanion/issues).
+  Help → **Open log** shows `log.txt` (in `%APPDATA%\AltStableCompanion`); attach it, along
+  with the version from Help → About.
+
+## Options
 
 | Option | What it does |
 |---|---|
-| `--minimized` | Start in the tray, without the window. |
-| `--wow-dir <folder>` | Use this flavour folder (such as `...\World of Warcraft\_classic_beta_`) for this run, and no other. Browse and Detect again are switched off. |
+| `--minimized` | Start in the tray, without the window. Handy in a shortcut. |
+| `--wow-dir <folder>` | Use this game folder (such as `...\World of Warcraft\_classic_beta_`) for this run, and no other. Browse and Detect again are switched off. |
 | `--data-dir <folder>` | Keep the settings and the log in this folder, not in `%APPDATA%\AltStableCompanion`. |
 
-A command line that is wrong - an option it does not know, a `--wow-dir` that is not a
-flavour folder, a `--data-dir` it cannot write to - is an error: the app says so and stops.
-It never carries on with a guess, because the guess would be the game it detects, and a
-pass deletes the screenshots it converts.
+A wrong option, a `--wow-dir` that is not a game folder, or a `--data-dir` it cannot
+write to is an error: the app says so and stops. It never carries on with a guess.
 
-Only one instance runs at a time. Starting it again brings the running one's window forward.
+Only one copy runs at a time.
 
-## Releasing (for the maintainer)
+## For developers
 
-A release is a tag. Set `<Version>` in `Directory.Build.props`, write that version's
-section in `CHANGELOG.md`, merge, wait for CI, then tag that commit `v<version>` and push
-the tag: `release.yml` runs the tests, builds the exe through `Tools/Release.ps1` (which
-checks the tag against the props and takes the notes from the CHANGELOG), and publishes
-the GitHub Release with the exe and `SHA256SUMS`. A version with a `-` (`0.2.0-rc1`) is a
-pre-release. To rehearse, run the workflow by hand from the Actions tab on any branch: it
-does everything but publish. Either way the built files are kept as the run's artifact.
-
-If the publish step fails after the tag is up: re-run the failed job from the Actions tab
-(pushing the same tag again is a no-op - no push event, no run). Look under the releases
-page's Drafts first: `gh release create` makes a draft before it uploads the files, so a
-failed upload can leave one, and it must go before the re-run. If the fix needs a new
-commit, the tag moves: `git push --delete origin v<version>`, then tag the new commit and
-push it.
+How it works, how it is built and how it is released:
+[`docs/DEVELOPING.md`](docs/DEVELOPING.md).
 
 ## Licence
 
