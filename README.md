@@ -50,6 +50,10 @@ The app finds your game folder by itself. **Settings** shows which one it chose;
 From then on, every new portrait shows after a `/reload`. Capture again whenever your
 character's look changes; the spyglass button glows when a new portrait is due.
 
+A portrait is the character exactly as the game draws it when you capture. With the client's
+SD (classic) character models switched on, your portraits will most likely come out in SD too.
+Switch HD models back on before `/alts portrait` if you want HD portraits.
+
 The app has to be running to make portraits. It does not start with Windows: run it
 again after you log in to Windows. Captures taken while it was closed are converted the
 next time it starts, unless automatic processing is off.
