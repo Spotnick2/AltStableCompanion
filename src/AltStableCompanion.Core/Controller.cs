@@ -20,7 +20,13 @@ public sealed record Snapshot(
     /// <summary>Where a newer release stands: nothing looked for, found, downloaded, or ready.</summary>
     UpdateState? Update = null,
     /// <summary>The player asked for a check whenever the window opens.</summary>
-    bool CheckUpdatesOnOpen = false);
+    bool CheckUpdatesOnOpen = false,
+    /// <summary>
+    /// The install was detected, and AltStable is installed in these other flavour folders
+    /// beside it too: the window says so, and that Browse switches. Empty for a folder the
+    /// player chose, or pinned.
+    /// </summary>
+    IReadOnlyList<string>? AltStableElsewhere = null);
 
 /// <summary>
 /// Everything a shell does that is not drawing: which install, the watcher, the passes, the
@@ -125,7 +131,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                 Shell = new ShellState(Paused: _settings.Paused, FirstStart: !_settings.Started),
             };
         }
-        if (!Use(resolved.Install, resolved.Problem))
+        if (!Use(resolved.Install, resolved.Problem, resolved.Detected))
         {
             Use(null, "The WoW folder could not be set up - see the log");
         }
@@ -139,7 +145,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         if (Current.Pinned) return false;
         if (ResolvedInstall.FromPicked(folder) is not { } install) return false;
         // Used first, saved after: a folder that could not be set up is not one to remember.
-        if (!Use(install, null)) return false;
+        if (!Use(install, null, detected: false)) return false;
         Save(s => s with { WowFlavorDir = install.FlavorDir, InstallUnknown = false });
         return true;
     }
@@ -149,7 +155,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
     {
         if (Current.Pinned) return;
         var resolved = ResolvedInstall.Resolve(null, null, detect);
-        if (Use(resolved.Install, resolved.Problem))
+        if (Use(resolved.Install, resolved.Problem, resolved.Detected))
         {
             Save(s => s with { WowFlavorDir = null, InstallUnknown = false });
         }
@@ -268,8 +274,10 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
     /// Watch this install from now on. Everything that can fail is built BEFORE anything is
     /// replaced: when it returns false, the install in use is the one that was in use.
     /// </summary>
-    private bool Use(WowInstall? install, string? problem)
+    private bool Use(WowInstall? install, string? problem, bool detected = false)
     {
+        // Looked at before anything is replaced, outside the gate: it reads the WoW folder.
+        IReadOnlyList<string> elsewhere = detected && install is not null ? WowInstallLocator.AltStableElsewhere(install) : [];
         // A number of its own, captured by the watcher's callback: a callback that arrives
         // after the install has changed again finds another number current and does nothing.
         var generation = Interlocked.Increment(ref _lastGeneration);
@@ -312,6 +320,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
             _current = _current with
             {
                 RestartNotice = RestartNoticeDue(install),
+                AltStableElsewhere = elsewhere.Count == 0 ? null : elsewhere,
                 Shell = _current.Shell with
                 {
                     Install = install,

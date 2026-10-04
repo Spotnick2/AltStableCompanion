@@ -90,8 +90,11 @@ public sealed record StartupOptions(bool Minimized = false, string? WowDir = nul
     }
 }
 
-/// <summary>Which install a run uses, or why it has none.</summary>
-public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool Pinned)
+/// <summary>
+/// Which install a run uses, or why it has none. <see cref="Detected"/>: found by looking,
+/// not named by the player - the one case where another game with AltStable is worth a word.
+/// </summary>
+public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool Pinned, bool Detected = false)
 {
     /// <summary>
     /// In strict order: the folder pinned on the command line; else the folder the player saved;
@@ -122,7 +125,7 @@ public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool 
                 : new ResolvedInstall(null, $"The WoW folder chosen before is not there any more: {saved}", Pinned: false);
         }
         var found = (detect ?? WowInstallLocator.Detect)();
-        return new ResolvedInstall(found, found is null ? "Couldn't find the WoW folder" : null, Pinned: false);
+        return new ResolvedInstall(found, found is null ? "Couldn't find the WoW folder" : null, Pinned: false, Detected: found is not null);
     }
 
     /// <summary>

@@ -61,6 +61,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private string _installPath = "";
     private string? _installNote;
     private string? _flavorWarning;
+    private string? _altStableElsewhere;
     private string? _browseProblem;
     private Headline _headline = new("", null, HeadlineKind.Busy);
     private string? _activity;
@@ -183,6 +184,15 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public bool HasFlavorWarning => _flavorWarning is not null;
+
+    /// <summary>A detected install, and AltStable in another game beside it: which, and how to switch.</summary>
+    public string? AltStableElsewhere
+    {
+        get => _altStableElsewhere;
+        private set { if (Set(ref _altStableElsewhere, value)) Raise(nameof(HasAltStableElsewhere)); }
+    }
+
+    public bool HasAltStableElsewhere => _altStableElsewhere is not null;
 
     // ---- the headline
     public string Title => _headline.Title;
@@ -543,6 +553,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
 
         InstallPath = shell.Install?.FlavorDir ?? "";
         InstallNote = now.Pinned ? "Set by --wow-dir for this run." : null;
+        AltStableElsewhere = PassText.AltStableElsewhere(now.AltStableElsewhere);
         CanChangeInstall = !now.Pinned && !shell.Stopping;
 
         var headline = PassText.Headline(shell, now.RestartNotice);
