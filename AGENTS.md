@@ -18,6 +18,32 @@ format) are measured on the live client; port them, do not re-derive them. Where
 deliberately differs (pass-wide screenshot claims, no superseded-file deletion, GUID
 identity, epoch ordering) the contract says so.
 
+## Reviews
+
+Apply the `wow-addon-review` skill's review workflow to this app's code reviews and PR
+follow-up reviews, even though this repository is a Windows app rather than an addon.
+Read `C:\Users\nicol\.codex\skills\wow-addon-review\SKILL.md` when reviewing. Adapt the
+addon-specific checks to the app: the portrait contract and reference converters are
+authoritative for its file formats and client behavior; validate .NET, Windows, Avalonia,
+controller lifecycle, privacy, and file ownership where the change depends on them.
+
+- Recommend the model/effort pair before a substantive review; the owner's global cost
+  and escalation policy still governs, and no configuration change is implicit.
+- Confirm the repository, PR, and reviewed commit; inspect the committed merge-base diff
+  and relevant callers, state, tests, and packaging. Preserve unrelated local edits.
+- Report actionable defects in severity order with file/line, a reachable failing
+  scenario, evidence, and the minimal direction for correction. Run proportionate checks
+  and distinguish automated validation from unverified UI or in-game behavior.
+- Always post PR reviews and follow-up reviews directly on the reviewed PR before the
+  final response, including reviews with no findings. This is standing authorization;
+  honor an explicit local-only or no-post request. Begin the review body with
+  `## Codex review` or `## Codex follow-up review` when the posting account does not
+  identify Codex. Include the reviewed commit, findings, validation, limitations, and
+  exactly one verdict: `Ready for merge`, or `Not ready for merge` with the required work.
+- Link the posted review in the final response and end with the same single
+  merge-readiness verdict. If posting fails, report the blocker and include the complete
+  unposted review; never claim it was posted.
+
 ## Layout
 
 ```
