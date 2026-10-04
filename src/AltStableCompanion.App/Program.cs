@@ -63,6 +63,13 @@ internal static class Program
             return 2;
         }
 
+        // What ends the process, or would have gone unseen, goes to the log: a player's report
+        // of "it just closed" needs it. The log's own file, so this holds before the controller.
+        var crashLog = new Log(options.DataDir ?? Settings.DefaultDir);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            crashLog.Write($"unhandled exception{(e.IsTerminating ? ", the app is ending" : "")}: {e.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, e) => crashLog.Write($"unobserved task exception: {e.Exception}");
+
         App.Options = options;
         App.Instance = instance;
         try

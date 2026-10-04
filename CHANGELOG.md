@@ -6,6 +6,16 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Help → **Save diagnostics…** writes one text file to your Desktop for a bug report: the app
+  and Windows versions, the WoW folder and how it was found, the AltStable and Roster
+  versions, whether enhanced portraits are on and Codex was found, how many captures, cutouts
+  and enhanced pictures each character has, and the last 300 lines of the log. It says what
+  is inside before it writes. Character names are in it; account folder names become
+  Account1, Account2... and your user folder becomes `%USERPROFILE%`. No pictures, nothing sent.
+- A crash, or an error nothing else caught, is written to `log.txt`.
+
 ### Fixed
 
 - After your first portrait, the next ones' balloons said "Reload in game to see it" while

@@ -121,6 +121,7 @@ It touches only:
 - the screenshots it matched to a capture;
 - the `AltStableCutouts` addon folder;
 - its own settings and log in `%APPDATA%\AltStableCompanion`;
+- a diagnostics file on your Desktop, only when you press Help → **Save diagnostics…**;
 - for enhanced portraits, Codex's own `generated_images` folder, read only.
 
 It also has a one-time side effect of .NET, not of the app: a single-file app unpacks
@@ -141,8 +142,9 @@ menu.
   folder you play AltStable in (the one with `Interface` and `WTF` inside, such as
   `...\World of Warcraft\_classic_beta_`).
 - **Reporting a problem.** Open an [issue](https://github.com/Spotnick2/AltStableCompanion/issues).
-  Help → **Open log** shows `log.txt` (in `%APPDATA%\AltStableCompanion`); attach it, along
-  with the version from Help → About.
+  Help → **Save diagnostics…** writes one text file to your Desktop to attach: the versions,
+  the WoW folder, each character's counts and the end of the log. Your characters' names are
+  in it; your account folder names and your Windows user folder are not. Nothing is sent.
 
 ## Options
 
