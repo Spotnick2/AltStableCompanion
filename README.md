@@ -73,8 +73,9 @@ tool's quality. No OpenAI API key is used, needed or read.
 
 **What it spends.** With it on, the app asks Codex for a picture of each character of the
 chosen level or more that has a portrait and is not hidden. When you first turn it on, that
-includes **all of your existing portraits**. Each attempt uses Codex usage on your account,
-whether or not a picture comes back.
+includes **all of your existing portraits**: ticking the box first says how many pictures it
+will make at once, and nothing is sent until you confirm. Each attempt uses Codex usage on
+your account, whether or not a picture comes back.
 
 **What leaves your PC.** The portrait's cropped image and the character's race, gender
 and class, plus any instructions your Codex CLI is configured with, go to the account Codex

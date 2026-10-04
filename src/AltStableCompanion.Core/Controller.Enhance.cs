@@ -21,6 +21,20 @@ public sealed record EnhanceHooks(
         async ct => CodexImageGen.Find() is { } exe ? await CodexImageGen.LoginStatusAsync(exe, ct) ?? "installed" : null);
 }
 
+/// <summary>
+/// What turning enhanced portraits on would do now, counted the way the worker launches:
+/// <see cref="Launch"/> pictures made at once (one Codex request each), <see cref="Held"/>
+/// made before with other settings and kept until asked, <see cref="Done"/> already attempted
+/// for these settings. <see cref="Refused"/> says why nothing would be made at all right now.
+/// </summary>
+public sealed record EnhancePlan(int Launch, int Held, int Done, string? Refused = null)
+{
+    /// <summary>The <see cref="Refused"/> of a count asked for before the Codex CLI was looked for: ask again once it has been.</summary>
+    public const string CodexNotLookedFor = "the Codex CLI has not been looked for yet";
+
+    public bool WaitingForCodex => Refused == CodexNotLookedFor;
+}
+
 public sealed partial class Controller
 {
     /// <summary>A generation ended - written, refused, failed or cancelled - on whatever thread it ended on.</summary>
@@ -350,12 +364,41 @@ public sealed partial class Controller
     private Placement? Place(CutoutFolder folder, WowInstall install, Settings settings, int generation,
         (string Style, string Model, string Effort, int Level) under)
     {
-        var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
-        var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
-        if (eligible.Refused is { } refused) { Idle(refused); return null; }
-
         HashSet<string> allowed;
         lock (_gate) { allowed = [.. _remakeAllowed]; }
+        var plan = PlanLaunches(folder, install, settings, allowed);
+        if (plan.Refused is { } refused) { Idle(refused); return null; }
+        var (launch, held, done, inHistory) = (plan.Launch, plan.Held, plan.Done, plan.InHistory);
+        var names = held.Select(h => h.Name).ToList();
+        var changed = false;
+        lock (_gate)
+        {
+            _held = held;
+            // A permission that is in the history has been used: the set shrinks to nothing, and the file with it.
+            if (inHistory.Count > 0) { _remakeAllowed.ExceptWith(inHistory); SaveRemake(); }
+            if (!(_current.Shell.EnhanceHeld ?? []).SequenceEqual(names))
+            {
+                _current = _current with { Shell = _current.Shell with { EnhanceHeld = names.Count == 0 ? null : names } };
+                changed = true;
+            }
+        }
+        if (changed) Changed?.Invoke();
+        return new Placement(under, generation, launch, done);
+    }
+
+    private sealed record LaunchPlan(
+        List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)> Launch,
+        List<(string Name, string Signature)> Held, int Done, List<string> InHistory, string? Refused);
+
+    // Under _passGate. Who would launch, who is held and who is done, under these settings -
+    // reading the disk and changing nothing: the worker places its batch from it, and the
+    // window's count before turning this on is the same call.
+    private LaunchPlan PlanLaunches(CutoutFolder folder, WowInstall install, Settings settings, IReadOnlySet<string> allowed)
+    {
+        var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
+        var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
+        if (eligible.Refused is { } refused) return new([], [], 0, [], refused);
+
         var held = new List<(string Name, string Signature)>();
         var launch = new List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)>();
         var done = 0;
@@ -406,21 +449,118 @@ public sealed partial class Controller
             launch.Add((c, meta, primary, signature));
         }
         held.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
-        var names = held.Select(h => h.Name).ToList();
+        return new(launch, held, done, inHistory, null);
+    }
+
+    /// <summary>
+    /// What turning enhanced portraits on - from this level, in this style - would do now:
+    /// the worker's own placement, under the worker's own checks, with nothing changed and
+    /// nothing spent. Reads every account's file and hashes the portraits, under the pass
+    /// gate: off the UI thread.
+    /// </summary>
+    public EnhancePlan PlanEnhancement(int minLevel, string style)
+    {
+        lock (_passGate) return Plan(minLevel, style);
+    }
+
+    /// <summary>
+    /// A press of "Make N pictures": the ticket <see cref="TurnOnEnhance"/> needs. The press
+    /// waits behind a pass for as long as the pass takes, and the player may back out
+    /// meanwhile - <see cref="WithdrawEnhance"/> - which no later turn-on may overrule.
+    /// </summary>
+    public int PressEnhance()
+    {
+        lock (_gate) return ++_enhancePress;
+    }
+
+    /// <summary>
+    /// The player backed out of the question after pressing - unticked, cancelled, changed the
+    /// level or the style - before the window heard back. Whichever way the press went, it is
+    /// off afterwards: a press still on its way turns nothing on, and one that already turned
+    /// it on is turned off again, under the same gate. Only for the player's own backing out:
+    /// the window closing the question because it is on is not one.
+    /// </summary>
+    public void WithdrawEnhance(int press)
+    {
+        CancellationTokenSource? cancel = null;
         var changed = false;
         lock (_gate)
         {
-            _held = held;
-            // A permission that is in the history has been used: the set shrinks to nothing, and the file with it.
-            if (inHistory.Count > 0) { _remakeAllowed.ExceptWith(inHistory); SaveRemake(); }
-            if (!(_current.Shell.EnhanceHeld ?? []).SequenceEqual(names))
+            if (press == _enhancePress) _enhancePress++;
+            if (press == _committedPress)
             {
-                _current = _current with { Shell = _current.Shell with { EnhanceHeld = names.Count == 0 ? null : names } };
-                changed = true;
+                _committedPress = 0;
+                if (_settings.Enhance)
+                {
+                    cancel = ChangeEnhance(false, _settings.EnhanceMinLevel, _settings.EnhanceStyle);
+                    changed = true;
+                }
             }
         }
-        if (changed) Changed?.Invoke();
-        return new Placement(under, generation, launch, done);
+        if (changed)
+        {
+            _log?.Write("enhance: turned off again - the player backed out right after pressing Make");
+            AfterEnhanceChange(cancel);
+        }
+    }
+
+    private int _enhancePress;                                // under _gate: the press that may still turn it on
+    private int _committedPress;                              // under _gate: the press that did, if the window has not heard yet
+
+    /// <summary>For tests only: held, it stands in for a pass that takes its time.</summary>
+    internal Lock PassGate => _passGate;
+
+    /// <summary>
+    /// "Make N pictures": on, but only if the press was not withdrawn, and only if what it
+    /// would make now is still what the player was <paramref name="shown"/> - a capture
+    /// converted while they read the question would make it more. Counted under the pass gate,
+    /// so no pass comes between; the press is checked and the setting changed under the state
+    /// gate, as one step, so a withdrawal is either before it (off) or after it (an ordinary
+    /// turning off). Null when it is on; otherwise the count as it is now, and it stays off.
+    /// </summary>
+    public EnhancePlan? TurnOnEnhance(int minLevel, string style, EnhancePlan shown, int press)
+    {
+        lock (_passGate)
+        {
+            var now = Plan(minLevel, style);
+            if (now != shown || now.WaitingForCodex) return now;
+            CancellationTokenSource? cancel;
+            lock (_gate)
+            {
+                if (press != _enhancePress) return now;
+                cancel = ChangeEnhance(true, minLevel, style);
+                _committedPress = press;
+            }
+            AfterEnhanceChange(cancel);
+            return null;
+        }
+    }
+
+    // Under _passGate.
+    private EnhancePlan Plan(int minLevel, string style)
+    {
+        Settings settings;
+        WowInstall? install;
+        string? codex;
+        bool probed;
+        HashSet<string> allowed;
+        lock (_gate)
+        {
+            settings = _settings with { Enhance = true, EnhanceMinLevel = minLevel, EnhanceStyle = style };
+            install = _current.Shell.Install;
+            codex = _codexStatus;
+            probed = _codexProbed;
+            allowed = [.. _remakeAllowed];
+        }
+        if (install is null) return new(0, 0, 0, "no WoW folder is chosen");
+        // Not looked for is not "not there": the window asks again once it has been.
+        if (!probed) return new(0, 0, 0, EnhancePlan.CodexNotLookedFor);
+        if (codex is null) return new(0, 0, 0, "the Codex CLI is not on this PC");
+        if (!install.RosterDrawsEnhanced) return new(0, 0, 0, "the installed AltStable Roster cannot draw enhanced pictures");
+        var folder = new CutoutFolder(install.CutoutAddonDir);
+        if (!folder.Exists) return new(0, 0, 0);
+        var plan = PlanLaunches(folder, install, settings, allowed);
+        return new(plan.Launch.Count, plan.Held.Count, plan.Done, plan.Refused);
     }
 
     // Nothing to do, and why - said once in the log when it is a reason. Before the look, the
@@ -641,19 +781,41 @@ public sealed partial class Controller
     /// </summary>
     public void SetEnhance(bool on, int minLevel, string style)
     {
-        CancellationTokenSource? cancel = null;
+        CancellationTokenSource? cancel;
         lock (_gate)
         {
-            var before = (_settings.Enhance, _settings.EnhanceMinLevel, _settings.EnhanceStyle);
-            var after = new Settings { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style };
-            if (before == (after.Enhance, after.EnhanceMinLevel, after.EnhanceStyle)) return;
-            _settings = _settings with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
-            Write();
-            if (!on || before.EnhanceStyle != after.EnhanceStyle) { cancel = _jobCts; _jobCts = null; }
-            _reprobeCodex = on;
-            _batch = null;
-            _current = _current with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
+            if (!Differs(on, minLevel, style)) return;
+            cancel = ChangeEnhance(on, minLevel, style);
         }
+        AfterEnhanceChange(cancel);
+    }
+
+    // Under _gate.
+    private bool Differs(bool on, int minLevel, string style)
+    {
+        var after = new Settings { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style };
+        return (_settings.Enhance, _settings.EnhanceMinLevel, _settings.EnhanceStyle) != (after.Enhance, after.EnhanceMinLevel, after.EnhanceStyle);
+    }
+
+    // Under _gate: the change itself, and the picture in flight to cancel, if any.
+    private CancellationTokenSource? ChangeEnhance(bool on, int minLevel, string style)
+    {
+        if (!Differs(on, minLevel, style)) return null;
+        CancellationTokenSource? cancel = null;
+        var before = _settings.EnhanceStyle;
+        var after = new Settings { Enhance = on, EnhanceMinLevel = minLevel, EnhanceStyle = style };
+        _settings = _settings with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
+        Write();
+        if (!on || before != after.EnhanceStyle) { cancel = _jobCts; _jobCts = null; }
+        _reprobeCodex = on;
+        _batch = null;
+        _current = _current with { Enhance = after.Enhance, EnhanceMinLevel = after.EnhanceMinLevel, EnhanceStyle = after.EnhanceStyle };
+        return cancel;
+    }
+
+    // Outside _gate.
+    private void AfterEnhanceChange(CancellationTokenSource? cancel)
+    {
         cancel?.Cancel();
         Changed?.Invoke();
         WakeEnhancer();

@@ -410,6 +410,50 @@ public static class PassText
     public static string EnhanceHeldButton(IReadOnlyList<string>? held) =>
         held is { Count: > 1 } ? $"Make them again ({held.Count} generations)" : "Make it again (1 generation)";
 
+    /// <summary>While the window counts what turning enhancement on would make.</summary>
+    public const string EnhanceCounting = "Counting the pictures this would make…";
+
+    /// <summary>
+    /// The question before turning enhancement on: how many pictures it makes at once, from
+    /// <see cref="Controller.PlanEnhancement"/>, and what it costs.
+    /// </summary>
+    public static string EnhanceConfirm(EnhancePlan plan, bool paused, bool firstStart = false, bool changed = false)
+    {
+        var lead = changed ? "That changed while the question was open. " : "";
+        return lead + Confirm(plan, paused, firstStart);
+    }
+
+    private static string Confirm(EnhancePlan plan, bool paused, bool firstStart)
+    {
+        if (plan.WaitingForCodex) return "Looking for the Codex CLI on this PC…";
+        if (plan.Refused is { } refused)
+        {
+            return $"Nothing can be made right now: {refused}. Once that changes, each eligible portrait gets a picture, "
+                + "one Codex request each, which uses your Codex usage.";
+        }
+        var now = plan.Launch == 0
+            ? "Nothing to make right now."
+            : $"This makes {Pictures(plan.Launch)} now, one Codex request each; each request uses your Codex usage, "
+              + "whether or not a picture comes back.";
+        var held = plan.Held == 0 ? ""
+            : $" {Pictures(plan.Held)} made with other settings {(plan.Held == 1 ? "stays" : "stay")} as {(plan.Held == 1 ? "it is" : "they are")} until you ask.";
+        var later = " After that, each new capture gets a picture the same way.";
+        // What the worker waits for before it makes anything, the way it waits.
+        var wait = plan.Launch == 0 ? ""
+            : firstStart ? " Nothing is made before you press Start watching."
+            : paused ? " Processing is paused: they start when it resumes." : "";
+        return now + held + later + wait;
+    }
+
+    /// <summary>The button that turns it on: what it spends at once.</summary>
+    public static string EnhanceConfirmButton(EnhancePlan plan) =>
+        plan.Refused is null && plan.Launch > 0 ? $"Make {Pictures(plan.Launch)}" : "Turn on";
+
+    /// <summary>Whether the question can be answered yes: not while the count is still waiting for Codex to be looked for.</summary>
+    public static bool EnhanceConfirmable(EnhancePlan plan) => !plan.WaitingForCodex;
+
+    private static string Pictures(int n) => n == 1 ? "1 picture" : $"{n} pictures";
+
     /// <summary>The tray icon's tooltip: the app's name and, in a word, what it is doing.</summary>
     public static string TrayTip(ShellState s)
     {

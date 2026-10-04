@@ -220,6 +220,18 @@
             <CheckBox IsChecked="{Binding Enhance}" IsEnabled="{Binding EnhanceUsable}" Content="Enhance portraits with Codex"
                       ToolTip.Tip="Ask the Codex CLI on this PC for a better picture of each portrait; sends the portrait to the account it is signed in to" />
             <TextBlock Classes="warn" Margin="28,-6,0,0" Text="{Binding EnhanceUnavailable}" IsVisible="{Binding HasEnhanceUnavailable}" />
+            <!-- Ticked, not on yet: how many pictures it makes at once, then the answer. Cancel leaves it off. -->
+            <Border Classes="pane" Margin="28,0,0,0" IsVisible="{Binding ConfirmEnhance}">
+              <StackPanel Spacing="8">
+                <TextBlock Text="{Binding EnhanceConfirmText}" TextWrapping="Wrap" />
+                <WrapPanel>
+                  <Button Content="{Binding EnhanceConfirmButton}" Command="{Binding StartEnhance}" Margin="0,0,8,0"
+                          ToolTip.Tip="Turn enhanced portraits on; the pictures counted are made now" />
+                  <Button Classes="link" Content="Cancel" Command="{Binding CancelEnhance}" VerticalAlignment="Center"
+                          ToolTip.Tip="Leave it off; nothing is sent" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
             <TextBlock Margin="28,-6,0,0" Text="{Binding EnhanceStatus}" IsVisible="{Binding HasEnhanceStatus}" />
             <TextBlock Classes="dim" Margin="28,-4,0,0" Text="{Binding EnhanceExplanation}" />
             <!-- A settings change never spends on its own: the pictures it would remake are held, and offered. -->
