@@ -6,6 +6,14 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- After your first portrait, the next ones' balloons said "Reload in game to see it" while
+  the game still needed its one full restart, so a `/reload` showed nothing. Until you dismiss
+  the restart notice, a portrait's balloon (enhanced ones too) says to restart the game if you
+  have not since your first portrait, and to `/reload` otherwise; after that it says "If WoW is
+  open, /reload to see it."
+
 ## [0.1.0-beta.2]
 
 The beta that can update itself: this is the last one you download by hand.

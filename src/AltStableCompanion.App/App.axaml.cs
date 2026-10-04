@@ -107,7 +107,7 @@ internal sealed partial class App : Application
     private void Announce(EnhanceResult result)
     {
         if (_quitting) return;
-        if (PassText.EnhanceBalloon(result) is not { } balloon) return;
+        if (PassText.EnhanceBalloon(result, _controller?.Current.RestartNotice ?? false) is not { } balloon) return;
         var taken = _tray?.ShowBalloon(balloon.Title, balloon.Text) ?? false;
         _controller?.Note(taken
             ? $"balloon handed to Windows: {balloon.Title}"
@@ -117,7 +117,7 @@ internal sealed partial class App : Application
     private void Announce(PassReport report)
     {
         if (_quitting) return;
-        if (PassText.Balloon(report) is not { } balloon) return;
+        if (PassText.Balloon(report, _controller?.Current.RestartNotice ?? false) is not { } balloon) return;
         var taken = _tray?.ShowBalloon(balloon.Title, balloon.Text) ?? false;
         _controller?.Note(taken
             ? $"balloon handed to Windows: {balloon.Title}"
