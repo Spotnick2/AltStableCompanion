@@ -90,8 +90,11 @@ public sealed record StartupOptions(bool Minimized = false, string? WowDir = nul
     }
 }
 
-/// <summary>Which install a run uses, or why it has none.</summary>
-public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool Pinned)
+/// <summary>
+/// Which install a run uses, or why it has none. <see cref="Detected"/>: found by looking,
+/// not named by the player - the one case where another game with AltStable is worth a word.
+/// </summary>
+public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool Pinned, bool Detected = false)
 {
     /// <summary>
     /// In strict order: the folder pinned on the command line; else the folder the player saved;
@@ -122,18 +125,18 @@ public sealed record ResolvedInstall(WowInstall? Install, string? Problem, bool 
                 : new ResolvedInstall(null, $"The WoW folder chosen before is not there any more: {saved}", Pinned: false);
         }
         var found = (detect ?? WowInstallLocator.Detect)();
-        return new ResolvedInstall(found, found is null ? "Couldn't find the WoW folder" : null, Pinned: false);
+        return new ResolvedInstall(found, found is null ? "Couldn't find the WoW folder" : null, Pinned: false, Detected: found is not null);
     }
 
     /// <summary>
-    /// What the player picked with Browse: a flavour folder, or a WoW folder holding Forever's.
-    /// Null when it is neither - the current install then stays as it is.
+    /// What the player picked with Browse: a flavour folder, or a WoW folder - and then the game
+    /// in it that detection would pick from there: the one AltStable is played in, else
+    /// Forever's. Null when it is neither - the current install then stays as it is.
     /// </summary>
     public static WowInstall? FromPicked(string folder)
     {
         folder = Path.TrimEndingDirectorySeparator(folder);
         if (WowInstallLocator.IsFlavorDir(folder)) return new WowInstall(folder);
-        var forever = Path.Combine(folder, WowInstallLocator.DefaultFlavor);
-        return WowInstallLocator.IsFlavorDir(forever) ? new WowInstall(forever) : null;
+        return WowInstallLocator.Detect([Path.Combine(folder, WowInstallLocator.DefaultFlavor)]);
     }
 }

@@ -601,6 +601,18 @@ public static class PassText
         };
     }
 
+    /// <summary>
+    /// A detected install, and AltStable in other games beside it: which ones, and how to
+    /// switch. Null when there is nothing to say.
+    /// </summary>
+    public static string? AltStableElsewhere(IReadOnlyList<string>? others)
+    {
+        if (others is not { Count: > 0 }) return null;
+        var names = others.Select(Path.GetFileName).OfType<string>().ToList();
+        var list = names.Count == 1 ? names[0] : string.Join(", ", names[..^1]) + " and " + names[^1];
+        return $"AltStable is also installed in {list}. To use {(names.Count == 1 ? "that game" : "one of those")} instead, Browse to it in Settings.";
+    }
+
     /// <summary>The generated .toc says Interface 16001: only Forever reads it as current.</summary>
     public static string? FlavorWarning(WowInstall install) =>
         string.Equals(install.Flavor, WowInstallLocator.DefaultFlavor, StringComparison.OrdinalIgnoreCase)

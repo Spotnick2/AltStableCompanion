@@ -379,6 +379,8 @@
     </Border>
 
     <TextBlock Classes="warn" Text="{Binding FlavorWarning}" IsVisible="{Binding HasFlavorWarning}" />
+    <!-- Found by looking, with AltStable in another game too: the player may mean that one. -->
+    <TextBlock Classes="dim" Text="{Binding AltStableElsewhere}" IsVisible="{Binding HasAltStableElsewhere}" TextWrapping="Wrap" />
 
     <!-- How things stand, and the one next step -->
     <Border Classes="headline"

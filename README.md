@@ -152,7 +152,9 @@ menu.
   The window's headline and the list say what happened to each capture.
 - **The portrait is written but the game does not show it.** If it is your first one,
   quit the game completely and start it again. Otherwise `/reload`.
-- **The app is watching the wrong game.** Settings → **Browse...** and choose the game
+- **The app is watching the wrong game.** Left to itself, it picks the game AltStable is
+  installed in, and says so on the dashboard when AltStable is in another game too.
+  Settings → **Browse...** and choose the game
   folder you play AltStable in (the one with `Interface` and `WTF` inside, such as
   `...\World of Warcraft\_classic_beta_`).
 - **Reporting a problem.** Open an [issue](https://github.com/Spotnick2/AltStableCompanion/issues).

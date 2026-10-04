@@ -15,6 +15,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ### Changed
 
+- Finding the game by itself, the app now picks the game folder AltStable is installed in,
+  looking at every game in your World of Warcraft folder - not only the one the launcher
+  ran last. When AltStable is installed in more than one, the dashboard names the others
+  and says that Browse switches.
+
 - **Save diagnostics…** writes to your Downloads folder, not the Desktop. A Desktop that
   OneDrive syncs - Windows' default - uploaded the file the moment it was written.
 
