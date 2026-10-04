@@ -115,6 +115,8 @@ public static partial class Diagnostics
         }
         foreach (var a in accounts) Add(a);
         foreach (Match m in AccountPath().Matches(text)) Add(m.Groups[1].Value);
+        // 0.1.0-beta.2's enhancer named an account bare; its logs are still on players' PCs.
+        foreach (Match m in BareAccount().Matches(text)) Add(m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value);
 
         // Longest first: an account named inside another's name must not leave the rest behind.
         var masks = names.Select((n, i) => (Name: n, Mask: "Account" + (i + 1).ToString(CultureInfo.InvariantCulture)))
@@ -125,20 +127,27 @@ public static partial class Diagnostics
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
 
-        var profile = Path.TrimEndingDirectorySeparator(userProfile);
-        if (profile.Length > 0)
+        // The profile however its separators are written: C:\Users\x, C:/Users/x, or escaped
+        // as C:\\Users\\x - Codex's output, logged as it came, holds all three.
+        var parts = userProfile.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 0)
         {
-            text = Regex.Replace(text, Regex.Escape(profile) + @"(?=$|[\\/\s""'),;:])", "%USERPROFILE%",
+            var profile = string.Join(@"[\\/]+", parts.Select(Regex.Escape));
+            text = Regex.Replace(text, profile + @"(?=$|[\\/\s""'),;:])", "%USERPROFILE%",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline);
         }
         return text;
     }
 
-    // A WTF\Account\<name> in a path, either slash. The name ends at the next separator, at
-    // white space, a quote or punctuation: an exception message quotes its path in '...', and
-    // a name that ran on into the sentence would be masked only in that sentence.
-    [GeneratedRegex(@"WTF[\\/]Account[\\/]([^\\/\s""'.,;:()\[\]<>|*?]+)", RegexOptions.IgnoreCase)]
+    // A WTF\Account\<name> in a path, either slash, escaped or not. The name ends at the next
+    // separator, at white space, a quote or punctuation: an exception message quotes its path
+    // in '...', and a name that ran on into the sentence would be masked only in that sentence.
+    [GeneratedRegex(@"WTF[\\/]+Account[\\/]+([^\\/\s""'.,;:()\[\]<>|*?]+)", RegexOptions.IgnoreCase)]
     private static partial Regex AccountPath();
+
+    // The two ways 0.1.0-beta.2's enhancer named an account without its path.
+    [GeneratedRegex(@"could not be read this time \(([^\s()\\/]+)\)|enhance: ([^\s'()\\/]+)'s roster could not be read")]
+    private static partial Regex BareAccount();
 
     /// <summary>The account folders, by name, sorted. Not <c>SavedVariables</c>, which is WoW's own.</summary>
     public static List<string> AccountFolders(string accountsDir)
@@ -181,10 +190,14 @@ public static partial class Diagnostics
     // GUID; a cutout without one is a line of its own, under its file name.
     private static void Characters(StringBuilder sb, WowInstall install, int accounts)
     {
-        var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir);
+        // Files, counted as files: what was read of them is what follows.
+        List<string> files;
+        try { files = [.. SavedVariablesReader.FindStores(install.AccountsDir)]; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { files = []; }
+        var snapshot = SavedVariablesReader.Snapshot(files);
         var refused = snapshot.Stores.Count(s => s.Refused is not null);
         sb.AppendLine(CultureInfo.InvariantCulture,
-            $"Accounts:   {accounts}, with AltStable.lua: {snapshot.Rosters.Count}, capture records: {snapshot.Stores.Count}"
+            $"Accounts:   {accounts}, with AltStable.lua: {files.Count}, capture records: {snapshot.Stores.Count}"
             + $"{(refused > 0 ? $" ({refused} of a version this app does not read)" : "")}"
             + $"{(snapshot.Skipped.Count > 0 ? $", could not be read: {snapshot.Skipped.Count}" : "")}");
 

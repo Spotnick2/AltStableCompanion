@@ -116,6 +116,60 @@ public class DiagnosticsTests
     }
 
     [Fact]
+    public void An_account_the_enhancer_named_in_another_install_is_masked()
+    {
+        // The log was written while another install was chosen: its account is not among this
+        // one's folders, and its torn roster is what the enhancer logged.
+        var (t, facts) = Setup();
+        using var _ = t;
+        using var old = new TempInstall();
+        old.WriteStore("OLDPRIVATE", "AltStableConfig = {\n[\"hiddenCharacters\"] = {\n[\"Player-1-AAAA\"] = true,\n");
+        var refused = Eligibility.Select(SavedVariablesReader.Snapshot(old.Install.AccountsDir), 1, _ => "f").Refused;
+        new Log(Path.GetDirectoryName(facts.LogPath)!).Write("enhance: " + refused);
+        // And what 0.1.0-beta.2 wrote, bare.
+        File.AppendAllLines(facts.LogPath,
+        [
+            "2026-09-30 10:00:00  enhance: LEGACYONE's roster could not be read (a table stopped): not knowing who is hidden is not permission",
+            "2026-09-30 10:00:01  enhance: 1 account file(s) could not be read this time (LEGACY#2): not knowing who is hidden is not permission",
+            "2026-09-30 10:00:02  LEGACYONE and LEGACY#2 again",
+        ]);
+
+        var text = Diagnostics.Build(facts, T0, Profile);
+
+        foreach (var raw in new[] { "OLDPRIVATE", "LEGACYONE", "LEGACY#2" })
+        {
+            Assert.DoesNotContain(raw, text, StringComparison.OrdinalIgnoreCase);
+        }
+        Assert.Contains(@"WTF\Account\Account5's roster could not be read", text);
+    }
+
+    [Theory]
+    [InlineData(@"C:/Users/Somebody/.codex/generated_images/a.png", "%USERPROFILE%/.codex/generated_images/a.png")]
+    [InlineData(@"{""path"": ""C:\\Users\\Somebody\\.codex\\a.png""}", @"{""path"": ""%USERPROFILE%\\.codex\\a.png""}")]
+    [InlineData(@"c:\users\somebody", "%USERPROFILE%")]
+    [InlineData(@"C:/Users/Somebody2/a.png", @"C:/Users/Somebody2/a.png")]
+    public void The_profile_is_masked_however_its_separators_are_written(string line, string masked)
+    {
+        Assert.Equal(masked, Diagnostics.Mask(line, [], Profile));
+    }
+
+    [Fact]
+    public void A_file_whose_capture_store_is_torn_is_one_file_not_read()
+    {
+        // The roster parses; the capture store stops mid-table. Retried, then skipped - once.
+        var (t, facts) = Setup();
+        using var _ = t;
+        foreach (var dir in Directory.GetDirectories(t.Install.AccountsDir)) Directory.Delete(dir, recursive: true);
+        t.WriteStore("1#1", "AltStableDB = {}\nAltStablePortraits = {\n");
+
+        var snapshot = SavedVariablesReader.Snapshot(t.Install.AccountsDir);
+        Assert.Empty(snapshot.Rosters);
+        Assert.Single(snapshot.Skipped);
+        Assert.Contains("Accounts:   1, with AltStable.lua: 1, capture records: 0, could not be read: 1",
+            Diagnostics.Build(facts, T0, Profile));
+    }
+
+    [Fact]
     public void An_enhanced_picture_counts_for_the_character_its_own_sidecar_names()
     {
         // Alt0's enhanced picture; the cutout beside it has since been written for Alt1, who
