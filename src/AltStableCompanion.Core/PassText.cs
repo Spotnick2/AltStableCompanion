@@ -426,14 +426,31 @@ public static class PassText
         return $"AltStable Companion - {what}";
     }
 
+    // What a written portrait's balloon asks of the player (#33). Advice, never a claim: the app
+    // cannot see whether WoW is open, nor whether it has been restarted.
+    //
+    // The pass that created the folder knows a restart is needed.
+    private const string RestartToSee =
+        "WoW only notices a new addon folder at startup: quit the game completely and start it again once.";
+
+    // A later one, while the restart notice is still owed, does not: the notice only goes when the
+    // player dismisses it, and many restart without doing so. Both cases are spelled out.
+    private static string RestartOrReloadToSee(int count) =>
+        "If WoW has not been restarted since your first portrait, quit it completely and start it again once. "
+        + (count == 1 ? "Otherwise, /reload to see it." : "Otherwise, /reload to see them.");
+
+    private static string ReloadToSee(int count) =>
+        count == 1 ? "If WoW is open, /reload to see it." : "If WoW is open, /reload to see them.";
+
     /// <summary>
     /// The balloon for a generation that ended: a picture written, refused or failed. A
-    /// cancellation raises none - the player did that, or quit.
+    /// cancellation raises none - the player did that, or quit. <paramref name="restartOwed"/>
+    /// is the controller's <c>RestartNotice</c>.
     /// </summary>
-    public static (string Title, string Text)? EnhanceBalloon(EnhanceResult r)
+    public static (string Title, string Text)? EnhanceBalloon(EnhanceResult r, bool restartOwed)
     {
         if (r.Cancelled) return null;
-        if (r.Written) return ($"Portrait enhanced: {r.Name}", "Reload in game to see it.");
+        if (r.Written) return ($"Portrait enhanced: {r.Name}", restartOwed ? RestartOrReloadToSee(1) : ReloadToSee(1));
         return ($"{r.Name}: enhancement {r.Words}", "This combination is not tried again. See the list.");
     }
 
@@ -450,19 +467,19 @@ public static class PassText
 
     /// <summary>
     /// The balloon for a pass, or null when it wrote nothing. Rejections and failures never
-    /// raise one: the list in the window is where they are read.
+    /// raise one: the list in the window is where they are read. <paramref name="restartOwed"/>
+    /// is the controller's <c>RestartNotice</c>: the pass that created the folder is not the
+    /// only one before the restart.
     /// </summary>
-    public static (string Title, string Text)? Balloon(PassReport report)
+    public static (string Title, string Text)? Balloon(PassReport report, bool restartOwed)
     {
         if (report.Written.Count == 0) return null;
         var what = report.Written.Count == 1
             ? $"Portrait written: {Names(report.Written)}"
             : $"{Names(report.Written)} written";
-        if (report.FolderCreated)
-        {
-            return (what, "WoW only notices a new addon folder at startup: quit the game completely and start it again once.");
-        }
-        return (what, report.Written.Count == 1 ? "Reload in game to see it." : "Reload in game to see them.");
+        if (report.FolderCreated) return (what, RestartToSee);
+        var count = report.Written.Count;
+        return (what, restartOwed ? RestartOrReloadToSee(count) : ReloadToSee(count));
     }
 
     /// <summary>

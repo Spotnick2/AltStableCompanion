@@ -174,10 +174,10 @@ public class PassTextTests
         Assert.Equal("Last: Morphisto Ruskador refused - transparent border, today 01:03:38.", PassText.EnhanceStatus(new ShellState(LastEnhanceResult: refused), T0));
         Assert.Equal("Last: Kaleid Sumner written, today 01:03:38.", PassText.EnhanceStatus(new ShellState(LastEnhanceResult: refused with { Name = "Kaleid Sumner", Outcome = "written" }), T0));
         // The balloon: written and refused say so; a cancel is the player's own doing.
-        Assert.Equal(("Portrait enhanced: Kaleid Sumner", "Reload in game to see it."), PassText.EnhanceBalloon(new EnhanceResult(T0, "Kaleid Sumner", "written")));
-        Assert.Equal(("Morphisto Ruskador: enhancement refused - transparent border", "This combination is not tried again. See the list."), PassText.EnhanceBalloon(refused));
-        Assert.Contains("failed - codex exited with 1", PassText.EnhanceBalloon(refused with { Outcome = "failed: codex exited with 1" })!.Value.Title);
-        Assert.Null(PassText.EnhanceBalloon(refused with { Outcome = "cancelled: the app is stopping" }));
+        Assert.Equal(("Portrait enhanced: Kaleid Sumner", "If WoW is open, /reload to see it."), PassText.EnhanceBalloon(new EnhanceResult(T0, "Kaleid Sumner", "written"), restartOwed: false));
+        Assert.Equal(("Morphisto Ruskador: enhancement refused - transparent border", "This combination is not tried again. See the list."), PassText.EnhanceBalloon(refused, restartOwed: false));
+        Assert.Contains("failed - codex exited with 1", PassText.EnhanceBalloon(refused with { Outcome = "failed: codex exited with 1" }, restartOwed: false)!.Value.Title);
+        Assert.Null(PassText.EnhanceBalloon(refused with { Outcome = "cancelled: the app is stopping" }, restartOwed: true));
         var row = new PortraitRow("Kaleid Sumner", "Player-1-AAAA", "kaleid-sumner.tga", PortraitSource.ByGuid, T0, T0, CaptureOutcome.Converted, null, EnhanceNote: "enhanced (wow-like); realistic enhancing", Enhancing: true);
         Assert.Equal("Enhancing", PassText.RowState(row));
         Assert.Equal("Ready", PassText.RowState(row with { EnhanceNote = "enhanced (wow-like)", Enhancing = false }));
@@ -510,15 +510,36 @@ public class PassTextTests
     [Fact]
     public void A_balloon_is_for_portraits_written_and_nothing_else()
     {
-        Assert.Null(PassText.Balloon(Report(states: [CharacterState.Rejected, CharacterState.Failed, CharacterState.Ambiguous])));
-        Assert.Null(PassText.Balloon(Report(folderCreated: true)));
+        Assert.Null(PassText.Balloon(Report(states: [CharacterState.Rejected, CharacterState.Failed, CharacterState.Ambiguous]), restartOwed: false));
+        Assert.Null(PassText.Balloon(Report(folderCreated: true), restartOwed: true));
 
-        Assert.Equal(("Portrait written: Name 1", "Reload in game to see it."), PassText.Balloon(Report(written: 1)));
-        Assert.Equal(("3 portraits written", "Reload in game to see them."), PassText.Balloon(Report(written: 3)));
+        // Advice, not a claim: the app cannot see whether WoW is open.
+        Assert.Equal(("Portrait written: Name 1", "If WoW is open, /reload to see it."), PassText.Balloon(Report(written: 1), restartOwed: false));
+        Assert.Equal(("3 portraits written", "If WoW is open, /reload to see them."), PassText.Balloon(Report(written: 3), restartOwed: false));
 
-        var first = PassText.Balloon(Report(written: 1, folderCreated: true))!.Value;
+        var first = PassText.Balloon(Report(written: 1, folderCreated: true), restartOwed: false)!.Value;
         Assert.Equal("Portrait written: Name 1", first.Title);
         Assert.Contains("quit the game completely", first.Text);
+    }
+
+    [Fact]
+    public void Until_the_restart_is_done_every_balloon_asks_for_it_not_a_reload()
+    {
+        // #33: the pass that created the folder said "restart"; the next one, before the restart,
+        // said only "Reload" - and a /reload shows nothing until WoW has been restarted once. The
+        // notice goes only when dismissed, so the restart is offered as a condition, not a fact.
+        const string Owed = "If WoW has not been restarted since your first portrait, quit it completely and start it again once. ";
+        Assert.Equal(("Portrait written: Name 1", Owed + "Otherwise, /reload to see it."), PassText.Balloon(Report(written: 1), restartOwed: true));
+        Assert.Equal(("3 portraits written", Owed + "Otherwise, /reload to see them."), PassText.Balloon(Report(written: 3), restartOwed: true));
+        // The pass that created the folder knows: a restart, no condition.
+        Assert.StartsWith("WoW only notices a new addon folder", PassText.Balloon(Report(written: 1, folderCreated: true), restartOwed: true)!.Value.Text);
+
+        var written = new EnhanceResult(T0, "Kaleid Sumner", "written");
+        Assert.Equal(("Portrait enhanced: Kaleid Sumner", "If WoW is open, /reload to see it."), PassText.EnhanceBalloon(written, restartOwed: false));
+        Assert.Equal(("Portrait enhanced: Kaleid Sumner", Owed + "Otherwise, /reload to see it."), PassText.EnhanceBalloon(written, restartOwed: true));
+        // A refusal asks nothing of the game either way.
+        var refused = written with { Outcome = "refused: transparent border" };
+        Assert.Equal(PassText.EnhanceBalloon(refused, restartOwed: false), PassText.EnhanceBalloon(refused, restartOwed: true));
     }
 
     [Fact]
