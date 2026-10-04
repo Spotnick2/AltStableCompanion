@@ -6,6 +6,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.0-beta.3]
+
+A file to attach to a bug report, and the right advice after your first portrait.
+
 ### Added
 
 - Help → **Save diagnostics…** writes one text file to your Desktop for a bug report: the app
