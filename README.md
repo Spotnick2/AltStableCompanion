@@ -4,6 +4,10 @@ A free Windows app for players of the [AltStable](https://github.com/Spotnick2/A
 addon for World of Warcraft: Forever. It turns the portraits you capture in the game into
 the cutouts the addon's Roster scene draws your characters with.
 
+<img src="docs/images/companion.png" alt="The AltStable Companion window: the game it watches, a notice about the last portrait, and your portraits with their state" width="420">
+
+![What it makes: four characters standing around a campfire in AltStable's Roster](docs/images/roster.jpg)
+
 **Three pieces, and only the first is required:**
 
 | Piece | What it is | Do you need it? |
@@ -46,11 +50,20 @@ The app finds your game folder by itself. **Settings** shows which one it chose;
 From then on, every new portrait shows after a `/reload`. Capture again whenever your
 character's look changes; the spyglass button glows when a new portrait is due.
 
+A portrait is the character exactly as the game draws it when you capture. With the client's
+SD (classic) character models switched on, your portraits will most likely come out in SD too.
+Switch HD models back on before `/alts portrait` if you want HD portraits.
+
 The app has to be running to make portraits. It does not start with Windows: run it
 again after you log in to Windows. Captures taken while it was closed are converted the
 next time it starts, unless automatic processing is off.
 
 ## Enhanced portraits (optional)
+
+![Another camp in the Roster, drawn with enhanced portraits](docs/images/roster-enhanced.jpg)
+
+*Enhanced portraits in the Roster. The plain ones, above, are what every portrait looks like
+without this setting.*
 
 Off unless you turn it on, in Settings. It needs the [Codex CLI](https://github.com/openai/codex)
 on this PC: `npm install -g @openai/codex`, then `codex login` with a ChatGPT account. The
