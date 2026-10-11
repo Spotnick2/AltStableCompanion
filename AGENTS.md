@@ -1,7 +1,7 @@
 # AGENTS.md — AltStable Companion
 
 A Windows tray app that turns AltStable's in-game portrait captures into the cutouts the
-addon's Roster scene draws. The addon lives in `C:\Projects\AltStable`
+addon's Roster scene draws. The addon lives in `C:\Projects\WoW\AltStable`
 (`Spotnick2/AltStable`); the app's own work is tracked in this repo's issues.
 
 ## The contract is the source of truth

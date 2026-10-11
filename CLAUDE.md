@@ -40,4 +40,4 @@ The owner's Forever install is `C:\Program Files (x86)\World of Warcraft\_classi
 two accounts under `WTF\Account`. Never run the app or a pass against it in a way that deletes
 screenshots or rewrites `AltStableCutouts` without saying so first — copy what you need into the
 scratchpad (M1's cross-check did exactly that). Deploying the ADDON for in-game testing is
-pre-approved and done from `C:\Projects\AltStable` with `pwsh Tools/deploy.ps1`.
+pre-approved and done from `C:\Projects\WoW\AltStable` with `pwsh Tools/deploy.ps1`.
