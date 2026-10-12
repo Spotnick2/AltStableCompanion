@@ -70,6 +70,11 @@ public sealed record ShellState(
     /// </summary>
     IReadOnlyList<string>? EnhanceHeld = null,
     /// <summary>
+    /// While enhancing is on: why a character is not enhanced, by GUID ("hidden in WoW12",
+    /// "below level 4"), for the row of its portrait. Null while it is off or cannot run.
+    /// </summary>
+    IReadOnlyDictionary<string, string>? EnhanceSkipped = null,
+    /// <summary>
     /// The very first start: nothing is converted until the player has read what happens to
     /// their screenshots and said "Start watching".
     /// </summary>
@@ -301,9 +306,28 @@ public static class PassText
     public static string? RowSummary(PortraitRow row, DateTime today)
     {
         if (row.NeedsAttention || row.Outcome == CaptureOutcome.Writing || row.ShowGuid) return null;
-        if (row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured) return "Captured " + When(captured, today);
-        if (row.FileModified is { } modified) return "Updated " + When(modified, today);
-        return "";
+        var when = row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured ? "Captured " + When(captured, today)
+            : row.FileModified is { } modified ? "Updated " + When(modified, today)
+            : "";
+        // A skip is said on the line itself: it is decided in another account, where the game
+        // logged in now cannot show it.
+        return Skipped(row) is { } skipped ? (when.Length == 0 ? skipped : when + " · " + skipped) : when;
+    }
+
+    // "not enhanced: hidden in WoW12" - or, beside a picture made earlier, that no new one is.
+    private static string? Skipped(PortraitRow row) => row.EnhanceSkipped is not { } why ? null
+        : (row.EnhanceNote is null ? "not enhanced: " : "no new pictures: ") + why;
+
+    /// <summary>
+    /// The rows, each portrait with the reason enhancing leaves it alone, from
+    /// <see cref="ShellState.EnhanceSkipped"/>. A row without a portrait has nothing to enhance,
+    /// and one being enhanced is not skipped.
+    /// </summary>
+    public static IReadOnlyList<PortraitRow> WithSkipped(IReadOnlyList<PortraitRow> rows, IReadOnlyDictionary<string, string>? skipped)
+    {
+        if (skipped is null || skipped.Count == 0) return rows;
+        return [.. rows.Select(r => r.Ready && !r.Enhancing && r.Guid is not null && skipped.TryGetValue(r.Guid, out var why)
+            ? r with { EnhanceSkipped = why } : r)];
     }
 
     /// <summary>
@@ -341,6 +365,7 @@ public static class PassText
             parts.Add("nearly square: something else may be in it - capture again");
         }
         if (row.EnhanceNote is { } note) parts.Add(note);
+        if (Skipped(row) is { } skipped) parts.Add(skipped);
         if (row.ShowGuid && row.Guid is not null) parts.Add(row.Guid);
         return string.Join(" · ", parts.Where(p => p.Length > 0));
     }

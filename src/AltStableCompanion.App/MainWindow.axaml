@@ -176,8 +176,10 @@
       </Button>
     </Grid>
 
-   <!-- Settings is a page: it takes the dashboard's place until Back. -->
-   <StackPanel Grid.Row="1" Spacing="10" Margin="14,0" VerticalAlignment="Top" IsVisible="{Binding ShowSettings}">
+   <!-- Settings is a page: it takes the dashboard's place until Back. It scrolls: the Codex
+        explanation alone is taller than a small window. -->
+   <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowSettings}">
+   <StackPanel Spacing="10" Margin="14,0" VerticalAlignment="Top">
     <Border Classes="pane">
       <StackPanel Spacing="8">
         <StackPanel Orientation="Horizontal" Spacing="12">
@@ -233,7 +235,6 @@
               </StackPanel>
             </Border>
             <TextBlock Margin="28,-6,0,0" Text="{Binding EnhanceStatus}" IsVisible="{Binding HasEnhanceStatus}" />
-            <TextBlock Classes="dim" Margin="28,-4,0,0" Text="{Binding EnhanceExplanation}" />
             <!-- A settings change never spends on its own: the pictures it would remake are held, and offered. -->
             <StackPanel Margin="28,0,0,0" Spacing="6" IsVisible="{Binding HasEnhanceHeld}">
               <TextBlock Classes="warn" Text="{Binding EnhanceHeld}" TextWrapping="Wrap" />
@@ -252,11 +253,14 @@
               <RadioButton GroupName="style" Content="Realistic" IsChecked="{Binding IsRealistic}" IsEnabled="{Binding EnhanceUsable}" />
               <RadioButton GroupName="style" Content="Cartoon" IsChecked="{Binding IsCartoonish}" IsEnabled="{Binding EnhanceUsable}" />
             </StackPanel>
+            <!-- Last: the options come before the long text, so they are seen without scrolling. -->
+            <TextBlock Classes="dim" Margin="28,0,0,0" Text="{Binding EnhanceExplanation}" />
           </StackPanel>
         </Border>
       </StackPanel>
     </Border>
    </StackPanel>
+   </ScrollViewer>
 
    <!-- Help is a page too: the four steps, the folder, the log, the warnings, the credit. -->
    <!-- The page fills the window so its content can scroll: the warnings have no bound. -->

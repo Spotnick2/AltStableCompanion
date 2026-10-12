@@ -257,6 +257,38 @@ public class EligibilityTests
     }
 
     [Fact]
+    public void Who_is_not_eligible_is_said_with_the_reason_and_the_accounts_that_hide_them()
+    {
+        static string Store12(string account) => Path.Combine("WTF", "Account", account, "SavedVariables", "AltStable.lua");
+        var a = Store(Store12("50284074#1"), [Char("g1", "Aaa", 12), Char("g2", "Bbb", 9), Char("g3", "Ccc", 30), Char("g4", "Ddd", 30, race: " "), Char("g5", "Eee", 3)], "g5");
+        var b = Store(Store12("50284074#12"), [Char("g3", "Ccc", 31)], "g3", "g5");
+        var c = Store(Store12("LEGACYNAME"), [], "g3");
+        var picked = Eligibility.Select(Snap(a, b, c), 10, _ => "f");
+        Assert.Equal(["g1"], picked.Candidates.Select(p => p.Guid));
+        var skipped = picked.Skipped!;
+        Assert.Equal("below level 10", skipped["g2"]);
+        // Every account that hides it, the shorter name first; hidden wins over the level.
+        Assert.Equal("hidden in WoW12 and LEGACYNAME", skipped["g3"]);
+        Assert.Equal("hidden in WoW1 and WoW12", skipped["g5"]);
+        Assert.Equal("the roster has no race, gender or class for it", skipped["g4"]);
+        Assert.False(skipped.ContainsKey("g1"));
+        // Eligible but without a portrait of its own: not skipped for a reason the row would show.
+        Assert.False(Eligibility.Select(Snap(a, b, c), 10, _ => null).Skipped!.ContainsKey("g1"));
+    }
+
+    [Fact]
+    public void An_account_folder_is_named_the_way_the_launcher_names_it()
+    {
+        static string In(string account) => Path.Combine("C:", "WoW", "WTF", "Account", account, "SavedVariables", "AltStable.lua");
+        Assert.Equal("WoW12", Eligibility.AccountLabel(In("50284074#12")));
+        Assert.Equal("WoW1", Eligibility.AccountLabel(In("50284074#1")));
+        Assert.Equal("MYACCOUNT", Eligibility.AccountLabel(In("MYACCOUNT")));
+        Assert.Equal("ODD#", Eligibility.AccountLabel(In("ODD#")));
+        Assert.Equal("ODD#x1", Eligibility.AccountLabel(In("ODD#x1")));
+        Assert.Equal("another account", Eligibility.AccountLabel("a"));
+    }
+
+    [Fact]
     public void Two_accounts_records_of_one_character_settle_one_way()
     {
         // The highest level seen; the rest from the most recently updated record.
