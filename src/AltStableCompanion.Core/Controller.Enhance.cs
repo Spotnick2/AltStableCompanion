@@ -369,6 +369,7 @@ public sealed partial class Controller
         var plan = PlanLaunches(folder, install, settings, allowed);
         if (plan.Refused is { } refused) { Idle(refused); return null; }
         var (launch, held, done, inHistory) = (plan.Launch, plan.Held, plan.Done, plan.InHistory);
+        var skipped = plan.Skipped.Count == 0 ? null : plan.Skipped;
         var names = held.Select(h => h.Name).ToList();
         var changed = false;
         lock (_gate)
@@ -381,14 +382,24 @@ public sealed partial class Controller
                 _current = _current with { Shell = _current.Shell with { EnhanceHeld = names.Count == 0 ? null : names } };
                 changed = true;
             }
+            if (!SameSkipped(_current.Shell.EnhanceSkipped, skipped))
+            {
+                _current = _current with { Shell = _current.Shell with { EnhanceSkipped = skipped } };
+                changed = true;
+            }
         }
         if (changed) Changed?.Invoke();
         return new Placement(under, generation, launch, done);
     }
 
+    private static bool SameSkipped(IReadOnlyDictionary<string, string>? a, IReadOnlyDictionary<string, string>? b) =>
+        ReferenceEquals(a, b) || (a is not null && b is not null && a.Count == b.Count
+            && a.All(kv => b.TryGetValue(kv.Key, out var v) && v == kv.Value));
+
     private sealed record LaunchPlan(
         List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)> Launch,
-        List<(string Name, string Signature)> Held, int Done, List<string> InHistory, string? Refused);
+        List<(string Name, string Signature)> Held, int Done, List<string> InHistory, string? Refused,
+        IReadOnlyDictionary<string, string> Skipped);
 
     // Under _passGate. Who would launch, who is held and who is done, under these settings -
     // reading the disk and changing nothing: the worker places its batch from it, and the
@@ -397,7 +408,7 @@ public sealed partial class Controller
     {
         var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
         var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
-        if (eligible.Refused is { } refused) return new([], [], 0, [], refused);
+        if (eligible.Refused is { } refused) return new([], [], 0, [], refused, new Dictionary<string, string>());
 
         var held = new List<(string Name, string Signature)>();
         var launch = new List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)>();
@@ -449,7 +460,7 @@ public sealed partial class Controller
             launch.Add((c, meta, primary, signature));
         }
         held.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
-        return new(launch, held, done, inHistory, null);
+        return new(launch, held, done, inHistory, null, eligible.Skipped ?? new Dictionary<string, string>());
     }
 
     /// <summary>
@@ -580,6 +591,12 @@ public sealed partial class Controller
             {
                 _held = [];
                 _current = _current with { Shell = _current.Shell with { EnhanceHeld = null } };
+                changed = true;
+            }
+            // Off, or unable to run: nobody is "not enhanced" for a reason of their own.
+            if (!keepHeld && _current.Shell.EnhanceSkipped is not null)
+            {
+                _current = _current with { Shell = _current.Shell with { EnhanceSkipped = null } };
                 changed = true;
             }
         }

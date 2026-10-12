@@ -335,6 +335,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                     EnhanceSeen = same && _current.Shell.EnhanceSeen,
                     LastEnhanceResult = same ? _current.Shell.LastEnhanceResult : null,
                     EnhanceHeld = null,
+                    EnhanceSkipped = null,
                 },
             };
             // A picture being made for another game is not wanted here: give it up now, not

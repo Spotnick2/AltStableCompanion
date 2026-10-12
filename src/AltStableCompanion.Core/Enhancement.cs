@@ -49,8 +49,15 @@ public static class EnhanceStyles
 /// </summary>
 public sealed record EnhanceCandidate(string Guid, string FileBase, RosterCharacter Character);
 
-/// <summary>Who may be enhanced this time - or nobody, and why.</summary>
-public sealed record EligibilityResult(IReadOnlyList<EnhanceCandidate> Candidates, string? Refused = null);
+/// <summary>
+/// Who may be enhanced this time - or nobody, and why. <see cref="Skipped"/> is why a
+/// character the roster knows is not a candidate, by GUID: hidden ("hidden in WoW12"), below
+/// the level, or a record without race, gender or class. Whether it has a portrait is not
+/// looked at for these (a look per character reads every sidecar): the row says it only
+/// where there is a portrait to enhance.
+/// </summary>
+public sealed record EligibilityResult(IReadOnlyList<EnhanceCandidate> Candidates, string? Refused = null,
+    IReadOnlyDictionary<string, string>? Skipped = null);
 
 /// <summary>
 /// Who is eligible, from every account's roster at once. Conflicts between accounts are
@@ -73,7 +80,18 @@ public static class Eligibility
         {
             return new([], $"{Account(broken.Path)}'s roster could not be read ({broken.Problem}): not knowing who is hidden is not permission");
         }
-        var hidden = new HashSet<string>(snapshot.Rosters.SelectMany(r => r.Hidden), StringComparer.Ordinal);
+        // Hidden anywhere is hidden; the accounts that hide it are named on the row, because
+        // the game shows only the hidden list of the account that is logged in.
+        var hidden = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var roster in snapshot.Rosters)
+        {
+            foreach (var guid in roster.Hidden)
+            {
+                if (!hidden.TryGetValue(guid, out var by)) hidden[guid] = by = [];
+                var label = AccountLabel(roster.Path);
+                if (!by.Contains(label)) by.Add(label);
+            }
+        }
         var merged = new Dictionary<string, RosterCharacter>(StringComparer.Ordinal);
         foreach (var roster in snapshot.Rosters.OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase))
         {
@@ -90,16 +108,38 @@ public static class Eligibility
             }
         }
         var out_ = new List<EnhanceCandidate>();
+        var skipped = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var c in merged.Values.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Guid, StringComparer.Ordinal))
         {
-            if (hidden.Contains(c.Guid) || c.Level < minLevel) continue;
-            // The prompt is written from these: a record without them is not one to spend on.
-            if (string.IsNullOrWhiteSpace(c.Class) || string.IsNullOrWhiteSpace(c.Race) || string.IsNullOrWhiteSpace(c.Gender)) continue;
+            // The shorter name first, so WoW2 comes before WoW12.
+            var why = hidden.TryGetValue(c.Guid, out var by)
+                    ? "hidden in " + string.Join(" and ", by.OrderBy(l => l.Length).ThenBy(l => l, StringComparer.Ordinal))
+                : c.Level < minLevel ? $"below level {minLevel}"
+                // The prompt is written from these: a record without them is not one to spend on.
+                : string.IsNullOrWhiteSpace(c.Class) || string.IsNullOrWhiteSpace(c.Race) || string.IsNullOrWhiteSpace(c.Gender)
+                    ? "the roster has no race, gender or class for it"
+                : null;
+            if (why is not null)
+            {
+                skipped[c.Guid] = why;
+                continue;
+            }
             // A name-only legacy portrait is nobody's in particular: not a base to build on.
             if (fileBaseOf(c.Guid) is not { } fileBase) continue;
             out_.Add(new EnhanceCandidate(c.Guid, fileBase, c));
         }
-        return new(out_);
+        return new(out_, Skipped: skipped);
+    }
+
+    // The account as the player knows it: a Battle.net folder "<id>#12" is the game account
+    // WoW12, the name the launcher and Config.wtf use; a legacy account folder is its own name.
+    // For the window only - the log names accounts the way Account does, which diagnostics masks.
+    internal static string AccountLabel(string storePath)
+    {
+        var name = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(storePath))) ?? "";
+        var hash = name.LastIndexOf('#');
+        return hash >= 0 && hash < name.Length - 1 && name[(hash + 1)..].All(char.IsAsciiDigit) ? "WoW" + name[(hash + 1)..]
+            : name.Length > 0 ? name : "another account";
     }
 
     // The account, for a message that goes to the log: as WTF\Account\<name>, the form the

@@ -62,7 +62,9 @@ public sealed record PortraitRow(
     /// <summary>When the enhanced picture was written, if one is attached.</summary>
     DateTime? EnhancedModified = null,
     /// <summary>A picture of this character is being made right now - a fact of its own, whatever the note says.</summary>
-    bool Enhancing = false)
+    bool Enhancing = false,
+    /// <summary>Why enhancing, which is on, leaves this portrait alone ("hidden in WoW12"), or null.</summary>
+    string? EnhanceSkipped = null)
 {
 
     /// <summary>The latest thing that happened to this character - a capture, a portrait, an enhanced picture - for the list's order.</summary>

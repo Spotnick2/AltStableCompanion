@@ -6,6 +6,18 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- A portrait that enhancing leaves alone says why on its line in the list: "not enhanced:
+  hidden in WoW12", "below level 4", or a roster record without race, gender or class. A
+  character hidden in another account was skipped without a word, and the game only shows
+  the hidden list of the account you are logged in to.
+
+### Fixed
+
+- The Settings page scrolls, and the level and style of enhanced portraits come before its
+  long explanation. In a small window the options below that text could not be reached.
+
 ## [0.1.0-beta.4]
 
 Enhanced portraits say how many pictures they will make before anything is sent, and the app

@@ -745,7 +745,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Raise(nameof(EnhanceHeld)); Raise(nameof(HasEnhanceHeld)); Raise(nameof(EnhanceHeldButton));
         ShowUpdate(now);
 
-        _rows = shell.Report?.Portraits ?? [];
+        _rows = PassText.WithSkipped(shell.Report?.Portraits ?? [], shell.EnhanceSkipped);
         Count = PassText.Count(_rows);
         Attention = PassText.Attention(_rows);
         ShowRows(today);

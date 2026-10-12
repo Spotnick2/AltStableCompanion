@@ -405,6 +405,7 @@ public class EnhanceWorkerTests
         Settle();
         Assert.Equal(2, fake.Calls);
         Assert.Null(c.Current.Shell.EnhanceHeld);
+        Assert.Null(c.Current.Shell.EnhanceSkipped);
         Assert.Empty(AttemptHistory.Load(folder.EnhancedDir, "Player-1-0000000A").Attempts);
 
         // On: exactly the launches counted.
@@ -414,6 +415,14 @@ public class EnhanceWorkerTests
         Settle(2000);
         Assert.Equal(2 + plan.Launch, fake.Calls);
         Assert.Equal(["Dee"], c.Current.Shell.EnhanceHeld);
+        // B and C, and why - for their rows.
+        var skipped = c.Current.Shell.EnhanceSkipped!;
+        Assert.Equal(2, skipped.Count);
+        Assert.Equal("below level 10", skipped["Player-1-0000000B"]);
+        Assert.Equal("hidden in WoW1", skipped["Player-1-0000000C"]);
+        // Off: nobody is "not enhanced" for a reason of their own.
+        c.SetEnhance(false, 10, EnhanceStyles.Realistic);
+        Until(() => c.Current.Shell.EnhanceSkipped is null, "the reasons gone");
     }
 
     [Fact]

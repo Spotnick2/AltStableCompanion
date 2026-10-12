@@ -450,6 +450,40 @@ public class PassTextTests
     }
 
     [Fact]
+    public void A_portrait_enhancing_leaves_alone_says_why_on_its_line()
+    {
+        var today = new DateTime(2026, 10, 11, 23, 59, 0);
+        var captured = new DateTime(2026, 10, 11, 23, 56, 0);
+        var zoruka = new PortraitRow("Zoruka Mortalis", "Player-1-AAAA", "zoruka-mortalis.tga", PortraitSource.ByGuid, captured, captured, CaptureOutcome.Converted, null);
+        var none = new PortraitRow("Nobody", "Player-1-BBBB", null, PortraitSource.None, null, captured, CaptureOutcome.NoScreenshots, null);
+        var busy = zoruka with { Guid = "Player-1-CCCC", Enhancing = true };
+        var skipped = new Dictionary<string, string>
+        {
+            ["Player-1-AAAA"] = "hidden in WoW12",
+            ["Player-1-BBBB"] = "below level 4",
+            ["Player-1-CCCC"] = "below level 4",
+        };
+
+        var rows = PassText.WithSkipped([zoruka, none, busy], skipped);
+        Assert.Equal("hidden in WoW12", rows[0].EnhanceSkipped);
+        // Nothing to enhance, or being enhanced: nothing skipped.
+        Assert.Null(rows[1].EnhanceSkipped);
+        Assert.Null(rows[2].EnhanceSkipped);
+        // Off: the rows as they were.
+        var same = new[] { zoruka };
+        Assert.Same(same, PassText.WithSkipped(same, null));
+
+        // On the short line, not only in the tooltip: it is decided in another account.
+        Assert.Equal("Captured today 23:56 · not enhanced: hidden in WoW12", PassText.RowSummary(rows[0], today));
+        Assert.Equal("latest capture today 23:56 · converted · not enhanced: hidden in WoW12", PassText.RowDetail(rows[0], today));
+        // Beside a picture made earlier: that one stays, no new one is made.
+        var made = rows[0] with { EnhanceNote = "enhanced (realistic)" };
+        Assert.Equal("Captured today 23:56 · no new pictures: hidden in WoW12", PassText.RowSummary(made, today));
+        Assert.EndsWith("· enhanced (realistic) · no new pictures: hidden in WoW12", PassText.RowDetail(made, today));
+        Assert.Equal("Captured today 23:56", PassText.RowSummary(zoruka, today));
+    }
+
+    [Fact]
     public void The_search_box_narrows_the_list_by_name_and_nothing_narrows_nothing()
     {
         var rows = new[] { Ready("Kaleid Sumner"), Ready("Karuzo Elegia"), Rejected("Zoru") };
