@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.0]
+
+The first release that is not a beta. A portrait that enhancing leaves alone says why, and
+the Settings page scrolls.
+
 ### Added
 
 - A portrait that enhancing leaves alone says why on its line in the list: "not enhanced:
