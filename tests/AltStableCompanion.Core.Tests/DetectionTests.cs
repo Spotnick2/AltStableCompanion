@@ -116,6 +116,21 @@ public class DetectionTests
     }
 
     [Fact]
+    public void The_retired_beta_never_wins_over_live_forever_but_is_kept_when_picked()
+    {
+        // Live Forever before AltStable is installed in it, beside the beta that still has it:
+        // detection stays on _forever_, and the beta is not offered as elsewhere either.
+        using var t = new TempInstall();                                   // _forever_, no AltStable
+        var beta = Flavor(t, "_classic_beta_", altStable: true, exe: "WowB.exe");
+
+        Assert.Equal(t.Install.FlavorDir, WowInstallLocator.Detect([t.Install.FlavorDir])!.FlavorDir);
+        Assert.Equal(t.Install.FlavorDir, ResolvedInstall.FromPicked(t.Root)!.FlavorDir);
+        Assert.Empty(WowInstallLocator.AltStableElsewhere(t.Install));
+        // Picked by name, it is the player's choice.
+        Assert.Equal(beta, WowInstallLocator.Detect([beta])!.FlavorDir);
+    }
+
+    [Fact]
     public void Browsing_to_the_WoW_folder_picks_the_game_detection_would()
     {
         using var t = new TempInstall();                                   // _forever_, no AltStable

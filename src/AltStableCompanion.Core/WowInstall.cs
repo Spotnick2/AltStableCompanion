@@ -53,6 +53,14 @@ public sealed record WowInstall(string FlavorDir)
 public static class WowInstallLocator
 {
     public const string DefaultFlavor = "_forever_";
+
+    /// <summary>
+    /// Flavours whose game is gone. Their folders and saved data stay behind, so the scan
+    /// beside the candidates passes them over: a live Forever without AltStable yet must not
+    /// lose to the beta. A retired folder that is itself a candidate - picked, pinned, saved -
+    /// is still used.
+    /// </summary>
+    private static readonly string[] RetiredFlavors = ["_classic_beta_"];
     private const string DefaultRoot = @"C:\Program Files (x86)\World of Warcraft";
     private const string BlizzardKey = @"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft";
 
@@ -135,7 +143,8 @@ public static class WowInstallLocator
 
     /// <summary>
     /// The flavour folders AltStable is played in (<see cref="PlaysAltStable"/>): the candidates
-    /// first, in their order, then the others under the candidates' WoW folders, by name.
+    /// first, in their order, then the others under the candidates' WoW folders, by name,
+    /// leaving out the retired ones.
     /// </summary>
     public static IReadOnlyList<string> WithAltStable(IReadOnlyList<string> candidates)
     {
@@ -150,7 +159,7 @@ public static class WowInstallLocator
         foreach (var root in candidates.Select(d => Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(d))).OfType<string>()
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            foreach (var dir in FlavorsUnder(root)) Add(dir);
+            foreach (var dir in FlavorsUnder(root).Where(d => !RetiredFlavors.Contains(Path.GetFileName(d), StringComparer.OrdinalIgnoreCase))) Add(dir);
         }
         return [.. ordered.Where(PlaysAltStable)];
     }
