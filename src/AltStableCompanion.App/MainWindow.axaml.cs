@@ -283,7 +283,7 @@ internal sealed partial class MainWindow : Window
         {
             var picked = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
             {
-                Title = "The World of Warcraft folder, or _classic_beta_ inside it",
+                Title = "The World of Warcraft folder, or _forever_ inside it",
                 AllowMultiple = false,
             });
             if (picked.Count > 0 && picked[0].TryGetLocalPath() is { } folder && DataContext is MainViewModel vm)

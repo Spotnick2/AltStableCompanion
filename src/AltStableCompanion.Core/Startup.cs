@@ -48,7 +48,7 @@ public sealed record StartupOptions(bool Minimized = false, string? WowDir = nul
                         if (!WowInstallLocator.IsFlavorDir(folder))
                         {
                             return (null, $"--wow-dir: \"{folder}\" is not a World of Warcraft flavour folder "
-                                + "(a folder such as _classic_beta_, holding Wow*.exe).");
+                                + "(a folder such as _forever_, holding Wow*.exe).");
                         }
                         options = options with { WowDir = folder };
                     }

@@ -6,6 +6,12 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- WoW Forever is found in its live folder, `_forever_`, which it uses from 2026-11-04. The
+  beta's `_classic_beta_` is no longer looked for. If Settings still names the beta folder,
+  press Detect again, or Browse to `_forever_`.
+
 ## [0.1.0]
 
 The first release that is not a beta. A portrait that enhancing leaves alone says why, and

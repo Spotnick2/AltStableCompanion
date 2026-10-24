@@ -96,7 +96,7 @@ public class ControllerTests
         using var t = new TempInstall();
         using var other = new TempInstall();
         Capture(other, "1#1", "Victim", "Player-1-AAAAAAAA", T0);
-        Malformed(t, @"D:\Games\WoW\_classic_beta_");
+        Malformed(t, @"D:\Games\WoW\_forever_");
         WowInstall? Detect() => other.Install;
 
         using (var c = Started(t, detect: Detect))
@@ -150,7 +150,7 @@ public class ControllerTests
     public void Detect_again_is_the_player_choosing_too()
     {
         using var t = new TempInstall();
-        Malformed(t, @"D:\Games\WoW\_classic_beta_");
+        Malformed(t, @"D:\Games\WoW\_forever_");
         using (var c = Started(t, detect: () => t.Install))
         {
             Assert.Null(c.Current.Shell.Install);
@@ -167,7 +167,7 @@ public class ControllerTests
     public void A_folder_named_on_the_command_line_is_used_and_the_unknown_one_stays_unknown()
     {
         using var t = new TempInstall();
-        Malformed(t, @"D:\Games\WoW\_classic_beta_");
+        Malformed(t, @"D:\Games\WoW\_forever_");
         var before = File.ReadAllText(Path.Combine(Data(t), "settings.json"));
         using (var c = Started(t, wowDir: t.Install.FlavorDir))
         {

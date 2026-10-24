@@ -4,13 +4,13 @@ namespace AltStableCompanion.Core.Tests;
 
 /// <summary>
 /// Which game detection picks: the one AltStable is installed in. Measured on the owner's PC
-/// (2026-10-04): seven flavour folders under one WoW folder, AltStable in _classic_beta_ only;
-/// the registry's InstallPath names _anniversary_ (the last one run), its Beta key
-/// _classic_beta_.
+/// (2026-10-04): seven flavour folders under one WoW folder, AltStable in one; the registry's
+/// InstallPath names _anniversary_ (the last one run). Since 2026-10-24 AltStable is in both
+/// _forever_ (live) and the dead beta's _classic_beta_ - the candidates are _forever_ only.
 /// </summary>
 public class DetectionTests
 {
-    // A flavour folder beside the TempInstall's _classic_beta_: an executable, and AltStable or not.
+    // A flavour folder beside the TempInstall's _forever_: an executable, and AltStable or not.
     private static string Flavor(TempInstall t, string name, bool altStable, string exe = "WowClassic.exe")
     {
         var dir = Path.Combine(t.Root, name);
@@ -30,7 +30,7 @@ public class DetectionTests
     [Fact]
     public void One_flavour_with_AltStable_is_the_one_detected_even_when_it_is_no_candidate()
     {
-        // The candidates are what the registry and the default name give: _classic_beta_,
+        // The candidates are what the registry and the default name give: _forever_,
         // which has no AltStable here. _anniversary_ has it.
         using var t = new TempInstall();
         var anniversary = Flavor(t, "_anniversary_", altStable: true);
@@ -48,7 +48,7 @@ public class DetectionTests
         AltStable(t.Install.FlavorDir);
         var anniversary = Flavor(t, "_anniversary_", altStable: true);
 
-        // _classic_beta_ is a candidate, _anniversary_ only under the root: the candidate wins,
+        // _forever_ is a candidate, _anniversary_ only under the root: the candidate wins,
         // although _anniversary_ comes first by name - and nothing is decided by time.
         File.SetLastWriteTimeUtc(Path.Combine(anniversary, "WowClassic.exe"), DateTime.UtcNow.AddDays(1));
         Assert.Equal(t.Install.FlavorDir, WowInstallLocator.Detect([t.Install.FlavorDir])!.FlavorDir);
@@ -118,7 +118,7 @@ public class DetectionTests
     [Fact]
     public void Browsing_to_the_WoW_folder_picks_the_game_detection_would()
     {
-        using var t = new TempInstall();                                   // _classic_beta_, no AltStable
+        using var t = new TempInstall();                                   // _forever_, no AltStable
         var anniversary = Flavor(t, "_anniversary_", altStable: true);
         Assert.Equal(anniversary, ResolvedInstall.FromPicked(t.Root)!.FlavorDir);
         Assert.Equal(t.Install.FlavorDir, ResolvedInstall.FromPicked(t.Install.FlavorDir)!.FlavorDir);

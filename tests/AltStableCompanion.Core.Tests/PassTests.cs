@@ -719,7 +719,7 @@ public class InstallAndSettingsTests
         Directory.CreateDirectory(Path.Combine(t.Root, "_empty_"));
         Directory.CreateDirectory(Path.Combine(t.Root, "Data"));
         Assert.Equal([t.Install.FlavorDir], WowInstallLocator.FlavorsUnder(t.Root));
-        Assert.Equal("_classic_beta_", t.Install.Flavor);
+        Assert.Equal("_forever_", t.Install.Flavor);
         Assert.EndsWith(Path.Combine("Interface", "AddOns", "AltStableCutouts"), t.Install.CutoutAddonDir);
     }
 
