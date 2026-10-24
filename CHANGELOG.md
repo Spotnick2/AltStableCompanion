@@ -6,6 +6,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1]
+
+Ready for Forever live: the app finds the game in `_forever_`.
+
 ### Changed
 
 - WoW Forever is found in its live folder, `_forever_`, which it uses from 2026-11-04. The
