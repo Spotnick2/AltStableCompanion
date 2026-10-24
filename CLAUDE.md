@@ -28,7 +28,7 @@ the memories of the AltStable addon's sessions, so the rules that matter are rep
 - **Plan critiques** the owner asks for go to a different model family first (Codex via
   `/codex-consult`), Fable as the fallback. Be sceptical when a cold reviewer wants to add
   complexity — this is a single-maintainer project.
-- **Measured beats reasoned.** Facts about the client and this machine (RLE screenshots, `WowB.exe`,
+- **Measured beats reasoned.** Facts about the client and this machine (RLE screenshots, `Wow.exe`,
   the registry keys, `AltStablePortraits = nil`) were measured; they are recorded in the addon's
   `docs/PORTRAIT-CONTRACT.md` and in code comments. Do not re-derive them.
 - **Mutation-test every claim.** Two tests in M1 passed with the behaviour broken until this was
@@ -36,7 +36,8 @@ the memories of the AltStable addon's sessions, so the rules that matter are rep
 
 ## Testing against the real game
 
-The owner's Forever install is `C:\Program Files (x86)\World of Warcraft\_classic_beta_`, with
+The owner's Forever install is `C:\Program Files (x86)\World of Warcraft\_forever_` (live from
+2026-11-04; the beta's `_classic_beta_` and its registry `Beta` key are left over and ignored), with
 two accounts under `WTF\Account`. Never run the app or a pass against it in a way that deletes
 screenshots or rewrites `AltStableCutouts` without saying so first — copy what you need into the
 scratchpad (M1's cross-check did exactly that). Deploying the ADDON for in-game testing is

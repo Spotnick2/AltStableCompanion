@@ -2,7 +2,7 @@ using Microsoft.Win32;
 
 namespace AltStableCompanion.Core;
 
-/// <summary>One WoW flavour folder, e.g. <c>...\World of Warcraft\_classic_beta_</c> (Forever).</summary>
+/// <summary>One WoW flavour folder, e.g. <c>...\World of Warcraft\_forever_</c> (Forever).</summary>
 public sealed record WowInstall(string FlavorDir)
 {
     public string Root => Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(FlavorDir)) ?? FlavorDir;
@@ -44,13 +44,23 @@ public sealed record WowInstall(string FlavorDir)
 /// <summary>
 /// Where WoW is. Measured on this owner's machine (2026-09-29): the registry's
 /// <c>World of Warcraft\InstallPath</c> is whichever flavour ran LAST (<c>_anniversary_</c>),
-/// so only its parent is useful; the <c>World of Warcraft\Beta\InstallPath</c> subkey names
-/// <c>_classic_beta_</c>, which is Forever, and is tried first. Forever's executable is
-/// <c>WowB.exe</c>, so a flavour folder is recognised by any <c>Wow*.exe</c>, not one name.
+/// so only its parent is useful. Forever live (2026-11-04) installs to <c>_forever_</c>
+/// (measured 2026-10-24: <c>.flavor.info</c> says <c>wowf</c>, the executable is <c>Wow.exe</c>).
+/// The beta's <c>_classic_beta_</c> and its <c>World of Warcraft\Beta\InstallPath</c> key outlive
+/// the beta and are not read: they would win over live. Executables differ by flavour
+/// (the beta's was <c>WowB.exe</c>), so a flavour folder is recognised by any <c>Wow*.exe</c>.
 /// </summary>
 public static class WowInstallLocator
 {
-    public const string DefaultFlavor = "_classic_beta_";
+    public const string DefaultFlavor = "_forever_";
+
+    /// <summary>
+    /// Flavours whose game is gone. Their folders and saved data stay behind, so the scan
+    /// beside the candidates passes them over: a live Forever without AltStable yet must not
+    /// lose to the beta. A retired folder that is itself a candidate - picked, pinned, saved -
+    /// is still used.
+    /// </summary>
+    private static readonly string[] RetiredFlavors = ["_classic_beta_"];
     private const string DefaultRoot = @"C:\Program Files (x86)\World of Warcraft";
     private const string BlizzardKey = @"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft";
 
@@ -133,7 +143,8 @@ public static class WowInstallLocator
 
     /// <summary>
     /// The flavour folders AltStable is played in (<see cref="PlaysAltStable"/>): the candidates
-    /// first, in their order, then the others under the candidates' WoW folders, by name.
+    /// first, in their order, then the others under the candidates' WoW folders, by name,
+    /// leaving out the retired ones.
     /// </summary>
     public static IReadOnlyList<string> WithAltStable(IReadOnlyList<string> candidates)
     {
@@ -148,7 +159,7 @@ public static class WowInstallLocator
         foreach (var root in candidates.Select(d => Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(d))).OfType<string>()
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            foreach (var dir in FlavorsUnder(root)) Add(dir);
+            foreach (var dir in FlavorsUnder(root).Where(d => !RetiredFlavors.Contains(Path.GetFileName(d), StringComparer.OrdinalIgnoreCase))) Add(dir);
         }
         return [.. ordered.Where(PlaysAltStable)];
     }
@@ -173,10 +184,6 @@ public static class WowInstallLocator
         {
             if (OperatingSystem.IsWindows())
             {
-                if (Registry.LocalMachine.OpenSubKey(BlizzardKey + @"\Beta")?.GetValue("InstallPath") is string beta)
-                {
-                    yield return beta;
-                }
                 if (Registry.LocalMachine.OpenSubKey(BlizzardKey)?.GetValue("InstallPath") is string last
                     && Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(last)) is { } root)
                 {

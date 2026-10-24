@@ -89,7 +89,7 @@ public class StartupOptionsTests
 
 public class ResolvedInstallTests
 {
-    private static readonly WowInstall Detected = new(@"C:\detected\_classic_beta_");
+    private static readonly WowInstall Detected = new(@"C:\detected\_forever_");
 
     [Fact]
     public void A_pinned_folder_is_used_and_nothing_is_detected()
@@ -579,7 +579,8 @@ public class PassTextTests
     [Fact]
     public void Only_forever_is_the_flavour_the_cutouts_are_written_for()
     {
-        Assert.Null(PassText.FlavorWarning(new WowInstall(@"C:\WoW\_classic_beta_")));
+        Assert.Null(PassText.FlavorWarning(new WowInstall(@"C:\WoW\_forever_")));
+        Assert.NotNull(PassText.FlavorWarning(new WowInstall(@"C:\WoW\_classic_beta_")));   // the beta is over
         Assert.Contains("_retail_", PassText.FlavorWarning(new WowInstall(@"C:\WoW\_retail_")));
     }
 
@@ -745,20 +746,20 @@ public class ShellCoreTests
     {
         using var t = new TempInstall();
         var dir = Path.Combine(t.Root, "appdata");
-        var s = new Settings().WithRestartNotice(@"C:\WoW\_classic_beta_", owed: true)
-            .WithRestartNotice(@"D:\WoW\_classic_beta_", owed: true)
-            .WithRestartNotice(@"c:\wow\_CLASSIC_BETA_", owed: true);          // the same folder
+        var s = new Settings().WithRestartNotice(@"C:\WoW\_forever_", owed: true)
+            .WithRestartNotice(@"D:\WoW\_forever_", owed: true)
+            .WithRestartNotice(@"c:\wow\_FOREVER_", owed: true);          // the same folder
         Assert.Equal(2, s.RestartNoticeInstalls.Count);
         s.Save(dir);
 
         var back = Settings.Load(dir);
         Assert.Equal(s, back);
-        Assert.True(back.OwesRestartNotice(@"C:\WOW\_classic_beta_"));
-        Assert.False(back.OwesRestartNotice(@"E:\WoW\_classic_beta_"));
+        Assert.True(back.OwesRestartNotice(@"C:\WOW\_forever_"));
+        Assert.False(back.OwesRestartNotice(@"E:\WoW\_forever_"));
 
-        back = back.WithRestartNotice(@"C:\WoW\_classic_beta_", owed: false);
-        Assert.False(back.OwesRestartNotice(@"C:\WoW\_classic_beta_"));
-        Assert.True(back.OwesRestartNotice(@"D:\WoW\_classic_beta_"));
+        back = back.WithRestartNotice(@"C:\WoW\_forever_", owed: false);
+        Assert.False(back.OwesRestartNotice(@"C:\WoW\_forever_"));
+        Assert.True(back.OwesRestartNotice(@"D:\WoW\_forever_"));
         Assert.NotEqual(s, back);
     }
 
@@ -782,7 +783,7 @@ public class ShellCoreTests
 
     [Theory]
     [InlineData("""{ "RestartNoticeInstalls": null }""", 0)]
-    [InlineData("""{ "RestartNoticeInstalls": [null, "", "C:\\WoW\\_classic_beta_"] }""", 1)]
+    [InlineData("""{ "RestartNoticeInstalls": [null, "", "C:\\WoW\\_forever_"] }""", 1)]
     public void A_list_that_is_null_or_holds_one_is_no_reason_not_to_start(string json, int want)
     {
         using var t = new TempInstall();

@@ -24,9 +24,9 @@ public class DiagnosticsTests
         File.WriteAllLines(log,
         [
             $@"2026-09-29 01:06:40  skipped {t.Install.AccountsDir}\SECRETACCT\SavedVariables\AltStable.lua this pass: in use",
-            @"2026-09-29 01:06:41  skipped D:\Games\WoW\_classic_beta_\WTF\Account\OTHERACCT\SavedVariables\AltStable.lua",
+            @"2026-09-29 01:06:41  skipped D:\Games\WoW\_forever_\WTF\Account\OTHERACCT\SavedVariables\AltStable.lua",
             // An exception's way of quoting a path: the name ends at the quote, not the line.
-            @"2026-09-29 01:06:41  Access to the path 'D:\Games\WoW\_classic_beta_\WTF\Account\QUOTEDACCT' is denied.",
+            @"2026-09-29 01:06:41  Access to the path 'D:\Games\WoW\_forever_\WTF\Account\QUOTEDACCT' is denied.",
             "2026-09-29 01:06:41  read QUOTEDACCT's store",
             "2026-09-29 01:06:42  read 12345678#1's store, and secretacct's",
             $@"2026-09-29 01:06:43  settings in {Profile}\AppData\Roaming\AltStableCompanion; not {Profile}2\x",

@@ -156,7 +156,7 @@ menu.
   installed in, and says so on the dashboard when AltStable is in another game too.
   Settings → **Browse...** and choose the game
   folder you play AltStable in (the one with `Interface` and `WTF` inside, such as
-  `...\World of Warcraft\_classic_beta_`).
+  `...\World of Warcraft\_forever_`).
 - **Reporting a problem.** Open an [issue](https://github.com/Spotnick2/AltStableCompanion/issues).
   Help → **Save diagnostics…** writes one text file to your Downloads folder to attach: the versions,
   the WoW folder, each character's counts and the end of the log. Your characters' names are
@@ -167,7 +167,7 @@ menu.
 | Option | What it does |
 |---|---|
 | `--minimized` | Start in the tray, without the window. Handy in a shortcut. |
-| `--wow-dir <folder>` | Use this game folder (such as `...\World of Warcraft\_classic_beta_`) for this run, and no other. Browse and Detect again are switched off. |
+| `--wow-dir <folder>` | Use this game folder (such as `...\World of Warcraft\_forever_`) for this run, and no other. Browse and Detect again are switched off. |
 | `--data-dir <folder>` | Keep the settings and the log in this folder, not in `%APPDATA%\AltStableCompanion`. |
 
 A wrong option, a `--wow-dir` that is not a game folder, or a `--data-dir` it cannot

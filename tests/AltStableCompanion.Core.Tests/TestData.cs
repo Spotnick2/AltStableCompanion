@@ -172,10 +172,10 @@ internal sealed class TempInstall : IDisposable
     public TempInstall()
     {
         Root = Path.Combine(Path.GetTempPath(), "asc-test-" + Guid.NewGuid().ToString("N"));
-        Install = new WowInstall(Path.Combine(Root, "_classic_beta_"));
+        Install = new WowInstall(Path.Combine(Root, "_forever_"));
         Directory.CreateDirectory(Install.Screenshots);
         Directory.CreateDirectory(Install.AddOnsDir);
-        File.WriteAllText(Path.Combine(Install.FlavorDir, "WowB.exe"), "");
+        File.WriteAllText(Path.Combine(Install.FlavorDir, "Wow.exe"), "");
     }
 
     public string Root { get; }
