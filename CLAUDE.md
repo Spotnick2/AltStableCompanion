@@ -6,11 +6,11 @@ the memories of the AltStable addon's sessions, so the rules that matter are rep
 
 ## Where things stand
 
-- The app is AltStable#89's endgame. Its milestones - M1 core, M2 Avalonia tray shell, M3
-  release workflow - are all on `main`. What is left is the backlog: #2 (diagnostics zip),
-  #15 (version and About on the Help page), #16 (update checks, after releases exist), #17
-  (optional Codex-enhanced portraits; a plan first, through Codex). In the addon repo: #124
-  (auto-capture), #131 (a sidecar-less cutout's crop origin).
+- The app is AltStable#89's endgame. 1.0.0 is released (2026-11-04, for Forever live; the
+  same code as 0.1.1). Diagnostics, About, update checks and Codex-enhanced portraits have
+  all shipped. The backlog: #26 (gear in the enhancement prompt), #30 (pet captures, with
+  AltStable #147), #51 (flag deleted characters, blocked until Blizzard's web API has a
+  Forever endpoint), #55 (Glass Gear's external simulations, research only).
 - The window: own `Win32TrayIcon` via P/Invoke (a HIDDEN TOP-LEVEL window, not message-only -
   message-only windows never receive `WM_TASKBARCREATED`), one window with Settings and Help
   as pages, single instance. No Run key.
