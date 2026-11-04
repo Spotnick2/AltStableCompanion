@@ -6,6 +6,12 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.0.0]
+
+AltStable Companion 1.0, for World of Warcraft: Forever going live. The app is the same as
+0.1.1: this release changes its version number only. If you run 0.1.1, **Help → Check for
+updates** offers it, and nothing you have needs to change.
+
 ## [0.1.1]
 
 Ready for Forever live: the app finds the game in `_forever_`.
