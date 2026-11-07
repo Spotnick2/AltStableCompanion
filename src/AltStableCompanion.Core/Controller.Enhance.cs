@@ -714,8 +714,40 @@ public sealed partial class Controller
             }
             RefreshAfterEnhancement(folder, job.Generation, outcome == Attempt.Written ? job.Name : null);
         }
+        if (outcome == Attempt.Written) KeepOriginal(job, result.Png!);
         TryDeleteDir(job.Dir);
         Ended(job, outcome);
+    }
+
+    /// <summary>
+    /// Where Codex's pictures are kept whole, as they came back, one per signature - the
+    /// enhanced sidecar names it. The game draws a resample of it, so another size is made
+    /// again from this file rather than from a new run. The app's own, not the contract's: the
+    /// game never reads it, and it stays out of the AddOns folder.
+    /// </summary>
+    public string OriginalsDir => Path.Combine(_dataDir, "originals");
+
+    public string OriginalPath(string signature) => Path.Combine(OriginalsDir, signature + ".png");
+
+    /// <summary>
+    /// After the picture is written, never instead of it: the TGA is what the player sees, and
+    /// a copy that cannot be kept is said in the log and costs nothing else.
+    /// </summary>
+    private void KeepOriginal(EnhanceJob job, byte[] png)
+    {
+        var path = OriginalPath(job.Signature);
+        var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            Directory.CreateDirectory(OriginalsDir);
+            File.WriteAllBytes(tmp, png);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log?.Write($"enhance: {job.Name}: the full-size picture could not be kept: {ex.Message}");
+            try { File.Delete(tmp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     private void Record(CutoutFolder folder, EnhanceJob job, string outcome, string? outputHash)

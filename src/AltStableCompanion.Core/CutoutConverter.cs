@@ -50,8 +50,25 @@ public sealed record Cutout(RgbaImage Canvas, CutoutMeta Meta)
 /// <summary>One black/white pair to one cutout. Ported from make-cutout.py's convert().</summary>
 public static class CutoutConverter
 {
-    /// <summary>How tall the figure is resampled to - far above what any scene draws it at.</summary>
-    public const int TargetHeight = 512;
+    /// <summary>
+    /// The tallest a cutout is resampled to. At 3840x2160 (measured, 2026-11-07) the Char page
+    /// draws a portrait about 1050 px tall and the camp about 900; 512 was drawn at twice its
+    /// size there and looked blurred. Every enhanced picture is made at this height: Codex
+    /// returns 1536 rows, the figure takes about 1400 of them.
+    /// </summary>
+    public const int MaxHeight = 1024;
+
+    /// <summary>
+    /// A capture is always made at least this much smaller: the downscale is what gives the
+    /// edges their partial alpha (see <see cref="Resampler"/>), and the scenes draw a figure at
+    /// about 0.75 of its capture (1050 of 1373 rows at 3840x2160). So a 1080p capture (about
+    /// 690 rows) still lands near 512, as before, and a 4K one at <see cref="MaxHeight"/>.
+    /// </summary>
+    public const double CaptureScale = 0.75;
+
+    /// <summary>How tall a capture of <paramref name="nativeHeight"/> rows is made.</summary>
+    public static int HeightFor(int nativeHeight) =>
+        Math.Clamp((int)Math.Round(nativeHeight * CaptureScale, MidpointRounding.ToEven), 1, MaxHeight);
 
     /// <summary>A figure this much of the screen or more is the whole window, not a character.</summary>
     public const double MaxScreenFraction = 0.95;
@@ -73,7 +90,7 @@ public static class CutoutConverter
                 $"the cutout is {nativeH} of {shotH} screen rows tall - the matte caught the whole window, not the character");
         }
 
-        var (canvas, scaled) = OnCanvas(cut);
+        var (canvas, scaled) = OnCanvas(cut, HeightFor(nativeH));
 
         var meta = new CutoutMeta
         {
@@ -93,12 +110,12 @@ public static class CutoutConverter
     }
 
     /// <summary>
-    /// The figure at the cutout height on the power-of-two canvas the game loads, top-left:
-    /// the one shape every cutout has, plain or enhanced.
+    /// The figure at <paramref name="height"/> (never scaled up) on the power-of-two canvas
+    /// the game loads, top-left: the one shape every cutout has, plain or enhanced.
     /// </summary>
-    public static (RgbaImage Canvas, RgbaImage Scaled) OnCanvas(RgbaImage figure)
+    public static (RgbaImage Canvas, RgbaImage Scaled) OnCanvas(RgbaImage figure, int height)
     {
-        var scaled = Resampler.DownscaleToHeight(figure, TargetHeight);
+        var scaled = Resampler.DownscaleToHeight(figure, height);
         var canvas = new RgbaImage(Pot(scaled.Width), Pot(scaled.Height));
         for (var y = 0; y < scaled.Height; y++)
         {

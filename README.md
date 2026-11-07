@@ -134,7 +134,8 @@ switch on, and the update check.
 It touches only:
 - the screenshots it matched to a capture;
 - the `AltStableCutouts` addon folder;
-- its own settings and log in `%APPDATA%\AltStableCompanion`;
+- its own settings and log in `%APPDATA%\AltStableCompanion`, and there, in `originals`, each
+  enhanced portrait as Codex made it, full size (about 2 MB each);
 - a diagnostics file in your Downloads folder, only when you press Help → **Save diagnostics…**;
 - for enhanced portraits, Codex's own `generated_images` folder, read only.
 
@@ -168,7 +169,7 @@ menu.
 |---|---|
 | `--minimized` | Start in the tray, without the window. Handy in a shortcut. |
 | `--wow-dir <folder>` | Use this game folder (such as `...\World of Warcraft\_forever_`) for this run, and no other. Browse and Detect again are switched off. |
-| `--data-dir <folder>` | Keep the settings and the log in this folder, not in `%APPDATA%\AltStableCompanion`. |
+| `--data-dir <folder>` | Keep the settings, the log and the full-size enhanced portraits in this folder, not in `%APPDATA%\AltStableCompanion`. |
 
 A wrong option, a `--wow-dir` that is not a game folder, or a `--data-dir` it cannot
 write to is an error: the app says so and stops. It never carries on with a guess.
