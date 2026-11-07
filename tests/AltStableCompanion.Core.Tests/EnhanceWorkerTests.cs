@@ -203,7 +203,14 @@ public class EnhanceWorkerTests
         for (var y = 40; y < 400; y++)
             for (var x = 60; x < 140; x++)
                 img[x, y] = (150, 60, 200, 255);
-        return PngCodec.Write(img);
+        // With a tEXt chunk before IEND, as a generator writes and this app's encoder does
+        // not: a copy that was decoded and encoded again is not these bytes.
+        var plain = PngCodec.Write(img);
+        var ms = new MemoryStream();
+        ms.Write(plain, 0, plain.Length - 12);
+        PngCodec.Chunk(ms, "tEXt", "Software test generator"u8);
+        ms.Write(plain, plain.Length - 12, 12);
+        return ms.ToArray();
     }
 
     private sealed class Fake
@@ -296,6 +303,11 @@ public class EnhanceWorkerTests
         var history = AttemptHistory.Load(folder.EnhancedDir, Guid1);
         Assert.Equal(Attempt.Written, history.Last!.Outcome);
         Assert.Equal(meta.Enhancement.OutputHash, history.Last.OutputHash);
+        // Codex's own picture, whole and untouched, in the app's folder - found from the sidecar.
+        Until(() => File.Exists(c.OriginalPath(meta.Enhancement.Signature!)), "the full-size picture kept");
+        Assert.Equal(fake.Png, File.ReadAllBytes(c.OriginalPath(meta.Enhancement.Signature!)));
+        Assert.StartsWith(Data(t), c.OriginalsDir);
+        Assert.Single(Directory.GetFiles(c.OriginalsDir));      // no temporary left behind
         Assert.Contains("enhanced = {", File.ReadAllText(folder.ManifestPath));
         Until(() => c.Current.Shell.Report?.Portraits?.Single().Enhanced is not null, "the row");
         var row = c.Current.Shell.Report!.Portraits!.Single();
@@ -864,6 +876,9 @@ public class EnhanceWorkerTests
         Assert.StartsWith("failed: could not be written", last.Outcome);
         Assert.Null(last.OutputHash);
         Assert.Null(c.Current.Shell.LastEnhanced);
+        // A picture that is not drawn is not kept either.
+        Settle(300);
+        Assert.False(Directory.Exists(c.OriginalsDir) && Directory.EnumerateFileSystemEntries(c.OriginalsDir).Any());
     }
 
     [Fact]

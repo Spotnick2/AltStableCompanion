@@ -411,7 +411,7 @@ public static class Enhancement
         var seen = Inspect(png);
         if (Refuse(png, seen) is { } why) throw new ThumbnailException(why);
         var figure = png.Crop(seen.MinX, seen.MinY, seen.Width, seen.Height);
-        var (canvas, scaled) = CutoutConverter.OnCanvas(figure);
+        var (canvas, scaled) = CutoutConverter.OnCanvas(figure, CutoutConverter.MaxHeight);
         return new Cutout(canvas, meta with { W = scaled.Width, H = scaled.Height, TexW = canvas.Width, TexH = canvas.Height, Shots = null });
     }
 }

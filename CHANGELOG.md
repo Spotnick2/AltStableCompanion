@@ -6,6 +6,19 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- Portraits are sharper on a large screen. They were made 512 pixels tall, and at 3840x2160
+  the game drew them at about twice that. Now a portrait is made at three quarters of its
+  capture's height, up to 1024 pixels, so a 4K screen gets 1024 and a 1080p one stays near
+  512. Every enhanced portrait is made at 1024. A portrait already made keeps its size until
+  the character is captured again; a new capture is enhanced again on its own.
+
+### Added
+
+- Each enhanced portrait is also kept as Codex made it, full size, in the app's own folder
+  (`originals`). The game never reads it.
+
 ## [1.0.0]
 
 AltStable Companion 1.0, for World of Warcraft: Forever going live. The app is the same as

@@ -134,10 +134,12 @@ public class PngCodecTests
         {
             f.SetLength(PngCodec.MaxEncodedBytes + 1);
         }
-        var before = GC.GetTotalAllocatedBytes(precise: true);
+        // This thread's allocations only: the read is synchronous, and the process-wide count
+        // took in whatever the tests running beside it allocated.
+        var before = GC.GetAllocatedBytesForCurrentThread();
         Assert.Contains("larger than", Assert.Throws<PngFormatException>(() => PngCodec.Read(big)).Message);
         // Not the file's worth of bytes: the refusal came from its length.
-        Assert.True(GC.GetTotalAllocatedBytes(precise: true) - before < PngCodec.MaxEncodedBytes / 4);
+        Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < PngCodec.MaxEncodedBytes / 4);
         var small = Path.Combine(t.Root, "small.png");
         File.WriteAllBytes(small, PngCodec.Write(new RgbaImage(2, 2)));
         Assert.Equal(2, PngCodec.Read(small).Width);
@@ -478,13 +480,16 @@ public class EnhancementCutoutTests
     [Fact]
     public void The_cutout_is_the_figure_scaled_to_the_converter_s_height_on_a_power_of_two_canvas()
     {
-        var png = Picture(400, 1200, 50, 100, 200, 1000);
-        png[60, 110] = (1, 2, 3, 128);
+        // Codex's shape: 1024x1536, the figure about 1400 rows of it.
+        var png = Picture(1024, 1536, 100, 100, 400, 1400);
+        png[110, 120] = (1, 2, 3, 128);
+        // A 900-row capture would make a plain cutout 675 tall; the picture is made at the
+        // most, whatever the capture was.
         var meta = new CutoutMeta { Guid = "g", Epoch = 5, Shots = ["a", "b"], NativePx = [300, 900] };
         var cut = Enhancement.ToCutout(png, meta);
-        Assert.Equal((CutoutConverter.TargetHeight, 102), (cut.Meta.H, cut.Meta.W));
-        Assert.Equal((128, 512), (cut.Meta.TexW, cut.Meta.TexH));
-        Assert.Equal((128, 512), (cut.Canvas.Width, cut.Canvas.Height));
+        Assert.Equal((CutoutConverter.MaxHeight, 293), (cut.Meta.H, cut.Meta.W));   // round(400*1024/1400)
+        Assert.Equal((512, 1024), (cut.Meta.TexW, cut.Meta.TexH));
+        Assert.Equal((512, 1024), (cut.Canvas.Width, cut.Canvas.Height));
         // The capture's identity stays; the screenshots are not this file's.
         Assert.Equal(("g", 5L), (cut.Meta.Guid, cut.Meta.Epoch));
         Assert.Null(cut.Meta.Shots);
