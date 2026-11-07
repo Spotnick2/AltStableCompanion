@@ -16,8 +16,8 @@ already made keeps its old size, and a new capture is enhanced again on its own.
 - Portraits are sharp on a large screen. They were made 512 pixels tall, and at 3840x2160
   the Char page draws a character 1329 pixels tall. Now a portrait is made as tall as the
   Char page draws it on the screen it was captured on (1329 at 4K, 665 at 1080p), and an
-  enhanced one keeps the size Codex made it (up to 1536). At 4K a portrait takes 4 to 8 MB
-  in the `AltStableCutouts` folder, where it took 512 KB.
+  enhanced one keeps the size Codex made it (up to 1536). At 4K, in the `AltStableCutouts`
+  folder, a plain portrait takes 4 or 8 MB and an enhanced one 8 MB, where each took 512 KB.
 
 ### Added
 
