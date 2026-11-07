@@ -239,15 +239,15 @@ public class ResamplerTests
 public class CutoutConverterTests
 {
     [Fact]
-    public void A_figure_is_scaled_to_three_quarters_on_a_power_of_two_canvas_with_screen_fractions()
+    public void A_figure_is_scaled_to_the_char_page_s_height_on_a_power_of_two_canvas_with_screen_fractions()
     {
-        var (b, w) = TestData.Pair(400, 1200, 150, 250, 100, 700);
+        var (b, w) = TestData.Pair(400, 1000, 150, 250, 100, 700);
         var cut = CutoutConverter.Convert(b, w, "Player-1-AAAA", 1790000000);
-        Assert.Equal((75, 525), (cut.Meta.W, cut.Meta.H));      // 700 * 0.75 = 525; round(100*525/700) = 75
+        Assert.Equal((88, 615), (cut.Meta.W, cut.Meta.H));      // 1000*1329/2160 = 615.3; round(100*615/700) = 88
         Assert.Equal((128, 1024), (cut.Meta.TexW, cut.Meta.TexH));
         Assert.Equal((128, 1024), (cut.Canvas.Width, cut.Canvas.Height));
-        Assert.Equal(0.08333, cut.Meta.NativeW);
-        Assert.Equal(0.58333, cut.Meta.NativeH);
+        Assert.Equal(0.1, cut.Meta.NativeW);
+        Assert.Equal(0.7, cut.Meta.NativeH);
         Assert.Equal("screen", cut.Meta.NativeUnit);
         Assert.Equal([100, 700], cut.Meta.NativePx!);
         Assert.Equal("Player-1-AAAA", cut.Meta.Guid);
@@ -271,16 +271,15 @@ public class CutoutConverterTests
     }
 
     [Theory]
-    [InlineData(1373, 1024)]    // 3840x2160: past the most
-    [InlineData(1365, 1024)]    // 1023.75 rounds up to exactly the most
-    [InlineData(916, 687)]      // 2560x1440
-    [InlineData(690, 518)]      // 1920x1080: about the 512 of before
-    [InlineData(686, 514)]      // 514.5: halves go to even, as Python's round() and the resampler do
-    [InlineData(700, 525)]
-    [InlineData(1, 1)]          // never nothing
-    [InlineData(0, 1)]
-    public void The_height_is_three_quarters_of_the_capture_up_to_the_most(int native, int want) =>
-        Assert.Equal(want, CutoutConverter.HeightFor(native));
+    [InlineData(1373, 2160, 1329)]  // the owner's 3840x2160: what the Char page draws
+    [InlineData(916, 1440, 886)]    // 2560x1440: 886 exactly
+    [InlineData(690, 1080, 665)]    // 1920x1080: 664.5, the half rounds up
+    [InlineData(500, 1080, 500)]    // a capture smaller than the page draws it: never scaled up
+    [InlineData(3000, 4320, 2048)]  // 2658 is past the most
+    [InlineData(1, 1080, 1)]
+    [InlineData(0, 1080, 1)]        // never nothing
+    public void The_height_is_what_the_char_page_draws_up_to_the_capture_and_the_most(int native, int screen, int want) =>
+        Assert.Equal(want, CutoutConverter.HeightFor(native, screen));
 
     [Theory]
     [InlineData(1, 1)]

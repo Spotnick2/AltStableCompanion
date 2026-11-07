@@ -483,19 +483,22 @@ public class EnhancementCutoutTests
         // Codex's shape: 1024x1536, the figure about 1400 rows of it.
         var png = Picture(1024, 1536, 100, 100, 400, 1400);
         png[110, 120] = (1, 2, 3, 128);
-        // A 900-row capture would make a plain cutout 675 tall; the picture is made at the
-        // most, whatever the capture was.
+        // The figure keeps its own size, whatever the capture was: below the most, nothing
+        // is scaled.
         var meta = new CutoutMeta { Guid = "g", Epoch = 5, Shots = ["a", "b"], NativePx = [300, 900] };
         var cut = Enhancement.ToCutout(png, meta);
-        Assert.Equal((CutoutConverter.MaxHeight, 293), (cut.Meta.H, cut.Meta.W));   // round(400*1024/1400)
-        Assert.Equal((512, 1024), (cut.Meta.TexW, cut.Meta.TexH));
-        Assert.Equal((512, 1024), (cut.Canvas.Width, cut.Canvas.Height));
+        Assert.Equal((1400, 400), (cut.Meta.H, cut.Meta.W));
+        Assert.Equal((512, 2048), (cut.Meta.TexW, cut.Meta.TexH));
+        Assert.Equal((512, 2048), (cut.Canvas.Width, cut.Canvas.Height));
         // The capture's identity stays; the screenshots are not this file's.
         Assert.Equal(("g", 5L), (cut.Meta.Guid, cut.Meta.Epoch));
         Assert.Null(cut.Meta.Shots);
         Assert.Equal([300, 900], cut.Meta.NativePx!);
         // Partial alpha survives the resampler (it is not thresholded away).
         Assert.Contains(cut.Canvas.Pixels.Where((_, i) => i % 4 == 3), a => a is > 8 and < 250);
+        // Taller than the most: scaled down to it.
+        var tall = Enhancement.ToCutout(Picture(800, 2600, 100, 100, 400, 2400), meta);
+        Assert.Equal((CutoutConverter.MaxHeight, 341), (tall.Meta.H, tall.Meta.W));    // round(400*2048/2400)
         var why = Assert.Throws<ThumbnailException>(() => Enhancement.ToCutout(Picture(100, 200, 0, 0, 100, 200), meta));
         Assert.Equal(Enhancement.TransparentBorder, why.Message);
     }

@@ -51,24 +51,33 @@ public sealed record Cutout(RgbaImage Canvas, CutoutMeta Meta)
 public static class CutoutConverter
 {
     /// <summary>
-    /// The tallest a cutout is resampled to. At 3840x2160 (measured, 2026-11-07) the Char page
-    /// draws a portrait about 1050 px tall and the camp about 900; 512 was drawn at twice its
-    /// size there and looked blurred. Every enhanced picture is made at this height: Codex
-    /// returns 1536 rows, the figure takes about 1400 of them.
+    /// The tallest a cutout is made. An enhanced picture is not scaled at all below it: Codex
+    /// returns 1536 rows, the figure takes about 1400 of them, and the Char page draws it
+    /// about that tall (<see cref="CharPageRows"/>).
     /// </summary>
-    public const int MaxHeight = 1024;
+    public const int MaxHeight = 2048;
 
     /// <summary>
-    /// A capture is always made at least this much smaller: the downscale is what gives the
-    /// edges their partial alpha (see <see cref="Resampler"/>), and the scenes draw a figure at
-    /// about 0.75 of its capture (1050 of 1373 rows at 3840x2160). So a 1080p capture (about
-    /// 690 rows) still lands near 512, as before, and a 4K one at <see cref="MaxHeight"/>.
+    /// How tall the Char page draws a figure: it fits it to its portrait box, whatever the
+    /// capture. Measured 2026-11-07 at 3840x2160 (UI scale off): 1329 of <see cref="CharPageOf"/>
+    /// screen rows, in a 1339-row box. The camp draws one about 920 tall. The first guess,
+    /// 1050, was read off a pasted screenshot that had been scaled down.
     /// </summary>
-    public const double CaptureScale = 0.75;
+    public const int CharPageRows = 1329;
 
-    /// <summary>How tall a capture of <paramref name="nativeHeight"/> rows is made.</summary>
-    public static int HeightFor(int nativeHeight) =>
-        Math.Clamp((int)Math.Round(nativeHeight * CaptureScale, MidpointRounding.ToEven), 1, MaxHeight);
+    public const int CharPageOf = 2160;
+
+    /// <summary>
+    /// How tall a capture is made: as tall as the Char page draws it on the screen it was
+    /// taken on, never taller than the capture. The capture is a little taller than that (1373
+    /// of 2160 rows), so it is still scaled down a little - the downscale is what gives the
+    /// edges their partial alpha (see <see cref="Resampler"/>). Halves round up, in integers.
+    /// </summary>
+    public static int HeightFor(int nativeHeight, int screenHeight)
+    {
+        var drawn = (screenHeight * CharPageRows + CharPageOf / 2) / CharPageOf;
+        return Math.Clamp(Math.Min(nativeHeight, drawn), 1, MaxHeight);
+    }
 
     /// <summary>A figure this much of the screen or more is the whole window, not a character.</summary>
     public const double MaxScreenFraction = 0.95;
@@ -90,7 +99,7 @@ public static class CutoutConverter
                 $"the cutout is {nativeH} of {shotH} screen rows tall - the matte caught the whole window, not the character");
         }
 
-        var (canvas, scaled) = OnCanvas(cut, HeightFor(nativeH));
+        var (canvas, scaled) = OnCanvas(cut, HeightFor(nativeH, shotH));
 
         var meta = new CutoutMeta
         {
