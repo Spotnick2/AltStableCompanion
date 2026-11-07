@@ -8,11 +8,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ### Changed
 
-- Portraits are sharper on a large screen. They were made 512 pixels tall, and at 3840x2160
-  the game drew them at about twice that. Now a portrait is made at three quarters of its
-  capture's height, up to 1024 pixels, so a 4K screen gets 1024 and a 1080p one stays near
-  512. Every enhanced portrait is made at 1024. A portrait already made keeps its size until
-  the character is captured again; a new capture is enhanced again on its own.
+- Portraits are sharp on a large screen. They were made 512 pixels tall, and at 3840x2160
+  the Char page draws a character 1329 pixels tall. Now a portrait is made as tall as the
+  Char page draws it on the screen it was captured on (1329 at 4K, 665 at 1080p), and an
+  enhanced one keeps the size Codex made it (about 1400). A portrait already made keeps its
+  size until the character is captured again; a new capture is enhanced again on its own.
 
 ### Added
 
