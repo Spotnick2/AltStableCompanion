@@ -22,7 +22,7 @@ public sealed record RenderRecord(
 /// records of the same character.
 /// </summary>
 public sealed record RosterCharacter(string Guid, string Name, string? Class, string? Race, string? Gender, int Level, long Updated,
-    string? RaceName = null);
+    string? RaceName = null, long GearAt = 0);
 
 /// <summary>One account's capture store. <see cref="Refused"/> is set for a version this app does not know.</summary>
 public sealed record PortraitStore(string Path, int Version, IReadOnlyList<RenderRecord> Renders, string? Refused = null);
@@ -159,7 +159,7 @@ public static class SavedVariablesReader
             if (string.IsNullOrWhiteSpace(name)) continue;
             chars.Add(new RosterCharacter(guid, name, Str(e, "class"), Str(e, "race"), Str(e, "gender"),
                 Num(e, "level") is double lv ? (int)lv : 0, Num(e, "lastUpdate") is double up ? (long)up : 0,
-                Str(e, "raceName")));
+                Str(e, "raceName"), Num(e, "gearAt") is double gear ? (long)gear : 0));
         }
         return chars;
     }

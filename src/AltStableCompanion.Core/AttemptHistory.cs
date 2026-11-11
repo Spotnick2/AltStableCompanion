@@ -25,6 +25,15 @@ public sealed record Attempt
     public int Prompt { get; init; }
     public long? Epoch { get; init; }
     public string? SourceHash { get; init; }
+
+    public const string FromCapture = "capture";
+    public const string FromArmory = "armory";
+
+    /// <summary>What the portrait it was made from was: <see cref="FromCapture"/> or <see cref="FromArmory"/>. Missing is a capture: every record from before #63 is one.</summary>
+    public string? Source { get; init; }
+
+    /// <summary>The player asked for this one (the Settings "remake" offer): it went past the armory hold. Missing is false.</summary>
+    public bool? Confirmed { get; init; }
 }
 
 /// <summary>

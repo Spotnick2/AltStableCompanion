@@ -94,6 +94,13 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private string? _diagnosticsLine;
     private bool _diagnosticsFailed;
     private bool _checkUpdatesOnOpen;
+    private bool? _armory;
+    private bool _armorySd;
+    private int _armoryDays = Core.Armory.DefaultRemakeDays;
+    private bool _armoryAsk;
+    private bool _armoryAuto = true;
+    private bool _armoryLimit = true;
+    private int _armoryMax = Core.Armory.DefaultDailyMax;
     private UpdateState _update = new();
     private string _search = "";
     private IReadOnlyList<PortraitRow> _rows = [];
@@ -118,6 +125,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         CancelEnhance = new Command(BackOut);
         Resume = new Command(() => controller.SetPaused(false));
         StartWatching = new Command(controller.StartWatching);
+        AnswerArmoryYes = new Command(() => controller.SetArmory(true));
+        AnswerArmoryNo = new Command(() => controller.SetArmory(false));
+        CheckArmory = new Command(controller.CheckArmoryNow);
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
         ToggleHelp = new Command(() => ShowHelp = !ShowHelp);
         ClearSearch = new Command(() => Search = "");
@@ -141,6 +151,75 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public Command GotIt { get; }
     public Command Resume { get; }
     public Command StartWatching { get; }
+
+    // ---- portraits from the armory (#63): asked once, never defaulted
+    public Command AnswerArmoryYes { get; }
+    public Command AnswerArmoryNo { get; }
+    public Command CheckArmory { get; }
+    public string ArmoryQuestion => PassText.ArmoryQuestion;
+    public string ArmoryYesText => PassText.ArmoryYes;
+    public string ArmoryNoText => PassText.ArmoryNo;
+
+    /// <summary>Not answered yet: the question is on the dashboard until it is.</summary>
+    public bool ArmoryAsk { get => _armoryAsk; private set => Set(ref _armoryAsk, value); }
+
+    public bool Armory
+    {
+        get => _armory == true;
+        set { if (Set(ref _armory, value)) { Raise(nameof(ArmoryOn)); _controller.SetArmory(value); } }
+    }
+
+    public bool ArmoryOn => _armory == true;
+
+    public bool ArmoryHd
+    {
+        get => !_armorySd;
+        set { if (value && Set(ref _armorySd, false, nameof(ArmorySd))) { Raise(nameof(ArmoryHd)); _controller.SetArmorySd(false); } }
+    }
+
+    public bool ArmorySd
+    {
+        get => _armorySd;
+        set { if (value && Set(ref _armorySd, true)) { Raise(nameof(ArmoryHd)); _controller.SetArmorySd(true); } }
+    }
+
+    /// <summary>The spinner's value: whole days, 1 to 90; anything else is put back.</summary>
+    public decimal? ArmoryRemakeDays
+    {
+        get => _armoryDays;
+        set
+        {
+            var days = (int)Math.Clamp(Math.Round(value ?? _armoryDays), Core.Armory.MinRemakeDays, Core.Armory.MaxRemakeDays);
+            if (Set(ref _armoryDays, days, nameof(ArmoryRemakeDays))) { Raise(nameof(ArmoryExplanation)); _controller.SetArmoryRemakeDays(days); }
+            else if (value != days) Raise(nameof(ArmoryRemakeDays));
+        }
+    }
+
+    public string ArmoryExplanation => PassText.ArmoryExplanation(_armoryDays, _armoryAuto, _armoryLimit, _armoryMax);
+
+    /// <summary>With enhancement on: a new armory picture is enhanced on its own, or offered.</summary>
+    public bool ArmoryEnhanceAuto
+    {
+        get => _armoryAuto;
+        set { if (Set(ref _armoryAuto, value)) { Raise(nameof(ArmoryExplanation)); _controller.SetArmoryEnhance(value, _armoryLimit, _armoryMax); } }
+    }
+
+    public bool ArmoryDailyLimit
+    {
+        get => _armoryLimit;
+        set { if (Set(ref _armoryLimit, value)) { Raise(nameof(ArmoryExplanation)); _controller.SetArmoryEnhance(_armoryAuto, value, _armoryMax); } }
+    }
+
+    public decimal? ArmoryDailyMax
+    {
+        get => _armoryMax;
+        set
+        {
+            var max = (int)Math.Clamp(Math.Round(value ?? _armoryMax), 1, Core.Armory.MaxDailyMax);
+            if (Set(ref _armoryMax, max, nameof(ArmoryDailyMax))) { Raise(nameof(ArmoryExplanation)); _controller.SetArmoryEnhance(_armoryAuto, _armoryLimit, max); }
+            else if (value != max) Raise(nameof(ArmoryDailyMax));
+        }
+    }
     public Command ToggleSettings { get; }
     public Command ToggleHelp { get; }
     public Command ClearSearch { get; }
@@ -374,9 +453,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public string EnhanceStatus => PassText.EnhanceStatus(_controller.Current.Shell, DateTime.Now) ?? "";
     public bool HasEnhanceStatus => EnhanceStatus.Length > 0;
     /// <summary>Pictures a settings change held back, and the offer to make them again.</summary>
-    public string EnhanceHeld => PassText.EnhanceHeld(_controller.Current.Shell.EnhanceHeld) ?? "";
+    public string EnhanceHeld => PassText.EnhanceHeld(_controller.Current.Shell.EnhanceHeld, _controller.Current.Shell.ArmoryHeld) ?? "";
     public bool HasEnhanceHeld => EnhanceHeld.Length > 0;
-    public string EnhanceHeldButton => PassText.EnhanceHeldButton(_controller.Current.Shell.EnhanceHeld);
+    public string EnhanceHeldButton => PassText.EnhanceHeldButton(_controller.Current.Shell.EnhanceHeld, _controller.Current.Shell.ArmoryHeld);
     public Command RemakeEnhanced { get; }
     public Command StartEnhance { get; }
     public Command CancelEnhance { get; }
@@ -710,6 +789,20 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Activity = PassText.Activity(shell, today);
         RestartNotice = now.RestartNotice;
         FirstStart = shell.FirstStart && shell.Install is not null;
+        // The armory question, at the first start and once for an install that updated:
+        // "Start watching" waits for its answer, conversion of an updated install does not.
+        if (Set(ref _armory, now.Armory, nameof(Armory))) Raise(nameof(ArmoryOn));
+        if (Set(ref _armorySd, now.ArmorySd, nameof(ArmorySd))) Raise(nameof(ArmoryHd));
+        if (Set(ref _armoryDays, now.ArmoryRemakeDays, nameof(ArmoryRemakeDays))) Raise(nameof(ArmoryExplanation));
+        if (Set(ref _armoryAuto, now.ArmoryEnhanceAuto, nameof(ArmoryEnhanceAuto))
+            | Set(ref _armoryLimit, now.ArmoryDailyLimit, nameof(ArmoryDailyLimit))
+            | Set(ref _armoryMax, now.ArmoryDailyMax, nameof(ArmoryDailyMax)))
+        {
+            Raise(nameof(ArmoryExplanation));
+        }
+        ArmoryAsk = now.Armory is null && shell.Install is not null && !shell.Stopping;
+        StartWatching.Enabled = now.Armory is not null;
+        CheckArmory.Enabled = now.Armory == true && shell.Install is not null && !shell.Stopping;
 
         // Through the fields: this is the controller telling the window, not the player.
         Set(ref _keepScreenshots, now.KeepScreenshots, nameof(KeepScreenshots));

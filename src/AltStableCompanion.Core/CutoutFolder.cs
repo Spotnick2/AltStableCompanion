@@ -8,7 +8,18 @@ namespace AltStableCompanion.Core;
 /// is the second picture's descriptor when one is attached (docs/PORTRAIT-CONTRACT.md, section 3).
 /// </summary>
 public sealed record ManifestEntry(string Key, string? Guid, string FileName, int W, int H, int TexW, int TexH,
-    double? NativeW, double? NativeH, EnhancedTexture? Enhanced = null);
+    double? NativeW, double? NativeH, EnhancedTexture? Enhanced = null, string? Folder = null)
+{
+    /// <summary>The file under <c>Cutouts\</c>: <c>karuzo.tga</c>, or <c>Armory\karuzo.tga</c> for a render.</summary>
+    public string RelativePath => Folder is null ? FileName : Path.Combine(Folder, FileName);
+}
+
+/// <summary>
+/// The portrait a character's entry names (docs/PORTRAIT-CONTRACT.md, section 4): its capture
+/// cutout, or its armory render when that is newer. <see cref="Base"/> is also the enhanced
+/// picture's name.
+/// </summary>
+public sealed record Primary(string Base, string Path, CutoutMeta Meta, bool Armory);
 
 /// <summary>
 /// A whole texture descriptor for an enhanced picture: the Roster sizes and crops by it. The
@@ -56,6 +67,10 @@ public sealed class CutoutFolder(string addonDir)
     /// class included - can take one for a primary portrait. The companion owns it.
     /// </summary>
     public string EnhancedDir => Path.Combine(CutoutsDir, "Enhanced");
+
+    /// <summary>Armory renders (section 4): a subfolder for the same reason as <see cref="EnhancedDir"/>.</summary>
+    public const string ArmoryFolder = "Armory";
+    public string ArmoryDir => Path.Combine(CutoutsDir, ArmoryFolder);
     public string TocPath => Path.Combine(AddonDir, AddonName + ".toc");
     public string ManifestPath => Path.Combine(AddonDir, "CutoutManifest.lua");
     public bool Exists => Directory.Exists(AddonDir);
@@ -115,6 +130,116 @@ public sealed class CutoutFolder(string addonDir)
 
     /// <summary>The sidecar of an enhanced picture, or null when it has none or it does not parse.</summary>
     public CutoutMeta? ReadEnhancedMeta(string fileBase) => ReadMetaFile(Path.Combine(EnhancedDir, fileBase + ".json"));
+
+    /// <summary>The sidecar of an armory render, or null when it has none or it does not parse.</summary>
+    public CutoutMeta? ReadArmoryMeta(string fileBase) => ReadMetaFile(Path.Combine(ArmoryDir, fileBase + ".json"));
+
+    /// <summary>
+    /// A render and its sidecar, into Armory\: the TGA replaced under its final name once it is
+    /// whole, then the sidecar naming its hash. A TGA that is not the one its sidecar names - the
+    /// app stopped between the two - is not used (<see cref="ArmoryRenders"/>).
+    /// </summary>
+    public void WriteArmory(string fileBase, byte[] tga, CutoutMeta meta)
+    {
+        Directory.CreateDirectory(ArmoryDir);
+        var path = Path.Combine(ArmoryDir, fileBase + ".tga");
+        var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        File.WriteAllBytes(tmp, tga);
+        Replace(tmp, path);
+        WriteArmoryMeta(fileBase, meta with { TgaHash = EnhancementSignature.HashOf(tga) });
+    }
+
+    /// <summary>The sidecar alone: a render that came back with the same pixels and new validators.</summary>
+    public void WriteArmoryMeta(string fileBase, CutoutMeta meta)
+    {
+        Directory.CreateDirectory(ArmoryDir);
+        WriteAtomic(Path.Combine(ArmoryDir, fileBase + ".json"), JsonSerializer.Serialize(Sidecar.From(meta), Json));
+    }
+
+    /// <summary>
+    /// Every usable render, by GUID: a listable name, a sidecar with a safe GUID, and a TGA
+    /// whose bytes hash to the sidecar's <c>tgaHash</c>. One per character; should there be two,
+    /// the one with the latest date, then the first by name.
+    /// </summary>
+    public IReadOnlyDictionary<string, (string Base, CutoutMeta Meta)> ArmoryRenders()
+    {
+        var found = new Dictionary<string, (string Base, CutoutMeta Meta)>(StringComparer.Ordinal);
+        if (!Directory.Exists(ArmoryDir)) return found;
+        foreach (var json in Directory.EnumerateFiles(ArmoryDir, "*.json").Order(StringComparer.Ordinal))
+        {
+            var fileBase = Path.GetFileNameWithoutExtension(json);
+            if (ReadArmoryMeta(fileBase) is not { Guid: { } guid, TgaHash: { } hash } meta) continue;
+            if (!Listable(fileBase + ".tga", guid) || Armory.AsOf(meta) is not { } asOf) continue;
+            var tga = Path.Combine(ArmoryDir, fileBase + ".tga");
+            try
+            {
+                if (!File.Exists(tga) || EnhancementSignature.HashOf(tga) != hash) continue;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+            if (found.TryGetValue(guid, out var have) && Armory.AsOf(have.Meta) >= asOf) continue;
+            found[guid] = (fileBase, meta);
+        }
+        return found;
+    }
+
+    /// <summary>The base of a character's render, usable or not: the name it keeps when it is fetched again.</summary>
+    public string? ArmoryBaseOf(string guid)
+    {
+        if (!Directory.Exists(ArmoryDir)) return null;
+        foreach (var json in Directory.EnumerateFiles(ArmoryDir, "*.json").Order(StringComparer.Ordinal))
+        {
+            var fileBase = Path.GetFileNameWithoutExtension(json);
+            if (ReadArmoryMeta(fileBase)?.Guid == guid && Listable(fileBase + ".tga", guid)) return fileBase;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The base a character's files go under, capture or render: its capture's, else its
+    /// render's, else a new one that nobody else's capture or render has (section 4). Enhanced\
+    /// is one namespace for both.
+    /// </summary>
+    public string BaseFor(string guid, string name) =>
+        FileBaseOf(guid) ?? ArmoryBaseOf(guid) ?? Slugger.FileBase(name, guid, OwnerOf);
+
+    /// <summary>
+    /// Each character's primary: its capture cutout, or its render when the render is newer
+    /// (<see cref="Armory.RenderWins"/>). Characters with neither are not in it; nor is a
+    /// name-only legacy cutout, which is nobody's in particular.
+    /// </summary>
+    public IReadOnlyDictionary<string, Primary> Primaries()
+    {
+        var primaries = new Dictionary<string, Primary>(StringComparer.Ordinal);
+        foreach (var (guid, (fileBase, meta)) in Captures())
+        {
+            primaries[guid] = new Primary(fileBase, Path.Combine(CutoutsDir, fileBase + ".tga"), meta, Armory: false);
+        }
+        foreach (var (guid, (fileBase, meta)) in ArmoryRenders())
+        {
+            if (primaries.TryGetValue(guid, out var capture) && !Armory.RenderWins(capture.Meta.Epoch, meta)) continue;
+            primaries[guid] = new Primary(fileBase, Path.Combine(ArmoryDir, fileBase + ".tga"), meta, Armory: true);
+        }
+        return primaries;
+    }
+
+    // Every character's capture cutout, chosen as FileBaseOf chooses, the folder listed once.
+    private Dictionary<string, (string Base, CutoutMeta Meta)> Captures()
+    {
+        var found = new Dictionary<string, (string Base, CutoutMeta Meta)>(StringComparer.Ordinal);
+        if (!Directory.Exists(CutoutsDir)) return found;
+        foreach (var json in Directory.EnumerateFiles(CutoutsDir, "*.json").Order(StringComparer.Ordinal))
+        {
+            var fileBase = Path.GetFileNameWithoutExtension(json);
+            if (ReadMeta(fileBase) is not { Guid: { } guid } meta) continue;
+            if (!File.Exists(Path.Combine(CutoutsDir, fileBase + ".tga")) || !Listable(fileBase + ".tga", guid)) continue;
+            if (found.TryGetValue(guid, out var have) && (meta.Epoch ?? long.MinValue) <= (have.Meta.Epoch ?? long.MinValue)) continue;
+            found[guid] = (fileBase, meta);
+        }
+        return found;
+    }
 
     private static CutoutMeta? ReadMetaFile(string path)
     {
@@ -262,8 +387,11 @@ public sealed class CutoutFolder(string addonDir)
         return outcome.StartsWith(prefix + ": ", StringComparison.Ordinal) ? outcome[(prefix.Length + 2)..] : null;
     }
 
-    /// <summary>The GUID that owns a file base, per its sidecar - for choosing a namesake's file name.</summary>
-    public string? OwnerOf(string fileBase) => ReadMeta(fileBase)?.Guid;
+    /// <summary>
+    /// The GUID that owns a file base, per its sidecar in Cutouts\ or in Armory\ - for choosing
+    /// a namesake's file name. Both, because a base is also the enhanced picture's name.
+    /// </summary>
+    public string? OwnerOf(string fileBase) => ReadMeta(fileBase)?.Guid ?? ReadArmoryMeta(fileBase)?.Guid;
 
     /// <summary>
     /// The file base holding this character's portrait, if any. When several files carry the
@@ -328,6 +456,7 @@ public sealed class CutoutFolder(string addonDir)
     {
         var entries = new List<ManifestEntry>();
         if (!Directory.Exists(CutoutsDir)) return entries;
+        var primaries = Primaries();
         foreach (var tga in Directory.EnumerateFiles(CutoutsDir, "*.tga").Order(StringComparer.Ordinal))
         {
             var fileBase = Path.GetFileNameWithoutExtension(tga);
@@ -338,11 +467,16 @@ public sealed class CutoutFolder(string addonDir)
                 warn?.Invoke($"{fileName} is not listed: its name or GUID has characters a manifest cannot carry");
                 continue;
             }
-            if (meta?.Guid is { } guid && FileBaseOf(guid) is { } chosen
-                && !string.Equals(chosen, fileBase, StringComparison.OrdinalIgnoreCase))
+            if (meta?.Guid is { } guid && primaries.TryGetValue(guid, out var chosen))
             {
-                warn?.Invoke($"{fileName} is not listed: {chosen}.tga is the same character's newer portrait");
-                continue;
+                // The render is newer: it is listed below, under the same GUID. Not a warning -
+                // a capture that a later render replaced is how this is meant to work.
+                if (chosen.Armory) continue;
+                if (!string.Equals(chosen.Base, fileBase, StringComparison.OrdinalIgnoreCase))
+                {
+                    warn?.Invoke($"{fileName} is not listed: {chosen.Base}.tga is the same character's newer portrait");
+                    continue;
+                }
             }
             if (meta is not null)
             {
@@ -365,6 +499,13 @@ public sealed class CutoutFolder(string addonDir)
                 warn?.Invoke($"{fileName} is not listed: it could not be read ({ex.Message})");
             }
         }
+        // The renders that are a character's primary: no native size, which is a fraction of
+        // a screen the render was not shot on.
+        foreach (var p in primaries.Values.Where(p => p.Armory).OrderBy(p => p.Base, StringComparer.Ordinal))
+        {
+            entries.Add(new ManifestEntry(p.Meta.Guid!, p.Meta.Guid, p.Base + ".tga", p.Meta.W, p.Meta.H, p.Meta.TexW, p.Meta.TexH,
+                null, null, Attached(p.Base, p.Path, p.Meta.Guid, warn), ArmoryFolder));
+        }
         return entries;
     }
 
@@ -379,7 +520,7 @@ public sealed class CutoutFolder(string addonDir)
         var times = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in entries)
         {
-            var path = Path.Combine(CutoutsDir, e.FileName);
+            var path = Path.Combine(CutoutsDir, e.RelativePath);
             if (File.Exists(path)) times[e.FileName] = File.GetLastWriteTime(path);
             // The enhanced picture's own time, under its own key: activity of its own.
             if (e.Enhanced is null) continue;
@@ -449,11 +590,18 @@ public sealed class CutoutFolder(string addonDir)
         [JsonPropertyName("epoch")] public long? Epoch { get; set; }
         [JsonPropertyName("shots")] public string[]? Shots { get; set; }
         [JsonPropertyName("enhancement")] public SidecarEnhancement? Enhancement { get; set; }
+        [JsonPropertyName("url")] public string? Url { get; set; }
+        [JsonPropertyName("etag")] public string? ETag { get; set; }
+        [JsonPropertyName("lastModified")] public string? LastModified { get; set; }
+        [JsonPropertyName("fetched")] public DateTime? Fetched { get; set; }
+        [JsonPropertyName("tgaHash")] public string? TgaHash { get; set; }
+        [JsonPropertyName("skew")] public long? Skew { get; set; }
 
         public static Sidecar From(CutoutMeta m) => new()
         {
             W = m.W, H = m.H, TexW = m.TexW, TexH = m.TexH, NativeW = m.NativeW, NativeH = m.NativeH,
             NativeUnit = m.NativeUnit, NativePx = m.NativePx, Guid = m.Guid, Epoch = m.Epoch, Shots = m.Shots,
+            Url = m.Url, ETag = m.ETag, LastModified = m.LastModified, Fetched = m.Fetched, TgaHash = m.TgaHash, Skew = m.Skew,
             Enhancement = m.Enhancement is { } e ? new SidecarEnhancement
             {
                 SourceHash = e.SourceHash, OutputHash = e.OutputHash, Style = e.Style, Model = e.Model,
@@ -465,6 +613,7 @@ public sealed class CutoutFolder(string addonDir)
         {
             W = W, H = H, TexW = TexW, TexH = TexH, NativeW = NativeW, NativeH = NativeH,
             NativeUnit = NativeUnit, NativePx = NativePx, Guid = Guid, Epoch = Epoch, Shots = Shots,
+            Url = Url, ETag = ETag, LastModified = LastModified, Fetched = Fetched, TgaHash = TgaHash, Skew = Skew,
             Enhancement = Enhancement is { } e ? new EnhancementMeta
             {
                 SourceHash = e.SourceHash, OutputHash = e.OutputHash, Style = e.Style, Model = e.Model,

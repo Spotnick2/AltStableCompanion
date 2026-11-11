@@ -6,6 +6,22 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Portraits from the armory (#63). Blizzard's armory website draws each character of level
+  10 or more. The app can take that picture as the portrait, so a character never captured
+  has one, and a portrait follows the gear without a capture. The app asks once whether to
+  use it, at the first start or after this update, and Settings can change the answer.
+  - It asks Blizzard's picture server about each character once when it starts, then every
+    hour from 6 to 24 hours after that character was played. No account or key is needed.
+  - A new capture always shows at once; an armory picture from later play takes its place.
+  - HD or SD model, in Settings.
+  - US region only for now.
+- With enhanced portraits on, a new armory picture is enhanced on its own. Three settings
+  limit that: it can be offered instead and made when you ask; at most one per character every
+  7 days (1 to 90); and at most 5 a day, a limit you can untick. A picture drawn again that
+  looks the same keeps its enhanced picture. A capture is still enhanced at once.
+
 ## [1.1.0]
 
 Sharp portraits on a large screen. To get them, capture each character again: a portrait

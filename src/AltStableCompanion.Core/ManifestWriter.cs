@@ -26,7 +26,8 @@ public static partial class ManifestWriter
     public static bool IsSafeFileName(string? s) => s is not null && SafeFileName().IsMatch(s);
 
     public static bool IsSafe(ManifestEntry e) =>
-        IsSafeKey(e.Key) && (e.Guid is null || IsSafeKey(e.Guid)) && IsSafeFileName(e.FileName);
+        IsSafeKey(e.Key) && (e.Guid is null || IsSafeKey(e.Guid)) && IsSafeFileName(e.FileName)
+        && (e.Folder is null || e.Folder == CutoutFolder.ArmoryFolder);
 
     /// <summary>
     /// Do two manifests list the same entries? The "Generated" line is the only one allowed to
@@ -58,8 +59,10 @@ public static partial class ManifestWriter
         {
             sb.Append("    ['").Append(e.Key).Append("'] = { ");
             if (e.Guid is not null) sb.Append("guid = '").Append(e.Guid).Append("', ");
-            sb.Append(@"file = [[Interface\AddOns\").Append(CutoutFolder.AddonName).Append(@"\Cutouts\")
-              .Append(e.FileName).Append("]], ");
+            sb.Append(@"file = [[Interface\AddOns\").Append(CutoutFolder.AddonName).Append(@"\Cutouts\");
+            // A render's file is in Armory\; its enhanced picture is under Enhanced\ by its base, like any.
+            if (e.Folder is not null) sb.Append(e.Folder).Append(@"\");
+            sb.Append(e.FileName).Append("]], ");
             sb.Append(CultureInfo.InvariantCulture, $"w = {e.W}, h = {e.H}, texw = {e.TexW}, texh = {e.TexH}");
             if (e.NativeW is { } nw && e.NativeH is { } nh)
             {
