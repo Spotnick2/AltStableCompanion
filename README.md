@@ -79,6 +79,10 @@ change your answer.
   an estimate, and the next capture or picture puts it right. Capture with `/alts portrait`
   whenever you want the new look now.
 - **HD or SD.** Settings picks the armory's HD model or its SD (classic) one.
+- **No capture prompt after a gear change.** For a character the armory has drawn, the
+  spyglass button no longer glows after a gear change: the armory picture shows the new gear
+  on its own. A character it has not drawn yet is still asked for a capture. This needs an
+  AltStable release after 1.1.0; 1.1.0 and older keep asking.
 - **With enhanced portraits.** The armory draws a character again every time you play it,
   and each enhanced picture uses Codex usage, so three settings hold that back:
   - **Enhance new armory pictures on their own** (on by default). Off, each new armory

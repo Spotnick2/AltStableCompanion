@@ -826,6 +826,14 @@ public sealed partial class Controller
             lock (_gate) pass = generation == _generation ? _pass : null;
             var listed = new List<string>();
             entries = folder.Inventory(listed.Add);
+            WowInstall? install;
+            bool armory;
+            lock (_gate)
+            {
+                install = generation == _generation ? _current.Shell.Install : null;
+                armory = _settings.Armory == true;
+            }
+            if (armory && install is not null) entries = Armory.Flag(entries, folder, install, m => _log?.Write(m));
             if (pass is not null) pass.Listed(listed);
             else foreach (var m in listed) _log?.Write(m);
             times = folder.FileTimes(entries);

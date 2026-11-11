@@ -1,6 +1,8 @@
 namespace AltStableCompanion.Core;
 
-public sealed record ConvertOptions(bool KeepScreenshots = false);
+/// <param name="Armory">Portraits from the armory are on: the manifest says which characters
+/// the armory keeps (contract section 4, <c>armory = true</c>).</param>
+public sealed record ConvertOptions(bool KeepScreenshots = false, bool Armory = false);
 
 public enum CharacterState
 {
@@ -284,6 +286,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                 if (folder.EnsureToc()) folderCreated = true;
                 var listed = new List<string>();
                 entries = folder.Inventory(listed.Add);
+                if (options.Armory) entries = Armory.Flag(entries, folder, install, log);
                 warnings.AddRange(listed);
                 Listed(listed);
                 fileTimes = folder.FileTimes(entries);

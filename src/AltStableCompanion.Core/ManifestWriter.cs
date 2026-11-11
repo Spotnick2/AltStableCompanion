@@ -69,6 +69,9 @@ public static partial class ManifestWriter
                 sb.Append(", nativeW = ").Append(nw.ToString(CultureInfo.InvariantCulture))
                   .Append(", nativeH = ").Append(nh.ToString(CultureInfo.InvariantCulture));
             }
+            // The armory keeps this portrait up to date: the addon does not ask for a capture
+            // after a gear change (contract section 4). Only the boolean true counts.
+            if (e.KeptByArmory) sb.Append(", armory = true");
             // A whole descriptor: the Roster sizes and crops the enhanced picture by its own numbers.
             // Its file is the entry's own name under Enhanced\, the contract's rule.
             if (e.Enhanced is { } x)
