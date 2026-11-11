@@ -260,7 +260,7 @@ public static class ArmoryEligibility
                 if (hidden.Contains(c.Guid) || Armory.PlayerNumber(c.Guid) is null) continue;
                 if (!newest.TryGetValue(c.Guid, out var have) || c.Updated > have.Updated) newest[c.Guid] = c;
                 level[c.Guid] = Math.Max(c.Level, level.GetValueOrDefault(c.Guid));
-                played[c.Guid] = Math.Max(Math.Max(c.Updated, c.GearAt), played.GetValueOrDefault(c.Guid));
+                played[c.Guid] = Math.Max(Math.Max(Seconds(c.Updated), Seconds(c.GearAt)), played.GetValueOrDefault(c.Guid));
             }
         }
         return ([.. newest.Values
@@ -269,6 +269,12 @@ public static class ArmoryEligibility
             .Where(c => c.Level >= Armory.MinLevel)
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Guid, StringComparer.Ordinal)], null);
     }
+
+    // A time the roster may say, or 0. The reader takes any number: one no date can hold
+    // (lastUpdate = 999999999999) is no time at all, not a reason to stop the manifest.
+    private static readonly long MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
+
+    private static long Seconds(long value) => value > 0 && value <= MaxSeconds ? value : 0;
 }
 
 /// <summary>

@@ -311,6 +311,33 @@ public class ArmoryFolderTests
     }
 
     [Fact]
+    public void A_roster_time_no_date_can_hold_is_no_time_and_the_capture_s_manifest_is_still_written()
+    {
+        using var t = new TempInstall();
+        var (black, white) = TestData.Pair(400, 1200, 150, 250, 100, 700);
+        var at = new DateTime(2026, 11, 11, 20, 0, 0);
+        t.WriteShot(at, black);
+        t.WriteShot(at.AddSeconds(1), white);
+        t.WriteStore("1#1", TestData.SavedVariables([
+            TestData.Record("Kaleid Sumner", B, 1, at), TestData.Record("Kaleid Sumner", B, 2, at.AddSeconds(1))]));
+        // Another account's roster says times no date can hold, beside real ones.
+        t.WriteStore("1#2", ArmoryRuleTests.Db((A, "A", 20, 999999999999, 1794370273), (B, "Kaleid Sumner", 20, 1794370000, long.MaxValue))
+            + ArmoryRuleTests.Hidden() + "AltStablePortraits = nil\n");
+        Us(t);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Render(folder, "a", A, Made);
+
+        var report = new ConvertPass(t.Install, new ConvertOptions(Armory: true)).Run();
+
+        Assert.Equal(["Kaleid Sumner"], report.Written);
+        Assert.True(report.ManifestWritten);
+        Assert.Contains(@"Cutouts\Armory\a.tga]], w = 4, h = 8, texw = 4, texh = 8, armory = true },", File.ReadAllText(folder.ManifestPath));
+        var (characters, _) = ArmoryEligibility.Select(SavedVariablesReader.Snapshot(t.Install.AccountsDir));
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1794370273), characters.Single(c => c.Guid == A).Activity);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1794370000), characters.Single(c => c.Guid == B).Activity);
+    }
+
+    [Fact]
     public void A_render_alone_is_listed_from_the_armory_folder()
     {
         using var t = new TempInstall();
