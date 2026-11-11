@@ -257,8 +257,8 @@
                         ToolTip.Tip="develop.battle.net, in the browser" />
               </StackPanel>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0" IsVisible="{Binding BlizzardSaved}">
-              <Button Content="Test" Command="{Binding TestBlizzard}" ToolTip.Tip="Ask Battle.net for a token with the saved client" />
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0" IsVisible="{Binding BlizzardRemovable}">
+              <Button Content="Test" Command="{Binding TestBlizzard}" IsVisible="{Binding BlizzardSaved}" ToolTip.Tip="Ask Battle.net for a token with the saved client" />
               <Button Content="Remove" Command="{Binding RemoveBlizzard}" ToolTip.Tip="Forget the client; the armory carries on without it" />
             </StackPanel>
             <TextBlock Margin="28,0,0,0" Text="{Binding BlizzardStatus}" TextWrapping="Wrap" />

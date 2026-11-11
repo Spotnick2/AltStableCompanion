@@ -134,7 +134,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         CheckArmory = new Command(controller.CheckArmoryNow);
         SaveBlizzard = new Command(SaveBlizzardClient);
         TestBlizzard = new Command(TestBlizzardClient);
-        RemoveBlizzard = new Command(() => { controller.RemoveBlizzardClient(); BlizzardNote = null; });
+        RemoveBlizzard = new Command(() => BlizzardNote = controller.RemoveBlizzardClient());
         OpenBlizzardClients = new Command(() => OpenUrl(PassText.BlizzardClientsUrl));
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
         ToggleHelp = new Command(() => ShowHelp = !ShowHelp);
@@ -190,6 +190,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>A client is saved (refused or not): Test and Remove, no boxes.</summary>
     public bool BlizzardSaved => _blizzard is BlizzardClientState.Saved or BlizzardClientState.Refused;
+    /// <summary>Remove shows for a saved client, and for one whose file would not be deleted, to try again.</summary>
+    public bool BlizzardRemovable => BlizzardSaved || _blizzard is BlizzardClientState.NotDeleted;
     public bool BlizzardEntering => !BlizzardSaved;
 
     /// <summary>The last Test's or Save's words, else where the client stands.</summary>
@@ -859,6 +861,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         if (Set(ref _blizzard, now.BlizzardClient, nameof(BlizzardSaved)))
         {
             Raise(nameof(BlizzardEntering));
+            Raise(nameof(BlizzardRemovable));
             if (_blizzardNote != "Asking Battle.net...") _blizzardNote = null;
             Raise(nameof(BlizzardStatus));
         }

@@ -32,6 +32,7 @@ public sealed partial class Controller
                     BlizzardClientState.Saved => "; Blizzard API client saved",
                     BlizzardClientState.Refused => "; Blizzard API client refused this run",
                     BlizzardClientState.Unreadable => "; Blizzard API client cannot be read",
+                    BlizzardClientState.NotDeleted => "; Blizzard API client removed, its file not deleted (not used)",
                     _ => "",
                 });
         }

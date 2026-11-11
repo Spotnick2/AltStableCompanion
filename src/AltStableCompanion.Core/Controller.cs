@@ -47,6 +47,8 @@ public enum BlizzardClientState
     Unreadable,
     /// <summary>Battle.net refused it this run; the armory carries on without it.</summary>
     Refused,
+    /// <summary>Removed, but its file could not be deleted: not used, now or at the next start.</summary>
+    NotDeleted,
 }
 
 /// <summary>

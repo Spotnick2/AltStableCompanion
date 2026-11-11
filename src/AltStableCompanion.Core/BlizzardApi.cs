@@ -76,6 +76,8 @@ public enum BlizzardStatus
     Busy,
     /// <summary>Anything else. Said in the log, tried again later.</summary>
     Failed,
+    /// <summary>Not sent: by the time it could be, it was no longer allowed (hidden, the client removed, the armory off) or the client changed. Nothing to keep.</summary>
+    NotAsked,
 }
 
 /// <param name="LastLogin">The armory's <c>last_login_timestamp</c>: play this PC may not have seen.</param>
@@ -101,6 +103,7 @@ public sealed class BlizzardApi(Func<HttpMessageHandler> handler, string version
     private string? _token;
     private DateTimeOffset _expires;
     private BlizzardClient? _tokenFor;
+    private int _epoch;              // under _lock: a Forget while a token is asked for drops that token
 
     /// <summary>
     /// The name in the profile path: the full name, surname too, lower-case, a space as "-"
@@ -112,7 +115,7 @@ public sealed class BlizzardApi(Func<HttpMessageHandler> handler, string version
     /// <summary>Drops the token: a client removed or replaced.</summary>
     public void Forget()
     {
-        lock (_lock) { _token = null; _tokenFor = null; }
+        lock (_lock) { _token = null; _tokenFor = null; _epoch++; }
     }
 
     /// <summary>"Test": a token for this client, or why not.</summary>
@@ -125,14 +128,17 @@ public sealed class BlizzardApi(Func<HttpMessageHandler> handler, string version
 
     /// <summary>
     /// The character's profile, only when its id is <paramref name="playerNumber"/>. A 401 gets
-    /// one new token and one more try; a second 401 is a refusal.
+    /// one new token and one more try; a second 401 is a refusal. <paramref name="mayAsk"/> is
+    /// asked right before each request that names the character, after any wait for a token:
+    /// false, and nothing is sent.
     /// </summary>
-    public async Task<BlizzardAnswer> ProfileAsync(BlizzardClient client, string name, long playerNumber, CancellationToken ct)
+    public async Task<BlizzardAnswer> ProfileAsync(BlizzardClient client, string name, long playerNumber, Func<bool> mayAsk, CancellationToken ct)
     {
         for (var attempt = 0; ; attempt++)
         {
             var (token, failed) = await TokenAsync(client, ct);
             if (token is null) return failed!;
+            if (!mayAsk()) return new BlizzardAnswer(BlizzardStatus.NotAsked);
             var url = $"https://{ApiHost}/profile/wow/character/{Slug(name)}?namespace={Namespace}&locale=en_US";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -176,9 +182,11 @@ public sealed class BlizzardApi(Func<HttpMessageHandler> handler, string version
     // A token for this client: the one held, or a new one.
     private async Task<(string? Token, BlizzardAnswer? Failed)> TokenAsync(BlizzardClient client, CancellationToken ct)
     {
+        int epoch;
         lock (_lock)
         {
             if (_token is not null && _tokenFor == client && now() < _expires) return (_token, null);
+            epoch = _epoch;
         }
         using var request = new HttpRequestMessage(HttpMethod.Post, $"https://{TokenHost}/token")
         {
@@ -199,6 +207,8 @@ public sealed class BlizzardApi(Func<HttpMessageHandler> handler, string version
             if (string.IsNullOrEmpty(token)) throw new JsonException();
             lock (_lock)
             {
+                // The client was removed or replaced while this was asked for: not its token.
+                if (epoch != _epoch) return (null, new BlizzardAnswer(BlizzardStatus.NotAsked, Problem: "the client changed meanwhile"));
                 _token = token;
                 _tokenFor = client;
                 // A minute early: a token that expires in flight is a 401 and a second token.

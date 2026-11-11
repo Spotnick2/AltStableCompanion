@@ -34,6 +34,7 @@ public sealed partial class Controller
     private bool _blizzardUnreadable;                                                           // under _gate
     private bool _blizzardRefused;                                                              // under _gate: this run, until another client or a Test that passes
     private int _blizzardRevision;                                                              // under _gate: a client removed or replaced drops answers in flight
+    private bool _blizzardNotDeleted;                                                           // under _gate: removed, but its file is still there
 
     private readonly SemaphoreSlim _armoryWake = new(0, 1);
     private readonly CancellationTokenSource _armoryStop = new();
@@ -55,11 +56,26 @@ public sealed partial class Controller
         if (armoryHttp is null) return;
         _armoryClient = new ArmoryClient(armoryHttp, update?.Version ?? AppVersion.Informational);
         _blizzard = new BlizzardApi(armoryHttp, update?.Version ?? AppVersion.Informational, ArmoryNow);
-        var client = BlizzardClientStore.Load(_dataDir, out var unreadable);
+        bool removed;
+        lock (_gate) removed = _settings.BlizzardRemoved;
+        BlizzardClient? client = null;
+        var unreadable = false;
+        var notDeleted = false;
+        // Removed before, its file not deleted: never used again. Deleted now, if it can be.
+        if (removed)
+        {
+            notDeleted = !DeleteBlizzardClient();
+            if (!notDeleted) Save(s => s with { BlizzardRemoved = false }, quiet: true);
+        }
+        else
+        {
+            client = BlizzardClientStore.Load(_dataDir, out unreadable);
+        }
         lock (_gate)
         {
             _blizzardClient = client;
             _blizzardUnreadable = unreadable;
+            _blizzardNotDeleted = notDeleted;
             PublishBlizzardState();
         }
         if (unreadable) _log?.Write("armory: the saved Blizzard API client cannot be read by this Windows user; enter it again");
@@ -339,7 +355,8 @@ public sealed partial class Controller
     // Under _gate.
     private void PublishBlizzardState()
     {
-        var state = _blizzardClient is null ? (_blizzardUnreadable ? BlizzardClientState.Unreadable : BlizzardClientState.None)
+        var state = _blizzardClient is null
+            ? (_blizzardNotDeleted ? BlizzardClientState.NotDeleted : _blizzardUnreadable ? BlizzardClientState.Unreadable : BlizzardClientState.None)
             : _blizzardRefused ? BlizzardClientState.Refused : BlizzardClientState.Saved;
         _current = _current with { BlizzardClient = state };
     }
@@ -375,7 +392,18 @@ public sealed partial class Controller
                 return false;
             }
             if (fresh.All(x => x.Guid != c.Guid)) continue;
-            var answer = await _blizzard!.ProfileAsync(client, c.Name, Armory.PlayerNumber(c.Guid)!.Value, stop);
+            // And again once a token is in hand, right before the request: a token can take 30 seconds.
+            bool MayAsk()
+            {
+                lock (_gate)
+                {
+                    if (_stopping || generation != _generation || _settings.Armory != true || _current.Shell.Paused) return false;
+                    if (revision != _blizzardRevision || _blizzardRefused || ArmoryNow() < _armoryBusyUntil) return false;
+                }
+                var (roster, refused) = ArmoryRoster(install);
+                return refused is null && roster.Any(x => x.Guid == c.Guid);
+            }
+            var answer = await _blizzard!.ProfileAsync(client, c.Name, Armory.PlayerNumber(c.Guid)!.Value, MayAsk, stop);
             bool kept;
             lock (_gate)
             {
@@ -443,43 +471,63 @@ public sealed partial class Controller
             return "The client could not be saved.";
         }
         _blizzard?.Forget();
+        bool removed;
         lock (_gate)
         {
+            removed = _settings.BlizzardRemoved;
             _blizzardClient = client;
             _blizzardUnreadable = false;
+            _blizzardNotDeleted = false;
             _blizzardRefused = false;
             _blizzardRevision++;
             foreach (var s in _armory.Values) s.ApiChecked = false;
             PublishBlizzardState();
         }
+        if (removed) Save(s => s with { BlizzardRemoved = false }, quiet: true);
         _log?.Write("armory: a Blizzard API client was saved");
         Changed?.Invoke();
         WakeArmory();
         return null;
     }
 
-    /// <summary>"Remove": the file, the token and any answer in flight. What the API said is kept for this run.</summary>
-    public void RemoveBlizzardClient()
+    /// <summary>
+    /// "Remove": the file, the token and any answer in flight. What the API said is kept for this
+    /// run. Null when the file is gone, else why not: the client is not used either way, and the
+    /// settings say so, so a file that would not be deleted is not taken back at the next start.
+    /// </summary>
+    public string? RemoveBlizzardClient()
     {
-        try
-        {
-            BlizzardClientStore.Remove(_dataDir);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _log?.Write($"armory: the Blizzard API client file could not be deleted: {ex.GetType().Name}");
-        }
+        var deleted = DeleteBlizzardClient();
+        bool removed;
+        lock (_gate) removed = _settings.BlizzardRemoved;
+        if (removed == deleted) Save(s => s with { BlizzardRemoved = !deleted }, quiet: true);
         _blizzard?.Forget();
         lock (_gate)
         {
             _blizzardClient = null;
             _blizzardUnreadable = false;
+            _blizzardNotDeleted = !deleted;
             _blizzardRefused = false;
             _blizzardRevision++;
             PublishBlizzardState();
         }
-        _log?.Write("armory: the Blizzard API client was removed");
+        _log?.Write(deleted ? "armory: the Blizzard API client was removed" : "armory: the Blizzard API client is no longer used; its file is still there");
         Changed?.Invoke();
+        return deleted ? null : PassText.BlizzardState(BlizzardClientState.NotDeleted);
+    }
+
+    private bool DeleteBlizzardClient()
+    {
+        try
+        {
+            BlizzardClientStore.Remove(_dataDir);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log?.Write($"armory: the Blizzard API client file could not be deleted: {ex.GetType().Name}");
+            return false;
+        }
     }
 
     /// <summary>"Test": one token request with the saved client. What to say under the button.</summary>
@@ -492,6 +540,8 @@ public sealed partial class Controller
         var answer = await _blizzard.TestAsync(client, CancellationToken.None);
         lock (_gate)
         {
+            // A busy answer holds everyone, as in the sweep, whoever's client it was.
+            if (answer.Status == BlizzardStatus.Busy) _armoryBusyUntil = ArmoryNow() + (answer.RetryAfter ?? ArmoryClient.DefaultBusy);
             if (revision != _blizzardRevision) return "The client changed meanwhile: test it again.";
             if (answer.Status == BlizzardStatus.Ok)
             {

@@ -150,6 +150,7 @@ public static class PassText
         BlizzardClientState.Saved => "A client is saved. Test asks Battle.net for a token with it.",
         BlizzardClientState.Refused => "Battle.net refused the saved client. The armory carries on without it; enter it again, or Test once it is fixed.",
         BlizzardClientState.Unreadable => "The saved client cannot be read by this Windows user. Enter it again.",
+        BlizzardClientState.NotDeleted => "The client is not used, but its file (blizzard-client.bin, in the app's data folder) could not be deleted. Remove tries again, or delete the file yourself.",
         _ => "No client: the armory works without one.",
     };
 
