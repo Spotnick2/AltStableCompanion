@@ -34,6 +34,23 @@ public sealed record CutoutMeta
     public EnhancementMeta? Enhancement { get; init; }
 
     /// <summary>
+    /// Set on the sidecar of an armory render (Cutouts\Armory\, docs/PORTRAIT-CONTRACT.md,
+    /// section 4): which render it is, the CDN's validators for it, and the hash of the TGA it
+    /// became - a TGA that does not hash to it was cut short and is not used.
+    /// </summary>
+    public string? Url { get; init; }
+    public string? ETag { get; init; }
+    /// <summary>The CDN's <c>Last-Modified</c>, as sent: when the render was made, in the server's clock.</summary>
+    public string? LastModified { get; init; }
+    public DateTime? Fetched { get; init; }
+    public string? TgaHash { get; init; }
+    /// <summary>
+    /// The CDN's clock minus this PC's when the render was fetched, in seconds, when that was
+    /// more than <see cref="Armory.SkewTolerance"/>: a capture's epoch is this PC's clock.
+    /// </summary>
+    public long? Skew { get; init; }
+
+    /// <summary>
     /// A standing character is much taller than it is wide. Nearly square means something else
     /// survived the matte - a tooltip above the stage is the one that has happened. Worked out
     /// from the native size the sidecar keeps, so EVERY pass can say it, not only the one that

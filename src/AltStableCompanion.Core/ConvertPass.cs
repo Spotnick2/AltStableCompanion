@@ -237,7 +237,9 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
                 }
 
                 if (folder.EnsureToc()) folderCreated = true;
-                var fileBase = folder.FileBaseOf(cap.Guid) ?? Slugger.FileBase(cap.Name, cap.Guid, folder.OwnerOf);
+                // The character's render's base when it has only a render; never a base another
+                // character's capture OR render holds (section 4): Enhanced\<base> serves both.
+                var fileBase = folder.BaseFor(cap.Guid, cap.Name);
                 folder.WriteCutout(fileBase, cutout.Canvas, cutout.Meta);
                 written.Add(cap.Name);
                 log?.Invoke($"wrote {fileBase}.tga for {cap.Name}");

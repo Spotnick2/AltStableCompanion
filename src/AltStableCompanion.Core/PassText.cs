@@ -70,6 +70,11 @@ public sealed record ShellState(
     /// </summary>
     IReadOnlyList<string>? EnhanceHeld = null,
     /// <summary>
+    /// Characters whose armory picture is not enhanced on its own (the setting is off): offered,
+    /// by name, with <see cref="EnhanceHeld"/>. Null when there are none.
+    /// </summary>
+    IReadOnlyList<string>? ArmoryHeld = null,
+    /// <summary>
     /// While enhancing is on: why a character is not enhanced, by GUID ("hidden in WoW12",
     /// "below level 4"), for the row of its portrait. Null while it is off or cannot run.
     /// </summary>
@@ -113,6 +118,32 @@ public static class PassText
         "AltStable Companion turns the captures you take in game into portraits, by itself. "
         + "Once a portrait is written, the two screenshots it was made from are deleted. "
         + "No other screenshot is ever touched.";
+
+    /// <summary>
+    /// The question the app asks once (#63), at the first start or after the update that
+    /// brings it. Neither answer is chosen for the player; captures convert either way.
+    /// </summary>
+    public const string ArmoryQuestion =
+        "Use Blizzard's armory pictures as portraits too? The armory website draws every character of level 10 or more: "
+        + "a character you never captured gets a portrait, and a portrait follows your gear without a new capture. "
+        + "The app then asks Blizzard's picture server for each character's picture - no account or key is sent. "
+        + "Settings can change this later.";
+
+    public const string ArmoryYes = "Yes, use the armory";
+    public const string ArmoryNo = "No, captures only";
+
+    /// <summary>The words under the armory setting: what is asked, of whom, when, and what wins.</summary>
+    public static string ArmoryExplanation(int days, bool auto = true, bool limit = true, int max = Armory.DefaultDailyMax) =>
+        "When on, the app asks Blizzard's picture server (render.worldofwarcraft.com) for the armory's picture of each "
+        + "character of level 10 or more that is not hidden: once when it starts, then every hour from 6 to 24 hours after "
+        + "you played that character, since the armory draws it again about 7 hours after you log off. One request at a time; "
+        + "the address names the character by the number in its GUID, and nothing else is sent. A new capture shows at once; "
+        + "an armory picture from later play then takes its place. US region only, for now. "
+        + "With enhanced portraits on, a new armory picture is "
+        + (auto ? "enhanced on its own" : "offered under the enhancement settings, and enhanced when you ask")
+        + $" - at most once every {days} day{(days == 1 ? "" : "s")} per character, and the armory is not asked about that character meanwhile"
+        + (auto && limit ? $"; and at most {max} automatic armory picture{(max == 1 ? "" : "s")} in any 24 hours" : "")
+        + ". A picture drawn again that looks the same keeps the enhanced picture made from it. A capture is always enhanced at once.";
 
     /// <summary>
     /// The words beside the enhancement setting: what it does, what leaves the PC, when it
@@ -306,13 +337,18 @@ public static class PassText
     public static string? RowSummary(PortraitRow row, DateTime today)
     {
         if (row.NeedsAttention || row.Outcome == CaptureOutcome.Writing || row.ShowGuid) return null;
-        var when = row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured ? "Captured " + When(captured, today)
+        var when = row.FromArmory && row.FileModified is { } fetched ? "Armory picture, " + When(fetched, today)
+            : row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured ? "Captured " + When(captured, today)
             : row.FileModified is { } modified ? "Updated " + When(modified, today)
             : "";
+        // What the armory last said: a hold, no render yet, a failure - the row's news.
+        if (row.ArmoryNote is { } armory) when = when.Length == 0 ? Cap(armory) : when + " · " + armory;
         // A skip is said on the line itself: it is decided in another account, where the game
         // logged in now cannot show it.
         return Skipped(row) is { } skipped ? (when.Length == 0 ? skipped : when + " · " + skipped) : when;
     }
+
+    private static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
     // "not enhanced: hidden in WoW12" - or, beside a picture made earlier, that no new one is.
     private static string? Skipped(PortraitRow row) => row.EnhanceSkipped is not { } why ? null
@@ -337,10 +373,15 @@ public static class PassText
     public static string RowDetail(PortraitRow row, DateTime today)
     {
         var parts = new List<string>();
-        if (row.Source == PortraitSource.File)
+        if (row.Source == PortraitSource.None && row.Outcome == CaptureOutcome.None)
         {
-            parts.Add(row.FileName ?? "");
-            if (row.FileModified is { } modified) parts.Add("file modified " + When(modified, today));
+            // A character the armory knows, with no capture and no picture yet.
+            parts.Add("no capture");
+        }
+        else if (row.Source == PortraitSource.File)
+        {
+            parts.Add(row.FromArmory ? "armory picture" : row.FileName ?? "");
+            if (row.FileModified is { } modified) parts.Add((row.FromArmory ? "fetched " : "file modified ") + When(modified, today));
         }
         else
         {
@@ -355,6 +396,8 @@ public static class PassText
                 _ => row.Note ?? "not converted",
             });
             if (row.Source == PortraitSource.ByName) parts.Add($"portrait found by name ({row.FileName})");
+            // The capture converted, and a later armory picture shows instead.
+            if (row.FromArmory && row.FileModified is { } fetched) parts.Add("showing the armory picture, fetched " + When(fetched, today));
             if (row.Ready && row.Outcome != CaptureOutcome.Converted && row.FileModified is { } modified)
             {
                 parts.Add("file modified " + When(modified, today));
@@ -364,8 +407,15 @@ public static class PassText
         {
             parts.Add("nearly square: something else may be in it - capture again");
         }
-        if (row.EnhanceNote is { } note) parts.Add(note);
+        if (row.EnhanceNote is { } note)
+        {
+            // The picture on record was made from the capture, which the armory picture replaced:
+            // the game draws the armory picture plain until one is made from it.
+            parts.Add(row.FromArmory && row.Enhanced is null && note.StartsWith("enhanced (", StringComparison.Ordinal)
+                ? "armory picture not enhanced yet" : note);
+        }
         if (Skipped(row) is { } skipped) parts.Add(skipped);
+        if (row.ArmoryNote is { } armory) parts.Add(armory);
         if (row.ShowGuid && row.Guid is not null) parts.Add(row.Guid);
         return string.Join(" · ", parts.Where(p => p.Length > 0));
     }
@@ -423,17 +473,27 @@ public static class PassText
     }
 
     /// <summary>The pictures held back by a settings change, and the offer; null when none.</summary>
-    public static string? EnhanceHeld(IReadOnlyList<string>? held)
+    public static string? EnhanceHeld(IReadOnlyList<string>? held, IReadOnlyList<string>? armory = null)
     {
-        if (held is not { Count: > 0 }) return null;
-        return held.Count == 1
-            ? $"{held[0]}'s enhanced portrait was made with other settings. It stays as it is until you ask."
-            : $"{held.Count} enhanced portraits ({Names(held)}) were made with other settings. They stay as they are until you ask.";
+        var settings = held is not { Count: > 0 } ? null
+            : held.Count == 1
+                ? $"{held[0]}'s enhanced portrait was made with other settings. It stays as it is until you ask."
+                : $"{held.Count} enhanced portraits ({Names(held)}) were made with other settings. They stay as they are until you ask.";
+        // Armory pictures not enhanced on their own (#63): the plain armory picture shows meanwhile.
+        var fromArmory = armory is not { Count: > 0 } ? null
+            : armory.Count == 1
+                ? $"{armory[0]}'s armory picture is not enhanced yet: it shows plain until you ask."
+                : $"{armory.Count} armory pictures ({Names(armory)}) are not enhanced yet: they show plain until you ask.";
+        return settings is null ? fromArmory : fromArmory is null ? settings : settings + " " + fromArmory;
     }
 
     /// <summary>The button beside <see cref="EnhanceHeld"/>: what it spends.</summary>
-    public static string EnhanceHeldButton(IReadOnlyList<string>? held) =>
-        held is { Count: > 1 } ? $"Make them again ({held.Count} generations)" : "Make it again (1 generation)";
+    public static string EnhanceHeldButton(IReadOnlyList<string>? held, IReadOnlyList<string>? armory = null)
+    {
+        var n = (held?.Count ?? 0) + (armory?.Count ?? 0);
+        var verb = held is { Count: > 0 } ? "again" : "now";
+        return n > 1 ? $"Make them {verb} ({n} generations)" : $"Make it {verb} (1 generation)";
+    }
 
     /// <summary>While the window counts what turning enhancement on would make.</summary>
     public const string EnhanceCounting = "Counting the pictures this would make…";

@@ -27,7 +27,14 @@ public sealed record Snapshot(
     /// a folder the player chose, or pinned - never an empty list. Looked at when the install
     /// is set (at the start, Browse, Detect again), not after.
     /// </summary>
-    IReadOnlyList<string>? AltStableElsewhere = null);
+    IReadOnlyList<string>? AltStableElsewhere = null,
+    /// <summary>Portraits from the armory: null until the player has answered (#63).</summary>
+    bool? Armory = null,
+    bool ArmorySd = false,
+    int ArmoryRemakeDays = Core.Armory.DefaultRemakeDays,
+    bool ArmoryEnhanceAuto = true,
+    bool ArmoryDailyLimit = true,
+    int ArmoryDailyMax = Core.Armory.DefaultDailyMax);
 
 /// <summary>
 /// Everything a shell does that is not drawing: which install, the watcher, the passes, the
@@ -59,7 +66,8 @@ public sealed record Snapshot(
 /// </list>
 /// </summary>
 public sealed partial class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
-    Func<DateTime>? clock = null, EnhanceHooks? enhance = null, UpdateHooks? update = null) : IDisposable
+    Func<DateTime>? clock = null, EnhanceHooks? enhance = null, UpdateHooks? update = null,
+    Func<HttpMessageHandler>? armoryHttp = null) : IDisposable
 {
     private readonly Func<DateTime> _clock = clock ?? (() => DateTime.Now);
     // The way to Codex, or none: a controller made without one never enhances. The app hands
@@ -128,6 +136,12 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                 EnhanceMinLevel = _settings.EnhanceMinLevel,
                 EnhanceStyle = _settings.EnhanceStyle,
                 CheckUpdatesOnOpen = _settings.CheckUpdatesOnOpen,
+                Armory = _settings.Armory,
+                ArmorySd = _settings.ArmorySd,
+                ArmoryRemakeDays = _settings.ArmoryRemakeDays,
+                ArmoryEnhanceAuto = _settings.ArmoryEnhanceAuto,
+                ArmoryDailyLimit = _settings.ArmoryDailyLimit,
+                ArmoryDailyMax = _settings.ArmoryDailyMax,
                 SettingsProblem = Problem(),
                 Shell = new ShellState(Paused: _settings.Paused, FirstStart: !_settings.Started),
             };
@@ -138,6 +152,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         }
         StartEnhancer();
         StartUpdater();
+        StartArmory();
     }
 
     /// <summary>The player picked a folder. False when it is not a WoW folder: nothing changes.</summary>
@@ -217,7 +232,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
             _current = _current with { Shell = _current.Shell with { Paused = paused } };
         }
         Save(s => s with { Paused = paused });
-        if (!paused) WakeEnhancer();
+        if (!paused) { WakeEnhancer(); WakeArmory(); }
     }
 
     /// <summary>
@@ -261,12 +276,15 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         watcher?.Dispose();
         StopEnhancer();
         StopUpdater();
+        StopArmory();
         Changed?.Invoke();
         return Task.Run(async () =>
         {
             lock (_passGate) { }
             // The picture in flight was told to stop; its child is killed, its record written.
             if (_enhanceLoop is { } loop) await Task.WhenAny(loop, Task.Delay(TimeSpan.FromSeconds(15)));
+            // A request in flight is cancelled with the worker.
+            if (_armoryLoop is { } armory) await Task.WhenAny(armory, Task.Delay(TimeSpan.FromSeconds(5)));
             _log?.Write("stopped");
         });
     }
@@ -335,6 +353,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                     EnhanceSeen = same && _current.Shell.EnhanceSeen,
                     LastEnhanceResult = same ? _current.Shell.LastEnhanceResult : null,
                     EnhanceHeld = null,
+                    ArmoryHeld = null,
                     EnhanceSkipped = null,
                 },
             };
@@ -345,6 +364,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         job?.Cancel();
         old?.Dispose();
         Changed?.Invoke();
+        WakeArmory();
         // The first look, at once - and not one the player asked for: it obeys a pause.
         watcher?.TriggerNow();
         return true;
@@ -401,7 +421,8 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                         RestartNotice = RestartNoticeDue(install),
                         Shell = _current.Shell with
                         {
-                            Report = report ?? _current.Shell.Report,
+                            Report = report is null ? _current.Shell.Report
+                                : report.Portraits is { } rows ? report with { Portraits = WithArmory(rows) } : report,
                             LastError = error,
                             LastPass = note,
                             LastWritten = note.Written.Count > 0 ? note : _current.Shell.LastWritten,
@@ -498,5 +519,6 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         watcher?.Dispose();
         StopEnhancer();
         StopUpdater();
+        StopArmory();
     }
 }

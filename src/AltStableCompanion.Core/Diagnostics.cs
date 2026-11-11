@@ -15,7 +15,8 @@ public sealed record DiagnosticsFacts(
     bool Enhance,
     bool CodexProbed,
     string? CodexStatus,
-    string LogPath);
+    string LogPath,
+    string Armory = "not asked yet");
 
 /// <summary>
 /// Help, "Save diagnostics": ONE text file a player can attach to an issue. No images, no
@@ -30,7 +31,7 @@ public static partial class Diagnostics
     /// <summary>What the window says before anything is written.</summary>
     public const string Explanation =
         "Writes one text file to your Downloads folder for a bug report: the app and Windows versions, the WoW folder, "
-        + "the AltStable versions, whether enhanced portraits are on, how many captures, portraits and enhanced "
+        + "the AltStable versions, whether armory and enhanced portraits are on, how many captures, portraits and enhanced "
         + "pictures each character has, and the last 300 lines of the log. Your characters' names and IDs are in it. "
         + "Your account folder names and your Windows user folder are not. No pictures, and nothing is sent: "
         + "attaching it is up to you.";
@@ -54,6 +55,7 @@ public static partial class Diagnostics
             sb.AppendLine(CultureInfo.InvariantCulture, $"Roster:     {roster}{(install.RosterDrawsEnhanced ? ", draws enhanced pictures" : "")}");
             sb.AppendLine(CultureInfo.InvariantCulture, $"Cutouts:    {(File.Exists(new CutoutFolder(install.CutoutAddonDir).TocPath) ? "the addon is there" : "no addon yet")}");
         }
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Armory:     {facts.Armory}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"Enhanced:   {(facts.Enhance ? "on" : "off")}");
         // Found or not, and signed in or not: what `codex login status` says in full is the
         // account's business.

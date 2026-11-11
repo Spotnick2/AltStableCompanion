@@ -57,12 +57,12 @@ public sealed partial class Controller
     // it is in the history. No settings change can widen it: another combination is another
     // signature, held until asked.
     private readonly HashSet<string> _remakeAllowed = new(StringComparer.Ordinal);
-    private IReadOnlyList<(string Name, string Signature)> _held = [];   // what the window offers, as of the last look
+    private IReadOnlyList<(string Name, string Signature, bool Armory)> _held = [];   // what the window offers, as of the last look
     private Placement? _batch;                                           // this wake's placement, reused across its launches
 
     /// <summary>One wake's placement of the candidates: who is to launch, under which settings.</summary>
     private sealed record Placement((string Style, string Model, string Effort, int Level) Settings, int Generation,
-        List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)> Launch, int Done)
+        List<(EnhanceCandidate C, Primary P, string Signature)> Launch, int Done)
     {
         public int Launched;
     }
@@ -103,7 +103,7 @@ public sealed partial class Controller
 
     /// <summary>What one launch carries from its preparation to its publication.</summary>
     private sealed record EnhanceJob(string Guid, string Base, string Name, string Signature, string SourceHash,
-        CutoutMeta PrimaryMeta, string Style, string Dir, CodexJob Codex, int Generation, string InstallDir);
+        CutoutMeta PrimaryMeta, string Style, string Dir, CodexJob Codex, int Generation, string InstallDir, string PrimaryPath);
 
     /// <summary>The worker is nudged: something that decides who is eligible changed.</summary>
     private void WakeEnhancer()
@@ -258,14 +258,15 @@ public sealed partial class Controller
 
             while (batch.Launched < batch.Launch.Count)
             {
-                var (c, placedMeta, primary, placed) = batch.Launch[batch.Launched++];
+                var (c, placedPrimary, placed) = batch.Launch[batch.Launched++];
                 // The placement is a wake old, and a wake comes two seconds after the roster
                 // changed on disk: the roster is read again for the one being launched. Hidden
                 // since, below the level, another portrait, another race or class - or an
                 // account that can no longer be read, which refuses everyone - and the look is
                 // done again rather than spending on the old one.
+                var primaries = folder.Primaries();
                 var fresh = Eligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)),
-                    settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
+                    settings.EnhanceMinLevel, guid => primaries.TryGetValue(guid, out var p) ? p.Base : null);
                 if (fresh.Refused is { } refusedNow) { _batch = null; return Idle(refusedNow); }
                 var still = fresh.Candidates.FirstOrDefault(e => e.Guid == c.Guid);
                 if (still is null || still.Character != c.Character || still.FileBase != c.FileBase)
@@ -274,13 +275,15 @@ public sealed partial class Controller
                     return PrepareEnhancement();
                 }
                 // The portrait, its sidecar and the history, likewise: a capture since (the same
-                // pixels with a new epoch included) or a record since would make it another picture.
-                var meta = folder.ReadMeta(c.FileBase);
-                if (meta is null || meta.Guid != c.Guid || meta.Epoch != placedMeta.Epoch || meta.W != placedMeta.W || meta.H != placedMeta.H)
+                // pixels with a new epoch included), a render that is now newer, or a record since
+                // would make it another picture.
+                if (!primaries.TryGetValue(c.Guid, out var now) || !SamePrimary(now, placedPrimary))
                 {
                     _batch = null;
                     return PrepareEnhancement();
                 }
+                var meta = now.Meta;
+                var primary = now.Path;
                 string sourceHash;
                 RgbaImage canvas;
                 try
@@ -307,6 +310,15 @@ public sealed partial class Controller
                     continue;
                 }
                 if (!history.MayLaunch(signature)) continue;
+                // The armory hold, at the launch too: a render's picture is made at most every N
+                // days unless the player asked for this one - the retry after a cancel included.
+                var confirmed = Allowed(signature);
+                if (now.Armory && !confirmed && (Armory.HeldUntil(history, settings.ArmoryRemakeDays, _clock()) is not null
+                    || !settings.ArmoryEnhanceAuto
+                    || (settings.ArmoryDailyLimit && Armory.LaunchedToday(folder.EnhancedDir, _clock()) >= settings.ArmoryDailyMax)))
+                {
+                    continue;
+                }
 
                 // The job folder: the reference (the manifest's crop of the primary, as a PNG),
                 // and later the verdict. Ours, deleted when the job ends.
@@ -331,6 +343,8 @@ public sealed partial class Controller
                         Signature = signature, Base = c.FileBase, Started = _clock(),
                         Style = settings.EnhanceStyle, Model = settings.EnhanceModel, Effort = settings.EnhanceEffort,
                         Prompt = EnhancementPrompt.Version, Epoch = meta.Epoch, SourceHash = sourceHash,
+                        Source = now.Armory ? Attempt.FromArmory : Attempt.FromCapture,
+                        Confirmed = confirmed ? true : null,
                     });
                 }
                 catch (AttemptHistoryException ex)
@@ -353,7 +367,7 @@ public sealed partial class Controller
                 Changed?.Invoke();
                 _log?.Write($"enhance: {c.Character.Name} ({c.FileBase}), {settings.EnhanceStyle}, {settings.EnhanceModel} {settings.EnhanceEffort}");
                 return new EnhanceJob(c.Guid, c.FileBase, c.Character.Name, signature, sourceHash, meta, settings.EnhanceStyle,
-                    dir, codexJob, generation, install.CutoutAddonDir);
+                    dir, codexJob, generation, install.CutoutAddonDir, primary);
             }
             return Idle(null, keepHeld: true);
         }
@@ -370,7 +384,8 @@ public sealed partial class Controller
         if (plan.Refused is { } refused) { Idle(refused); return null; }
         var (launch, held, done, inHistory) = (plan.Launch, plan.Held, plan.Done, plan.InHistory);
         var skipped = plan.Skipped.Count == 0 ? null : plan.Skipped;
-        var names = held.Select(h => h.Name).ToList();
+        var names = held.Where(h => !h.Armory).Select(h => h.Name).ToList();
+        var armoryNames = held.Where(h => h.Armory).Select(h => h.Name).ToList();
         var changed = false;
         lock (_gate)
         {
@@ -380,6 +395,11 @@ public sealed partial class Controller
             if (!(_current.Shell.EnhanceHeld ?? []).SequenceEqual(names))
             {
                 _current = _current with { Shell = _current.Shell with { EnhanceHeld = names.Count == 0 ? null : names } };
+                changed = true;
+            }
+            if (!(_current.Shell.ArmoryHeld ?? []).SequenceEqual(armoryNames))
+            {
+                _current = _current with { Shell = _current.Shell with { ArmoryHeld = armoryNames.Count == 0 ? null : armoryNames } };
                 changed = true;
             }
             if (!SameSkipped(_current.Shell.EnhanceSkipped, skipped))
@@ -397,8 +417,8 @@ public sealed partial class Controller
             && a.All(kv => b.TryGetValue(kv.Key, out var v) && v == kv.Value));
 
     private sealed record LaunchPlan(
-        List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)> Launch,
-        List<(string Name, string Signature)> Held, int Done, List<string> InHistory, string? Refused,
+        List<(EnhanceCandidate C, Primary P, string Signature)> Launch,
+        List<(string Name, string Signature, bool Armory)> Held, int Done, List<string> InHistory, string? Refused,
         IReadOnlyDictionary<string, string> Skipped);
 
     // Under _passGate. Who would launch, who is held and who is done, under these settings -
@@ -407,18 +427,21 @@ public sealed partial class Controller
     private LaunchPlan PlanLaunches(CutoutFolder folder, WowInstall install, Settings settings, IReadOnlySet<string> allowed)
     {
         var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
-        var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => folder.FileBaseOf(guid));
+        var primaries = folder.Primaries();
+        var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => primaries.TryGetValue(guid, out var p) ? p.Base : null);
         if (eligible.Refused is { } refused) return new([], [], 0, [], refused, new Dictionary<string, string>());
 
-        var held = new List<(string Name, string Signature)>();
-        var launch = new List<(EnhanceCandidate C, CutoutMeta Meta, string Primary, string Signature)>();
+        var held = new List<(string Name, string Signature, bool Armory)>();
+        // Automatic armory pictures left today, with the limit on: the rest wait for tomorrow.
+        var budget = settings.ArmoryDailyLimit ? settings.ArmoryDailyMax - Armory.LaunchedToday(folder.EnhancedDir, _clock()) : int.MaxValue;
+        var launch = new List<(EnhanceCandidate C, Primary P, string Signature)>();
         var done = 0;
         var inHistory = new List<string>();
         foreach (var c in eligible.Candidates)
         {
-            var primary = Path.Combine(folder.CutoutsDir, c.FileBase + ".tga");
-            var meta = folder.ReadMeta(c.FileBase);
-            if (meta?.Guid != c.Guid || !File.Exists(primary)) continue;
+            if (!primaries.TryGetValue(c.Guid, out var p)) continue;
+            var (primary, meta) = (p.Path, p.Meta);
+            if (meta.Guid != c.Guid || !File.Exists(primary)) continue;
             string sourceHash;
             try
             {
@@ -454,10 +477,23 @@ public sealed partial class Controller
             if (!allowed.Contains(signature) && made is not null && made.Epoch == meta.Epoch && made.SourceHash == sourceHash
                 && File.Exists(Path.Combine(folder.EnhancedDir, c.FileBase + ".tga")))
             {
-                held.Add((c.Character.Name, signature));
+                held.Add((c.Character.Name, signature, false));
                 continue;
             }
-            launch.Add((c, meta, primary, signature));
+            if (p.Armory && !allowed.Contains(signature))
+            {
+                // A render's picture at most every N days (#63): this one waits, unasked, until then.
+                if (Armory.HeldUntil(history, settings.ArmoryRemakeDays, _clock()) is not null) continue;
+                // Not on its own: offered, as a picture of other settings is.
+                if (!settings.ArmoryEnhanceAuto)
+                {
+                    held.Add((c.Character.Name, signature, true));
+                    continue;
+                }
+                if (budget <= 0) continue;
+                budget--;
+            }
+            launch.Add((c, p, signature));
         }
         held.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
         return new(launch, held, done, inHistory, null, eligible.Skipped ?? new Dictionary<string, string>());
@@ -587,10 +623,10 @@ public sealed partial class Controller
                 _current = _current with { Shell = _current.Shell with { Enhancing = null } };
                 changed = true;
             }
-            if (!keepHeld && (_current.Shell.EnhanceHeld is not null || _held.Count > 0))
+            if (!keepHeld && (_current.Shell.EnhanceHeld is not null || _current.Shell.ArmoryHeld is not null || _held.Count > 0))
             {
                 _held = [];
-                _current = _current with { Shell = _current.Shell with { EnhanceHeld = null } };
+                _current = _current with { Shell = _current.Shell with { EnhanceHeld = null, ArmoryHeld = null } };
                 changed = true;
             }
             // Off, or unable to run: nobody is "not enhanced" for a reason of their own.
@@ -657,6 +693,8 @@ public sealed partial class Controller
                 cutout = Enhancement.ToCutout(png, job.PrimaryMeta with
                 {
                     Shots = null,
+                    // A render's own facts are its sidecar's, not the picture's.
+                    Url = null, ETag = null, LastModified = null, Fetched = null, TgaHash = null, Skew = null,
                     Enhancement = new EnhancementMeta
                     {
                         SourceHash = job.SourceHash, Style = job.Style, Model = job.Codex.Model,
@@ -686,9 +724,14 @@ public sealed partial class Controller
             if (outcome == Attempt.Written)
             {
                 // The portrait it was made from must still be the portrait: a new capture
-                // since means a new signature, and this picture is nobody's.
+                // since, or a render that took its place, means a new signature, and this
+                // picture is nobody's.
                 string now;
-                try { now = EnhancementSignature.HashOf(Path.Combine(folder.CutoutsDir, job.Base + ".tga")); }
+                try
+                {
+                    now = folder.Primaries().TryGetValue(job.Guid, out var p) && SamePath(p.Path, job.PrimaryPath)
+                        ? EnhancementSignature.HashOf(job.PrimaryPath) : "";
+                }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { now = ""; }
                 if (now != job.SourceHash) outcome = Attempt.Failed + ": the portrait changed while the picture was made";
             }
@@ -796,7 +839,7 @@ public sealed partial class Controller
         lock (_gate)
         {
             if (generation != _generation || _current.Shell.Report is not { } report) return;
-            var rows = Collection.Build(entries, report.Characters, times, folder.EnhanceState);
+            var rows = WithArmory(Collection.Build(entries, report.Characters, times, folder.EnhanceState));
             var shell = _current.Shell;
             EnhancedNote? note = null;
             if (written is not null)
@@ -815,6 +858,20 @@ public sealed partial class Controller
                 },
             };
         }
+    }
+
+    private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    // The primary placed and the primary now are the same portrait: the same file, of the same
+    // capture or render, the same size.
+    private static bool SamePrimary(Primary now, Primary placed) =>
+        SamePath(now.Path, placed.Path) && now.Armory == placed.Armory && now.Meta.Guid == placed.Meta.Guid
+        && now.Meta.Epoch == placed.Meta.Epoch && now.Meta.TgaHash == placed.Meta.TgaHash
+        && now.Meta.W == placed.Meta.W && now.Meta.H == placed.Meta.H;
+
+    private bool Allowed(string signature)
+    {
+        lock (_gate) return _remakeAllowed.Contains(signature);
     }
 
     private void TryDeleteDir(string dir)

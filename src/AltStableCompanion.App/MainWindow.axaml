@@ -215,6 +215,37 @@
           <RadioButton GroupName="skin" Content="Flat" IsChecked="{Binding IsFlat}" />
         </StackPanel>
 
+        <!-- Portraits from the armory (#63): asked once, changed here. The words are Core's
+             (PassText.ArmoryExplanation) and say only what the code does. -->
+        <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
+          <StackPanel Spacing="8">
+            <CheckBox IsChecked="{Binding Armory}" Content="Portraits from the armory (Blizzard's website)"
+                      ToolTip.Tip="Take each character's picture from the armory; a new capture still shows at once" />
+            <StackPanel Orientation="Horizontal" Spacing="14" Margin="28,0,0,0">
+              <RadioButton GroupName="armorymodel" Content="HD model" IsChecked="{Binding ArmoryHd}" IsEnabled="{Binding ArmoryOn}" />
+              <RadioButton GroupName="armorymodel" Content="SD (classic) model" IsChecked="{Binding ArmorySd}" IsEnabled="{Binding ArmoryOn}" />
+            </StackPanel>
+            <!-- With enhanced portraits on: what an armory picture may spend, and how often. -->
+            <CheckBox IsChecked="{Binding ArmoryEnhanceAuto}" Content="Enhance new armory pictures on their own" Margin="28,0,0,0" IsEnabled="{Binding ArmoryOn}"
+                      ToolTip.Tip="With enhanced portraits on. Otherwise each new armory picture is offered below, under the enhancement settings, and made when you ask" />
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0">
+              <CheckBox IsChecked="{Binding ArmoryDailyLimit}" Content="At most" IsEnabled="{Binding ArmoryOn}" VerticalAlignment="Center"
+                        ToolTip.Tip="A guard on usage: automatic armory pictures stop for the day at this many; untick for no limit" />
+              <NumericUpDown Value="{Binding ArmoryDailyMax}" Minimum="1" Maximum="100" Increment="1" FormatString="0" Width="110" IsEnabled="{Binding ArmoryOn}" />
+              <TextBlock Text="armory pictures enhanced in a day" VerticalAlignment="Center" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0">
+              <TextBlock Text="Remake an enhanced picture after an armory update at most every" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="300" />
+              <NumericUpDown Value="{Binding ArmoryRemakeDays}" Minimum="1" Maximum="90" Increment="1" FormatString="0" Width="110"
+                             ToolTip.Tip="Each enhanced picture uses Codex usage; the armory draws a character again every time you play it" />
+              <TextBlock Text="days" VerticalAlignment="Center" />
+            </StackPanel>
+            <Button Content="Check the armory now" Command="{Binding CheckArmory}" Margin="28,0,0,0" HorizontalAlignment="Left"
+                    ToolTip.Tip="Ask for every character's picture once more, now" />
+            <TextBlock Classes="dim" Margin="28,0,0,0" Text="{Binding ArmoryExplanation}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <!-- The one thing that leaves this PC, off unless chosen. Every word here is Core's
              (PassText.EnhanceExplanation) and says only what the code does. -->
         <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
@@ -407,6 +438,18 @@
                     ToolTip.Tip="Process new captures automatically again" />
           </StackPanel>
         </Border>
+
+        <!-- The armory question (#63): asked once, neither answer chosen for the player. At the
+             first start "Start watching" waits for it; an updated install converts meanwhile. -->
+        <StackPanel Spacing="8" IsVisible="{Binding ArmoryAsk}" Margin="0,4,0,0">
+          <TextBlock Text="{Binding ArmoryQuestion}" TextWrapping="Wrap" />
+          <WrapPanel>
+            <Button Content="{Binding ArmoryYesText}" Command="{Binding AnswerArmoryYes}" Margin="0,0,8,0"
+                    ToolTip.Tip="Ask Blizzard's picture server for each character's armory picture" />
+            <Button Content="{Binding ArmoryNoText}" Command="{Binding AnswerArmoryNo}"
+                    ToolTip.Tip="Only your captures; nothing is asked of Blizzard" />
+          </WrapPanel>
+        </StackPanel>
 
         <!-- The first start: nothing is converted until this is read and answered. -->
         <StackPanel Spacing="8" IsVisible="{Binding FirstStart}" Margin="0,4,0,0">

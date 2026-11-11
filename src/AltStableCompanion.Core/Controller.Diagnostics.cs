@@ -19,7 +19,13 @@ public sealed partial class Controller
                 : "not found";
             if (shell.InstallProblem is { } problem) how += "; " + problem;
             facts = new DiagnosticsFacts(Version, shell.Install, how, _settings.Enhance, _current.CodexProbed,
-                _current.CodexStatus, LogPath);
+                _current.CodexStatus, LogPath,
+                _settings.Armory switch
+                {
+                    null => "not asked yet",
+                    false => "off",
+                    true => $"on ({(_settings.ArmorySd ? "SD" : "HD")}; an armory picture enhanced at most every {_settings.ArmoryRemakeDays} days)",
+                });
         }
         var now = _clock();
         var path = Diagnostics.Save(Diagnostics.Build(facts, now, userProfile), folder, now);

@@ -16,6 +16,12 @@ folder. This app does that part outside the game:
    `alpha = 1 - (white - black)`, `colour = black / alpha`.
 3. It writes `Interface\AddOns\AltStableCutouts\`, which the Roster loads.
 
+With the player's yes, it also takes a portrait from the Forever armory's render of each
+character (#63): a public file on Blizzard's CDN, named after the GUID's player number,
+fetched conditionally and kept in `Cutouts\Armory\` beside the capture's cutout. Whichever of
+the two is newer is the one the manifest names; that rule, the schedule and the measurements
+it rests on are in `Armory.cs`.
+
 What it reads and writes is specified in
 [`docs/PORTRAIT-CONTRACT.md`](https://github.com/Spotnick2/AltStable/blob/main/docs/PORTRAIT-CONTRACT.md)
 in the addon's repository.

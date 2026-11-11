@@ -90,6 +90,42 @@ public sealed record Settings
     public bool CheckUpdatesOnOpen { get; init; }
 
     /// <summary>
+    /// Portraits from the armory's renders (#63): asked, never defaulted. Null is "not
+    /// answered yet" - a file from before the question, or a new install that has not said -
+    /// and nothing is requested until it is answered. Captures convert either way.
+    /// </summary>
+    public bool? Armory { get; init; }
+
+    /// <summary>The SD (classic) model's render instead of the HD one.</summary>
+    public bool ArmorySd { get; init; }
+
+    /// <summary>
+    /// "Remake an enhanced picture after an armory update at most every N days": a render
+    /// updates whenever the character is played, a picture costs the player's usage. No 0 -
+    /// a player who wants no automatic spending turns enhancement off.
+    /// </summary>
+    public int ArmoryRemakeDays
+    {
+        get;
+        init => field = Math.Clamp(value, Core.Armory.MinRemakeDays, Core.Armory.MaxRemakeDays);
+    } = Core.Armory.DefaultRemakeDays;
+
+    /// <summary>
+    /// With enhancement on: an armory picture is enhanced on its own (within the days above and
+    /// the daily limit). Off, each one is offered on the Settings page and made when asked.
+    /// </summary>
+    public bool ArmoryEnhanceAuto { get; init; } = true;
+
+    /// <summary>A guard on the usage automatic armory pictures spend: at most <see cref="ArmoryDailyMax"/> in any 24 hours.</summary>
+    public bool ArmoryDailyLimit { get; init; } = true;
+
+    public int ArmoryDailyMax
+    {
+        get;
+        init => field = Math.Clamp(value, 1, Core.Armory.MaxDailyMax);
+    } = Core.Armory.DefaultDailyMax;
+
+    /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
     /// notice is dismissed, so the notice survives the app being closed - or killed - in
@@ -131,10 +167,17 @@ public sealed record Settings
         && EnhanceEffort == other.EnhanceEffort
         && EnhanceTimeoutSeconds == other.EnhanceTimeoutSeconds
         && CheckUpdatesOnOpen == other.CheckUpdatesOnOpen
+        && Armory == other.Armory
+        && ArmorySd == other.ArmorySd
+        && ArmoryRemakeDays == other.ArmoryRemakeDays
+        && ArmoryEnhanceAuto == other.ArmoryEnhanceAuto
+        && ArmoryDailyLimit == other.ArmoryDailyLimit
+        && ArmoryDailyMax == other.ArmoryDailyMax
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
-        HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, Enhance, RestartNoticeInstalls.Count);
+        HashCode.Combine(HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, Enhance, RestartNoticeInstalls.Count),
+            Armory, ArmorySd, ArmoryRemakeDays, ArmoryEnhanceAuto, ArmoryDailyLimit, ArmoryDailyMax);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

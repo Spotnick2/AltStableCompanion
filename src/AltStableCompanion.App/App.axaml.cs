@@ -37,7 +37,7 @@ internal sealed partial class App : Application
             // The real way to Codex: the CLI on PATH, its own home, its own sign-in. The
             // controller never uses it unless the player turned enhancement on. The real way
             // to GitHub: this exe, its stamped version, and the network - used on a press.
-            _controller = new Controller(Options, enhance: EnhanceHooks.Real(), update: UpdateHooks.Real());
+            _controller = new Controller(Options, enhance: EnhanceHooks.Real(), update: UpdateHooks.Real(), armoryHttp: ArmoryClient.Real);
             // Subscribed BEFORE Start: the first pass begins inside it.
             _controller.Changed += QueueRefresh;
             _controller.PassCompleted += report => Dispatcher.UIThread.Post(() => Announce(report));

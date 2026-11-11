@@ -64,14 +64,22 @@ public sealed record PortraitRow(
     /// <summary>A picture of this character is being made right now - a fact of its own, whatever the note says.</summary>
     bool Enhancing = false,
     /// <summary>Why enhancing, which is on, leaves this portrait alone ("hidden in WoW12"), or null.</summary>
-    string? EnhanceSkipped = null)
+    string? EnhanceSkipped = null,
+    /// <summary>Where the file is under Cutouts\: null, or "Armory" for a render (#63).</summary>
+    string? Folder = null,
+    /// <summary>What the armory last said of this character, in a few words ("no render yet"), or null.</summary>
+    string? ArmoryNote = null)
 {
+    /// <summary>The portrait is the armory's render, not a capture.</summary>
+    public bool FromArmory => Folder is not null;
 
     /// <summary>The latest thing that happened to this character - a capture, a portrait, an enhanced picture - for the list's order.</summary>
     public DateTime? LastActivity => new[] { FileModified, EnhancedModified, LatestCapture }.Max();
 
     /// <summary>The file the thumbnail is made from: the enhanced picture when there is one.</summary>
-    public string? ThumbnailFile => Enhanced is null ? FileName : FileName is null ? null : Path.Combine("Enhanced", FileName);
+    public string? ThumbnailFile => FileName is null ? null
+        : Enhanced is not null ? Path.Combine("Enhanced", FileName)
+        : Folder is null ? FileName : Path.Combine(Folder, FileName);
     public (int W, int H)? ThumbnailSize => Enhanced is { } e ? (e.W, e.H) : Size;
 
     /// <summary>In the manifest on disk. What the game makes of it, the app cannot see.</summary>
@@ -127,7 +135,8 @@ public static class Collection
                 Enhanced: entry?.Enhanced,
                 EnhanceNote: enhanceState?.Invoke(c.Guid).Note,
                 EnhancedModified: entry is null ? null : EnhancedModified(fileTimes, entry),
-                Enhancing: enhanceState?.Invoke(c.Guid).InFlight ?? false));
+                Enhancing: enhanceState?.Invoke(c.Guid).InFlight ?? false,
+                Folder: entry?.Folder));
         }
 
         foreach (var e in entries.Where(e => !claimed.Contains(e)))
@@ -137,7 +146,8 @@ public static class Collection
                 Modified(fileTimes, e), null, CaptureOutcome.None, null, Size: (e.W, e.H),
                 Enhanced: e.Enhanced, EnhanceNote: e.Guid is null ? null : enhanceState?.Invoke(e.Guid).Note,
                 EnhancedModified: EnhancedModified(fileTimes, e),
-                Enhancing: e.Guid is not null && (enhanceState?.Invoke(e.Guid).InFlight ?? false)));
+                Enhancing: e.Guid is not null && (enhanceState?.Invoke(e.Guid).InFlight ?? false),
+                Folder: e.Folder));
         }
 
         // Namesakes are told apart by the one thing that is theirs alone.

@@ -14,6 +14,7 @@ the cutouts the addon's Roster scene draws your characters with.
 |---|---|---|
 | **AltStable** (the addon) | Tracks and compares your characters in the game | Yes. It is useful on its own |
 | **AltStable Companion** (this app) | Turns your `/alts portrait` captures into Roster portraits | Only for portraits in the Roster |
+| **Portraits from the armory** (a setting in this app) | Takes each character's picture from Blizzard's armory website, with no capture | No: the app asks you once |
 | **Enhanced portraits** (a setting in this app) | Asks the Codex CLI on your PC for a nicer picture of each portrait | No: off by default, and it uses your ChatGPT account's usage |
 
 ## Install
@@ -57,6 +58,42 @@ Switch HD models back on before `/alts portrait` if you want HD portraits.
 The app has to be running to make portraits. It does not start with Windows: run it
 again after you log in to Windows. Captures taken while it was closed are converted the
 next time it starts, unless automatic processing is off.
+
+## Portraits from the armory (optional)
+
+Blizzard's armory website draws each of your characters of level 10 or more. The app can
+use that picture as the character's portrait. A character you never captured gets one too,
+and a portrait follows your gear without a new capture. The first time it starts (or the
+first time after the update that brings this), the app asks whether to use it. Settings can
+change your answer.
+
+- **What leaves your PC.** For each character of level 10 or more that is not hidden, a
+  request for its picture to Blizzard's picture server, `render.worldofwarcraft.com`. The
+  address names the character by the number in its GUID. No account, password or key is
+  sent, and none is needed.
+- **When.** Once each time the app starts, then every hour from 6 to 24 hours after you
+  played a character: the armory draws it again about 7 hours after you log off. One
+  request at a time, a second apart. A picture that has not changed is not downloaded again.
+- **Which picture shows.** A new capture shows at once. An armory picture from later play
+  then takes its place. The app judges "later" by the picture's date minus 7 hours. That is
+  an estimate, and the next capture or picture puts it right. Capture with `/alts portrait`
+  whenever you want the new look now.
+- **HD or SD.** Settings picks the armory's HD model or its SD (classic) one.
+- **With enhanced portraits.** The armory draws a character again every time you play it,
+  and each enhanced picture uses Codex usage, so three settings hold that back:
+  - **Enhance new armory pictures on their own** (on by default). Off, each new armory
+    picture is offered on the Settings page, and made when you press **Make it now**.
+  - **At most every 7 days** per character (1 to 90). Meanwhile the app does not ask the
+    armory about that character, and the picture made before stays. If a picture failed, the
+    plain armory picture can stay that long too.
+  - **At most 5 armory pictures in a day** (any 24 hours), which you can untick.
+
+  A picture drawn again that looks the same (under 1 % of it changed) keeps the enhanced
+  picture made from it. A capture is always enhanced at once.
+- **US only, for now.** The app reads the region from the game's `Config.wtf`.
+
+The pictures go to `Interface\AddOns\AltStableCutouts\Cutouts\Armory`. A capture's portrait
+stays in its own file, so a capture is never lost to an armory picture.
 
 ## Enhanced portraits (optional)
 
@@ -128,8 +165,8 @@ the one it is. **Help → About** is the authority on what is running.
 
 ## What it touches
 
-No network access, except the two things you ask for: enhanced portraits, which you
-switch on, and the update check.
+No network access, except the three things you ask for: portraits from the armory and
+enhanced portraits, which you switch on, and the update check.
 
 It touches only:
 - the screenshots it matched to a capture;
