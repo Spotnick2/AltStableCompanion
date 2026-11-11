@@ -19,7 +19,21 @@ public sealed partial class Controller
         public bool Checked;          // this run: the sweep at the start, or since "Check the armory now"
         public bool Held;             // skipped for the enhancement hold: due once when it ends
         public string? Note;
+        // What the player's own API client said (M3): levels only go up, a login only later.
+        public bool ApiChecked;       // this run
+        public DateTimeOffset? ApiLast;
+        public int ApiLevel;
+        public DateTimeOffset? ApiLogin;
     }
+
+    /// <summary>How often the API is asked about a character, whatever the CDN's hours after play.</summary>
+    public static readonly TimeSpan ApiEvery = TimeSpan.FromHours(6);
+
+    private BlizzardApi? _blizzard;
+    private BlizzardClient? _blizzardClient;                                                    // under _gate
+    private bool _blizzardUnreadable;                                                           // under _gate
+    private bool _blizzardRefused;                                                              // under _gate: this run, until another client or a Test that passes
+    private int _blizzardRevision;                                                              // under _gate: a client removed or replaced drops answers in flight
 
     private readonly SemaphoreSlim _armoryWake = new(0, 1);
     private readonly CancellationTokenSource _armoryStop = new();
@@ -40,6 +54,15 @@ public sealed partial class Controller
     {
         if (armoryHttp is null) return;
         _armoryClient = new ArmoryClient(armoryHttp, update?.Version ?? AppVersion.Informational);
+        _blizzard = new BlizzardApi(armoryHttp, update?.Version ?? AppVersion.Informational, ArmoryNow);
+        var client = BlizzardClientStore.Load(_dataDir, out var unreadable);
+        lock (_gate)
+        {
+            _blizzardClient = client;
+            _blizzardUnreadable = unreadable;
+            PublishBlizzardState();
+        }
+        if (unreadable) _log?.Write("armory: the saved Blizzard API client cannot be read by this Windows user; enter it again");
         _armoryLoop = Task.Run(ArmoryLoopAsync);
         WakeArmory();
     }
@@ -55,7 +78,7 @@ public sealed partial class Controller
     {
         lock (_gate)
         {
-            foreach (var s in _armory.Values) s.Checked = false;
+            foreach (var s in _armory.Values) { s.Checked = false; s.ApiChecked = false; }
         }
         _log?.Write("armory: a check of every character asked for");
         WakeArmory();
@@ -166,8 +189,7 @@ public sealed partial class Controller
             ArmoryRefuse(region is null ? "the game's region is not in Config.wtf" : $"armory renders are not available in your region ({region}) yet");
             return;
         }
-        var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
-        var (characters, refused) = ArmoryEligibility.Select(snapshot);
+        var (everyone, refused) = ArmoryRoster(install);
         if (refused is not null)
         {
             ArmoryRefuse(refused + ": not knowing who is hidden is not permission");
@@ -176,9 +198,14 @@ public sealed partial class Controller
         lock (_gate)
         {
             _armoryRefused = null;
-            _armoryNames = characters.ToDictionary(c => c.Guid, c => c.Name, StringComparer.Ordinal);
-            foreach (var gone in _armory.Keys.Where(k => !_armoryNames.ContainsKey(k)).ToList()) _armory.Remove(gone);
+            var known = everyone.Select(c => c.Guid).ToHashSet(StringComparer.Ordinal);
+            foreach (var gone in _armory.Keys.Where(k => !known.Contains(k)).ToList()) _armory.Remove(gone);
         }
+        // The player's own API client first: a level or a login it knows decides who the CDN
+        // is asked about, and when.
+        if (!await ApiSweepAsync(install, generation, everyone, stop)) return;
+        var characters = Drawn(Merged(everyone));
+        lock (_gate) _armoryNames = characters.ToDictionary(c => c.Guid, c => c.Name, StringComparer.Ordinal);
 
         var folder = new CutoutFolder(install.CutoutAddonDir);
         IReadOnlyDictionary<string, (string Base, CutoutMeta Meta)>? renders = null;
@@ -204,13 +231,13 @@ public sealed partial class Controller
             if (!ArmoryPlanner.Due(c, state.LastChecked, state.Checked, state.Held, now)) continue;
             // Who may be asked about, read again before each request: a character hidden while
             // the one before was asked, or an account that can no longer be read, is not sent.
-            var (fresh, refusedNow) = ArmoryEligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)));
+            var (fresh, refusedNow) = ArmoryRoster(install);
             if (refusedNow is not null)
             {
                 ArmoryRefuse(refusedNow + ": not knowing who is hidden is not permission");
                 break;
             }
-            if (fresh.All(x => x.Guid != c.Guid)) continue;
+            if (Drawn(Merged(fresh)).All(x => x.Guid != c.Guid)) continue;
             var url = Armory.Url(c.Guid, settings.ArmorySd)!;
             renders ??= folder.ArmoryRenders();
             // Validators only for the file they describe: a render of another URL (HD/SD), or a
@@ -257,6 +284,209 @@ public sealed partial class Controller
             await Task.Delay(ArmoryGap, stop);
         }
         if (changed) RefreshArmoryRows();
+    }
+
+    // Every character not hidden, at any level - the API is asked about them all - or nobody and why.
+    private (IReadOnlyList<ArmoryCharacter> Characters, string? Refused) ArmoryRoster(WowInstall install) =>
+        ArmoryEligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)), minLevel: 0);
+
+    // The armory draws from level 10.
+    private static IReadOnlyList<ArmoryCharacter> Drawn(IReadOnlyList<ArmoryCharacter> characters) =>
+        [.. characters.Where(c => c.Level >= Armory.MinLevel)];
+
+    // What the API said, added in: the higher level (levels only go up, so an old answer never
+    // lowers one) and the later play (a login on another PC opens the hours after play too).
+    private IReadOnlyList<ArmoryCharacter> Merged(IReadOnlyList<ArmoryCharacter> characters)
+    {
+        lock (_gate)
+        {
+            return [.. characters.Select(c => _armory.TryGetValue(c.Guid, out var s)
+                ? c with
+                {
+                    Level = Math.Max(c.Level, s.ApiLevel),
+                    Activity = s.ApiLogin is { } login && (c.Activity is not { } played || login > played) ? login : c.Activity,
+                }
+                : c)];
+        }
+    }
+
+    // Under _gate.
+    private void PublishBlizzardState()
+    {
+        var state = _blizzardClient is null ? (_blizzardUnreadable ? BlizzardClientState.Unreadable : BlizzardClientState.None)
+            : _blizzardRefused ? BlizzardClientState.Refused : BlizzardClientState.Saved;
+        _current = _current with { BlizzardClient = state };
+    }
+
+    /// <summary>
+    /// The player's own client asked about each character not hidden, at any level: at the start,
+    /// then every 6 hours each. Not held by the enhancement hold - it spends nothing. False when
+    /// the cycle stops here (the API asked everyone to wait, or the look is over).
+    /// </summary>
+    private async Task<bool> ApiSweepAsync(WowInstall install, int generation, IReadOnlyList<ArmoryCharacter> everyone, CancellationToken stop)
+    {
+        foreach (var c in everyone)
+        {
+            var now = ArmoryNow();
+            BlizzardClient client;
+            int revision;
+            ArmoryState state;
+            lock (_gate)
+            {
+                if (_stopping || generation != _generation || _settings.Armory != true || _current.Shell.Paused) return false;
+                if (now < _armoryBusyUntil) return false;
+                if (_blizzardClient is not { } held || _blizzardRefused) return true;
+                client = held;
+                revision = _blizzardRevision;
+                if (!_armory.TryGetValue(c.Guid, out state!)) _armory[c.Guid] = state = new ArmoryState();
+                if (state.ApiChecked && state.ApiLast is { } last && now - last < ApiEvery) continue;
+            }
+            // A request names the character: hidden since the sweep began, it is not sent.
+            var (fresh, refusedNow) = ArmoryRoster(install);
+            if (refusedNow is not null)
+            {
+                ArmoryRefuse(refusedNow + ": not knowing who is hidden is not permission");
+                return false;
+            }
+            if (fresh.All(x => x.Guid != c.Guid)) continue;
+            var answer = await _blizzard!.ProfileAsync(client, c.Name, Armory.PlayerNumber(c.Guid)!.Value, stop);
+            bool kept;
+            lock (_gate)
+            {
+                // Removed or replaced while this was asked: not this client's answer to keep.
+                kept = revision == _blizzardRevision;
+                if (kept)
+                {
+                    switch (answer.Status)
+                    {
+                        case BlizzardStatus.Ok:
+                            state.ApiLevel = Math.Max(state.ApiLevel, answer.Profile!.Level);
+                            if (answer.Profile.LastLogin is { } login && (state.ApiLogin is not { } had || login > had)) state.ApiLogin = login;
+                            state.ApiChecked = true;
+                            state.ApiLast = now;
+                            break;
+                        case BlizzardStatus.NotFound:
+                        case BlizzardStatus.Failed:
+                            state.ApiChecked = true;
+                            state.ApiLast = now;
+                            break;
+                        case BlizzardStatus.Refused:
+                            _blizzardRefused = true;
+                            PublishBlizzardState();
+                            break;
+                    }
+                }
+                // A busy answer holds everyone, whoever's client it was.
+                if (answer.Status == BlizzardStatus.Busy) _armoryBusyUntil = now + (answer.RetryAfter ?? ArmoryClient.DefaultBusy);
+            }
+            if (answer.Status == BlizzardStatus.Busy)
+            {
+                _log?.Write($"armory: {answer.Problem}; waiting {(answer.RetryAfter ?? ArmoryClient.DefaultBusy).TotalMinutes:0} minutes");
+                return false;
+            }
+            if (kept && answer.Status == BlizzardStatus.Refused)
+            {
+                _log?.Write($"armory: {answer.Problem}; the armory carries on without the API until the client is tested again");
+                Changed?.Invoke();
+                await Task.Delay(ArmoryGap, stop);
+                return true;
+            }
+            if (kept && answer.Status == BlizzardStatus.Failed) _log?.Write($"armory: {c.Name}: {answer.Problem}");
+            await Task.Delay(ArmoryGap, stop);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Saves the player's own API client (DPAPI, this Windows user) and uses it from the next
+    /// look. Null when it went well, else why not. The id and secret are never shown again.
+    /// </summary>
+    public string? SetBlizzardClient(string id, string secret)
+    {
+        id = id.Trim();
+        secret = secret.Trim();
+        if (id.Length == 0 || secret.Length == 0) return "Enter both the client ID and the client secret.";
+        var client = new BlizzardClient(id, secret);
+        try
+        {
+            BlizzardClientStore.Save(_dataDir, client);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException or PlatformNotSupportedException)
+        {
+            _log?.Write($"armory: the Blizzard API client could not be saved: {ex.GetType().Name}");
+            return "The client could not be saved.";
+        }
+        _blizzard?.Forget();
+        lock (_gate)
+        {
+            _blizzardClient = client;
+            _blizzardUnreadable = false;
+            _blizzardRefused = false;
+            _blizzardRevision++;
+            foreach (var s in _armory.Values) s.ApiChecked = false;
+            PublishBlizzardState();
+        }
+        _log?.Write("armory: a Blizzard API client was saved");
+        Changed?.Invoke();
+        WakeArmory();
+        return null;
+    }
+
+    /// <summary>"Remove": the file, the token and any answer in flight. What the API said is kept for this run.</summary>
+    public void RemoveBlizzardClient()
+    {
+        try
+        {
+            BlizzardClientStore.Remove(_dataDir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log?.Write($"armory: the Blizzard API client file could not be deleted: {ex.GetType().Name}");
+        }
+        _blizzard?.Forget();
+        lock (_gate)
+        {
+            _blizzardClient = null;
+            _blizzardUnreadable = false;
+            _blizzardRefused = false;
+            _blizzardRevision++;
+            PublishBlizzardState();
+        }
+        _log?.Write("armory: the Blizzard API client was removed");
+        Changed?.Invoke();
+    }
+
+    /// <summary>"Test": one token request with the saved client. What to say under the button.</summary>
+    public async Task<string> TestBlizzardClientAsync()
+    {
+        BlizzardClient? client;
+        int revision;
+        lock (_gate) { client = _blizzardClient; revision = _blizzardRevision; }
+        if (client is null || _blizzard is null) return "No client is saved.";
+        var answer = await _blizzard.TestAsync(client, CancellationToken.None);
+        lock (_gate)
+        {
+            if (revision != _blizzardRevision) return "The client changed meanwhile: test it again.";
+            if (answer.Status == BlizzardStatus.Ok)
+            {
+                _blizzardRefused = false;
+                foreach (var s in _armory.Values) s.ApiChecked = false;
+            }
+            else if (answer.Status == BlizzardStatus.Refused)
+            {
+                _blizzardRefused = true;
+            }
+            PublishBlizzardState();
+        }
+        _log?.Write("armory: the Blizzard API client was tested: " + (answer.Status == BlizzardStatus.Ok ? "accepted" : answer.Problem));
+        Changed?.Invoke();
+        if (answer.Status == BlizzardStatus.Ok) WakeArmory();
+        return answer.Status switch
+        {
+            BlizzardStatus.Ok => "Battle.net accepted the client.",
+            BlizzardStatus.Refused => "Battle.net refused this client ID or secret.",
+            _ => "Battle.net could not be asked: " + answer.Problem,
+        };
     }
 
     // Under nothing. True when the row's words changed.
@@ -338,8 +568,8 @@ public sealed partial class Controller
                 if (_stopping || generation != _generation || _settings.Armory != true) return null;
             }
             // Hidden since the look, or an account that can no longer be read: not written.
-            var fresh = ArmoryEligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)));
-            if (fresh.Refused is not null || fresh.Characters.All(x => x.Guid != c.Guid)) return null;
+            var fresh = ArmoryRoster(install);
+            if (fresh.Refused is not null || Drawn(Merged(fresh.Characters)).All(x => x.Guid != c.Guid)) return null;
             var folder = new CutoutFolder(install.CutoutAddonDir);
             try
             {

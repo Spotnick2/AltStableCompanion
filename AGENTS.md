@@ -101,7 +101,9 @@ changes says `-dirty` in its version.
 - **No network, ever - except what the player asks for.** It is a promise in the README:
   the update check (a button, or a box the player ticks), portraits from the armory (#63,
   asked once, never defaulted: GETs of `render.worldofwarcraft.com` only, one at a time,
-  conditional) and enhanced portraits (below). The app touches only screenshots it matched to a capture, the `AltStableCutouts`
+  conditional; with the player's OWN Battle.net client, also a token from `oauth.battle.net`
+  and profile GETs of `us.api.blizzard.com`, the client kept with DPAPI and never logged)
+  and enhanced portraits (below). The app touches only screenshots it matched to a capture, the `AltStableCutouts`
   folder and `%APPDATA%\AltStableCompanion` - and, when the player presses Save diagnostics,
   one text file in the Downloads folder (not the Desktop, which OneDrive syncs by default). The published single-file exe also unpacks its
   own native libraries under `%TEMP%\.net`; that is the .NET host, it is stated in the README,

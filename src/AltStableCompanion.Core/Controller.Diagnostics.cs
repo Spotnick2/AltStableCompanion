@@ -25,6 +25,14 @@ public sealed partial class Controller
                     null => "not asked yet",
                     false => "off",
                     true => $"on ({(_settings.ArmorySd ? "SD" : "HD")}; an armory picture enhanced at most every {_settings.ArmoryRemakeDays} days)",
+                }
+                // Where the player's own API client stands, never the client itself.
+                + _current.BlizzardClient switch
+                {
+                    BlizzardClientState.Saved => "; Blizzard API client saved",
+                    BlizzardClientState.Refused => "; Blizzard API client refused this run",
+                    BlizzardClientState.Unreadable => "; Blizzard API client cannot be read",
+                    _ => "",
                 });
         }
         var now = _clock();

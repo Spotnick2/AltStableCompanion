@@ -243,6 +243,26 @@
             <Button Content="Check the armory now" Command="{Binding CheckArmory}" Margin="28,0,0,0" HorizontalAlignment="Left"
                     ToolTip.Tip="Ask for every character's picture once more, now" />
             <TextBlock Classes="dim" Margin="28,0,0,0" Text="{Binding ArmoryExplanation}" TextWrapping="Wrap" />
+
+            <!-- The optional API client (#63, M3): the player's own, typed once and never shown
+                 again. The words are Core's (PassText.BlizzardExplanation). -->
+            <TextBlock Text="Blizzard API client (optional)" Margin="28,6,0,0" FontWeight="SemiBold" />
+            <StackPanel Spacing="6" Margin="28,0,0,0" IsVisible="{Binding BlizzardEntering}">
+              <TextBox Text="{Binding BlizzardClientId}" PlaceholderText="Client ID" Width="320" HorizontalAlignment="Left" IsEnabled="{Binding ArmoryOn}" />
+              <TextBox Text="{Binding BlizzardClientSecret}" PlaceholderText="Client secret" PasswordChar="*" Width="320" HorizontalAlignment="Left" IsEnabled="{Binding ArmoryOn}" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Save" Command="{Binding SaveBlizzard}" IsEnabled="{Binding ArmoryOn}"
+                        ToolTip.Tip="Keep the client for this Windows user; it is not shown again" />
+                <Button Content="Get a client..." Command="{Binding OpenBlizzardClients}"
+                        ToolTip.Tip="develop.battle.net, in the browser" />
+              </StackPanel>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0" IsVisible="{Binding BlizzardSaved}">
+              <Button Content="Test" Command="{Binding TestBlizzard}" ToolTip.Tip="Ask Battle.net for a token with the saved client" />
+              <Button Content="Remove" Command="{Binding RemoveBlizzard}" ToolTip.Tip="Forget the client; the armory carries on without it" />
+            </StackPanel>
+            <TextBlock Margin="28,0,0,0" Text="{Binding BlizzardStatus}" TextWrapping="Wrap" />
+            <TextBlock Classes="dim" Margin="28,0,0,0" Text="{Binding BlizzardExplanation}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
 

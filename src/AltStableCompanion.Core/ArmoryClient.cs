@@ -48,7 +48,7 @@ public sealed class ArmoryClient(Func<HttpMessageHandler> handler, string versio
         deadline.CancelAfter(Timeout);
         using var http = new HttpClient(handler(), disposeHandler: true) { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.UserAgent.ParseAdd("AltStableCompanion/" + Safe(version));
+        request.Headers.UserAgent.ParseAdd("AltStableCompanion/" + SafeVersion(version));
         if (etag is not null && EntityTagHeaderValue.TryParse(etag, out var tag)) request.Headers.IfNoneMatch.Add(tag);
         if (lastModified is not null && DateTimeOffset.TryParse(lastModified, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.AssumeUniversal, out var since))
@@ -70,7 +70,7 @@ public sealed class ArmoryClient(Func<HttpMessageHandler> handler, string versio
             // A redirect is not followed (the handler is told not to) and is not the render.
             if (code != 200) return new ArmoryFetch(ArmoryStatus.Failed, Date: date, Problem: $"the armory answered {code}");
             if (response.Content.Headers.ContentLength is > MaxBytes) return new ArmoryFetch(ArmoryStatus.Failed, Problem: "the render is too big");
-            var body = await ReadCapped(response.Content, deadline.Token);
+            var body = await ReadCapped(response.Content, MaxBytes, deadline.Token);
             if (body is null) return new ArmoryFetch(ArmoryStatus.Failed, Problem: "the render is too big");
             return new ArmoryFetch(ArmoryStatus.Ok, body, response.Headers.ETag?.ToString(),
                 response.Content.Headers.LastModified?.ToString("R"), date);
@@ -85,7 +85,7 @@ public sealed class ArmoryClient(Func<HttpMessageHandler> handler, string versio
         }
     }
 
-    private static async Task<byte[]?> ReadCapped(HttpContent content, CancellationToken ct)
+    internal static async Task<byte[]?> ReadCapped(HttpContent content, int maxBytes, CancellationToken ct)
     {
         await using var stream = await content.ReadAsStreamAsync(ct);
         using var ms = new MemoryStream();
@@ -93,13 +93,13 @@ public sealed class ArmoryClient(Func<HttpMessageHandler> handler, string versio
         int read;
         while ((read = await stream.ReadAsync(buffer, ct)) > 0)
         {
-            if (ms.Length + read > MaxBytes) return null;
+            if (ms.Length + read > maxBytes) return null;
             ms.Write(buffer, 0, read);
         }
         return ms.ToArray();
     }
 
-    private static TimeSpan? RetryAfter(HttpResponseMessage response, DateTimeOffset? date)
+    internal static TimeSpan? RetryAfter(HttpResponseMessage response, DateTimeOffset? date)
     {
         if (response.Headers.RetryAfter is not { } r) return null;
         var wait = r.Delta ?? (r.Date is { } at ? at - (date ?? DateTimeOffset.UtcNow) : null);
@@ -107,7 +107,7 @@ public sealed class ArmoryClient(Func<HttpMessageHandler> handler, string versio
     }
 
     // "1.1.0+abc" is a valid product version; a dirty build's "-dirty" is too. Anything else is dropped.
-    private static string Safe(string version)
+    internal static string SafeVersion(string version)
     {
         var v = new string(version.TakeWhile(ch => char.IsAsciiLetterOrDigit(ch) || ch is '.' or '-' or '+').ToArray());
         return v.Length == 0 ? "0" : v;

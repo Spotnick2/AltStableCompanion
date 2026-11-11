@@ -91,6 +91,20 @@ change your answer.
   A picture drawn again that looks the same (under 1 % of it changed) keeps the enhanced
   picture made from it. A capture is always enhanced at once.
 - **US only, for now.** The app reads the region from the game's `Config.wtf`.
+- **Your own Blizzard API client (optional).** Nothing above needs one. With one, the app
+  also asks Blizzard's profile API about each character that is not hidden, at any level:
+  once when it starts, then every 6 hours. It learns each character's level and when it last
+  logged in, on any PC. So a character this PC last saw at level 9 is drawn once it reaches
+  10 elsewhere, and a login on another PC starts the hours after play too.
+  - To get one, sign in at [develop.battle.net](https://develop.battle.net/access/clients),
+    create a client with any name (no redirect URL is needed), and paste its ID and secret
+    under Settings. **Test** asks Battle.net for a token with it; **Remove** forgets it.
+  - It is kept encrypted for your Windows user (`blizzard-client.bin` in the app's folder)
+    and never shown again, written to the log or put in diagnostics. Copied to another
+    Windows user, it cannot be read: enter it again there.
+  - What leaves your PC with it: the client ID and secret to `oauth.battle.net`, for a token;
+    then, for each character, a request to `us.api.blizzard.com` that names it.
+  - If Battle.net refuses the client, the app says so and carries on without it.
 
 The pictures go to `Interface\AddOns\AltStableCutouts\Cutouts\Armory`. A capture's portrait
 stays in its own file, so a capture is never lost to an armory picture.
@@ -172,7 +186,8 @@ It touches only:
 - the screenshots it matched to a capture;
 - the `AltStableCutouts` addon folder;
 - its own settings and log in `%APPDATA%\AltStableCompanion`, and there, in `originals`, each
-  enhanced portrait as Codex made it, full size (about 2 MB each);
+  enhanced portrait as Codex made it, full size (about 2 MB each), and your Blizzard API
+  client when you save one;
 - a diagnostics file in your Downloads folder, only when you press Help → **Save diagnostics…**;
 - for enhanced portraits, Codex's own `generated_images` folder, read only.
 

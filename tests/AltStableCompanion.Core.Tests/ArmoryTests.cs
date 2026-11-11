@@ -391,6 +391,8 @@ public class ArmoryFolderTests
 internal sealed class FakeCdn : HttpMessageHandler
 {
     public readonly List<(string Url, string? IfNoneMatch, DateTimeOffset? IfModifiedSince, string? Agent)> Requests = [];
+    /// <summary>Each request's Authorization header, beside <see cref="Requests"/>.</summary>
+    public readonly List<string?> Auth = [];
     public Func<HttpRequestMessage, HttpResponseMessage> Respond = _ => new HttpResponseMessage(HttpStatusCode.Forbidden);
 
     public int Count
@@ -404,6 +406,7 @@ internal sealed class FakeCdn : HttpMessageHandler
         {
             Requests.Add((request.RequestUri!.ToString(), request.Headers.IfNoneMatch.FirstOrDefault()?.ToString(),
                 request.Headers.IfModifiedSince, request.Headers.UserAgent.ToString()));
+            Auth.Add(request.Headers.Authorization?.ToString());
         }
         return Task.FromResult(Respond(request));
     }
@@ -527,7 +530,7 @@ public class ArmoryWorkerTests
     private const string AUrl = "https://render.worldofwarcraft.com/forever-us/character/138/678282-main-raw.png";
     private static readonly DateTimeOffset Made = DateTimeOffset.UtcNow.AddHours(-1);
 
-    private static void Roster(TempInstall t, string guid = A, string name = "Karuzo Macphisto", int level = 25, bool hidden = false, string portal = "US",
+    internal static void Roster(TempInstall t, string guid = A, string name = "Karuzo Macphisto", int level = 25, bool hidden = false, string portal = "US",
         long updated = 1794370273, (string Guid, string Name, bool Hidden)? also = null)
     {
         static string Record(string guid, string name, int level, long updated) =>

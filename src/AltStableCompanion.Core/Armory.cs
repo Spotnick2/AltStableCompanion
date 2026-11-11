@@ -226,7 +226,8 @@ public static class ArmoryEligibility
     /// be read is not a view of who is hidden: nobody, as for enhancement - a request names a
     /// character to Blizzard, and cannot be taken back.
     /// </summary>
-    public static (IReadOnlyList<ArmoryCharacter> Characters, string? Refused) Select(SavedVariablesSnapshot snapshot)
+    /// <param name="minLevel">The armory draws from level 10; the API is asked about every level (M3).</param>
+    public static (IReadOnlyList<ArmoryCharacter> Characters, string? Refused) Select(SavedVariablesSnapshot snapshot, int minLevel = Armory.MinLevel)
     {
         if (snapshot.Skipped.Count > 0) return ([], $"{snapshot.Skipped.Count} account file(s) could not be read this time");
         if (snapshot.Rosters.FirstOrDefault(r => r.Problem is not null) is { } broken) return ([], $"a roster could not be read ({broken.Problem})");
@@ -249,7 +250,7 @@ public static class ArmoryEligibility
         return ([.. newest.Values
             .Select(c => new ArmoryCharacter(c.Guid, c.Name, level[c.Guid],
                 played[c.Guid] > 0 ? DateTimeOffset.FromUnixTimeSeconds(played[c.Guid]) : null))
-            .Where(c => c.Level >= Armory.MinLevel)
+            .Where(c => c.Level >= minLevel)
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Guid, StringComparer.Ordinal)], null);
     }
 }
