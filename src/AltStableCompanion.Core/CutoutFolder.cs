@@ -8,7 +8,7 @@ namespace AltStableCompanion.Core;
 /// is the second picture's descriptor when one is attached (docs/PORTRAIT-CONTRACT.md, section 3).
 /// </summary>
 public sealed record ManifestEntry(string Key, string? Guid, string FileName, int W, int H, int TexW, int TexH,
-    double? NativeW, double? NativeH, EnhancedTexture? Enhanced = null, string? Folder = null)
+    double? NativeW, double? NativeH, EnhancedTexture? Enhanced = null, string? Folder = null, bool KeptByArmory = false)
 {
     /// <summary>The file under <c>Cutouts\</c>: <c>karuzo.tga</c>, or <c>Armory\karuzo.tga</c> for a render.</summary>
     public string RelativePath => Folder is null ? FileName : Path.Combine(Folder, FileName);

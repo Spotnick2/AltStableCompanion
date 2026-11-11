@@ -128,11 +128,11 @@ public class ArmoryRuleTests
         Assert.True(ArmoryPlanner.Due(Karuzo, Played.AddHours(30), true, heldBefore: true, Played.AddDays(10)));
     }
 
-    private static string Db(params (string Guid, string Name, int Level, long Updated, long GearAt)[] chars) =>
+    internal static string Db(params (string Guid, string Name, int Level, long Updated, long GearAt)[] chars) =>
         "AltStableDB = {\n" + string.Concat(chars.Select(c =>
             $"[\"{c.Guid}\"] = {{\n[\"name\"] = \"{c.Name}\",\n[\"level\"] = {c.Level},\n[\"lastUpdate\"] = {c.Updated},\n[\"gearAt\"] = {c.GearAt},\n}},\n")) + "}\n";
 
-    private static string Hidden(params string[] guids) =>
+    internal static string Hidden(params string[] guids) =>
         "AltStableConfig = {\n[\"hiddenCharacters\"] = {\n" + string.Concat(guids.Select(g => $"[\"{g}\"] = true,\n")) + "},\n}\n";
 
     [Fact]
@@ -268,6 +268,74 @@ public class ArmoryFolderTests
         {
             W = 4, H = 8, TexW = 4, TexH = 8, Guid = guid, Url = Armory.Url(guid, false), LastModified = made.ToString("R"),
         });
+
+    private static void Us(TempInstall t)
+    {
+        Directory.CreateDirectory(Path.Combine(t.Install.FlavorDir, "WTF"));
+        File.WriteAllText(Path.Combine(t.Install.FlavorDir, "WTF", "Config.wtf"), "SET portal \"US\"\n");
+    }
+
+    [Fact]
+    public void Armory_true_is_on_each_character_the_armory_has_drawn_whichever_file_its_entry_names()
+    {
+        using var t = new TempInstall();
+        const string C = "Player-1-0000CCCC", D = "Player-1-0000DDDD", E = "Player-1-0000EEEE";
+        t.WriteStore("1#1", ArmoryRuleTests.Db((A, "A", 20, 1, 1), (B, "B", 20, 1, 1), (C, "C", 20, 1, 1), (D, "D", 9, 1, 1), (E, "E", 20, 1, 1))
+            + ArmoryRuleTests.Hidden(C) + "AltStablePortraits = nil\n");
+        Us(t);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Render(folder, "a", A, Made);                                 // the render is the portrait
+        Render(folder, "b", B, Made);
+        Capture(folder, "b", B, Made);                                // the capture is, and the armory draws B too
+        Render(folder, "c", C, Made);                                 // hidden
+        Render(folder, "d", D, Made);                                 // below level 10
+        Capture(folder, "e", E, Made);                                // never drawn: the prompt stays
+        IReadOnlyDictionary<string, bool> Kept() =>
+            Armory.Flag(folder.Inventory(), folder, t.Install).ToDictionary(e => e.Guid!, e => e.KeptByArmory);
+
+        Assert.Equal(new Dictionary<string, bool> { [A] = true, [B] = true, [C] = false, [D] = false, [E] = false }, Kept());
+        Assert.Null(Assert.Single(folder.Inventory(), e => e.Guid == B).Folder);
+
+        var lua = ManifestWriter.Render(Armory.Flag(folder.Inventory(), folder, t.Install), DateTime.Now);
+        Assert.Contains(@"Cutouts\Armory\a.tga]], w = 4, h = 8, texw = 4, texh = 8, armory = true },", lua);
+        Assert.Contains(@"Cutouts\b.tga]], w = 4, h = 8, texw = 4, texh = 8, armory = true },", lua);
+        Assert.DoesNotContain(@"e.tga]], w = 4, h = 8, texw = 4, texh = 8, armory", lua);
+
+        // A roster that cannot be read, or another region: nobody, and the addon asks as before.
+        t.WriteStore("1#2", "AltStableDB = {\n[\"x\"] = {\n");
+        Assert.DoesNotContain(true, Kept().Values);
+        File.Delete(Path.Combine(t.Install.AccountsDir, "1#2", "SavedVariables", "AltStable.lua"));
+        Assert.True(Kept()[A]);
+        File.WriteAllText(Path.Combine(t.Install.FlavorDir, "WTF", "Config.wtf"), "SET portal \"EU\"\n");
+        Assert.DoesNotContain(true, Kept().Values);
+    }
+
+    [Fact]
+    public void A_roster_time_no_date_can_hold_is_no_time_and_the_capture_s_manifest_is_still_written()
+    {
+        using var t = new TempInstall();
+        var (black, white) = TestData.Pair(400, 1200, 150, 250, 100, 700);
+        var at = new DateTime(2026, 11, 11, 20, 0, 0);
+        t.WriteShot(at, black);
+        t.WriteShot(at.AddSeconds(1), white);
+        t.WriteStore("1#1", TestData.SavedVariables([
+            TestData.Record("Kaleid Sumner", B, 1, at), TestData.Record("Kaleid Sumner", B, 2, at.AddSeconds(1))]));
+        // Another account's roster says times no date can hold, beside real ones.
+        t.WriteStore("1#2", ArmoryRuleTests.Db((A, "A", 20, 999999999999, 1794370273), (B, "Kaleid Sumner", 20, 1794370000, long.MaxValue))
+            + ArmoryRuleTests.Hidden() + "AltStablePortraits = nil\n");
+        Us(t);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Render(folder, "a", A, Made);
+
+        var report = new ConvertPass(t.Install, new ConvertOptions(Armory: true)).Run();
+
+        Assert.Equal(["Kaleid Sumner"], report.Written);
+        Assert.True(report.ManifestWritten);
+        Assert.Contains(@"Cutouts\Armory\a.tga]], w = 4, h = 8, texw = 4, texh = 8, armory = true },", File.ReadAllText(folder.ManifestPath));
+        var (characters, _) = ArmoryEligibility.Select(SavedVariablesReader.Snapshot(t.Install.AccountsDir));
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1794370273), characters.Single(c => c.Guid == A).Activity);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1794370000), characters.Single(c => c.Guid == B).Activity);
+    }
 
     [Fact]
     public void A_render_alone_is_listed_from_the_armory_folder()
@@ -711,5 +779,31 @@ public class ArmoryWorkerTests
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
         Until(() => folder.ArmoryRenders().ContainsKey(A), "the render after the wait");
         Assert.Equal(2, cdn.Count);
+    }
+
+    [Fact]
+    public void The_manifest_says_armory_while_the_answer_is_yes_and_not_after_a_no()
+    {
+        using var t = new TempInstall();
+        Roster(t);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        folder.WriteArmory("karuzo-macphisto", ArmoryFolderTests.Tga(4, 8, 9), new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A, Url = AUrl, ETag = "\"v1\"", LastModified = Made.ToString("R"),
+        });
+        var cdn = new FakeCdn { Respond = _ => new HttpResponseMessage(HttpStatusCode.NotModified) };
+        string Manifest() => File.Exists(folder.ManifestPath) ? File.ReadAllText(folder.ManifestPath) : "";
+        using var c = Started(t, cdn);
+        Until(() => Manifest().Contains("armory = true"), "the flag from the first pass");
+        c.SetArmory(false);
+        Until(() => Manifest().Contains(@"Armory\karuzo-macphisto.tga") && !Manifest().Contains("armory = true"), "the flag gone");
+        c.ConvertNow();                                               // a pass, with the answer it was given
+        Thread.Sleep(1500);
+        Assert.DoesNotContain("armory = true", Manifest());
+        c.SetArmory(true);
+        Until(() => Manifest().Contains("armory = true"), "the flag back");
+        c.ConvertNow();
+        Thread.Sleep(1500);
+        Assert.Contains("armory = true", Manifest());
     }
 }
