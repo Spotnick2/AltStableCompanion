@@ -527,22 +527,27 @@ public class ArmoryWorkerTests
     private const string AUrl = "https://render.worldofwarcraft.com/forever-us/character/138/678282-main-raw.png";
     private static readonly DateTimeOffset Made = DateTimeOffset.UtcNow.AddHours(-1);
 
-    private static void Roster(TempInstall t, string guid = A, string name = "Karuzo Macphisto", int level = 25, bool hidden = false, string portal = "US")
+    private static void Roster(TempInstall t, string guid = A, string name = "Karuzo Macphisto", int level = 25, bool hidden = false, string portal = "US",
+        long updated = 1794370273, (string Guid, string Name, bool Hidden)? also = null)
     {
-        var hide = hidden ? $"[\"{guid}\"] = true,\n" : "";
-        t.WriteStore("1#1", "AltStableDB = {\n[\"" + guid + "\"] = {\n[\"name\"] = \"" + name + "\",\n[\"class\"] = \"WARLOCK\",\n[\"race\"] = \"Troll\",\n[\"gender\"] = \"Female\",\n[\"level\"] = "
-            + level + ",\n[\"lastUpdate\"] = 1794370273,\n},\n}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n" + hide + "},\n}\nAltStablePortraits = nil\n");
+        static string Record(string guid, string name, int level, long updated) =>
+            "[\"" + guid + "\"] = {\n[\"name\"] = \"" + name + "\",\n[\"class\"] = \"WARLOCK\",\n[\"race\"] = \"Troll\",\n[\"gender\"] = \"Female\",\n[\"level\"] = "
+            + level + ",\n[\"lastUpdate\"] = " + updated + ",\n},\n";
+        var hide = (hidden ? $"[\"{guid}\"] = true,\n" : "") + (also is { Hidden: true } h ? $"[\"{h.Guid}\"] = true,\n" : "");
+        var records = Record(guid, name, level, updated) + (also is { } b ? Record(b.Guid, b.Name, level, updated) : "");
+        t.WriteStore("1#1", "AltStableDB = {\n" + records + "}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n" + hide + "},\n}\nAltStablePortraits = nil\n");
         Directory.CreateDirectory(Path.Combine(t.Install.FlavorDir, "WTF"));
         File.WriteAllText(Path.Combine(t.Install.FlavorDir, "WTF", "Config.wtf"), $"SET portal \"{portal}\"\n");
     }
 
     internal static string Data(TempInstall t) => Path.Combine(t.Root, "data");
 
-    internal static Controller Started(TempInstall t, FakeCdn cdn, bool? armory = true, bool enhance = false, EnhanceHooks? hooks = null, int days = 7)
+    internal static Controller Started(TempInstall t, FakeCdn cdn, bool? armory = true, bool enhance = false, EnhanceHooks? hooks = null, int days = 7,
+        Func<DateTime>? clock = null)
     {
         new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Armory = armory, Enhance = enhance, ArmoryRemakeDays = days }.Save(Data(t));
         var c = new Controller(new StartupOptions(DataDir: Data(t)), () => throw new InvalidOperationException("detection was used"),
-            enhance: hooks, armoryHttp: () => cdn);
+            enhance: hooks, armoryHttp: () => cdn, clock: clock);
         c.Start();
         return c;
     }
@@ -638,5 +643,73 @@ public class ArmoryWorkerTests
         Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.ArmoryNote == "no armory render yet") == true, "the row's note");
         Assert.Equal(1, cdn.Count);
         Assert.True(Settings.Load(Data(t)).Armory);
+    }
+
+    private const string B = "Player-6796-00381101";
+    private static long DaysAgo(int days) => DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeSeconds();
+
+    [Theory]
+    [InlineData(true)]       // the second character hidden while the first was asked
+    [InlineData(false)]      // the account no longer readable
+    public void Who_may_be_asked_about_is_read_again_before_each_request(bool hide)
+    {
+        using var t = new TempInstall();
+        Roster(t, also: (B, "Zoruka Sumner", false));
+        using var held = new ManualResetEventSlim();
+        var cdn = new FakeCdn
+        {
+            Respond = r =>
+            {
+                if (r.RequestUri!.ToString() == AUrl) held.Wait(TimeSpan.FromSeconds(10));
+                return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            },
+        };
+        using var c = Started(t, cdn);
+        Until(() => cdn.Count == 1, "Karuzo asked first");
+        if (hide) Roster(t, also: (B, "Zoruka Sumner", true));
+        else t.WriteStore("1#1", "AltStableDB = {\n[\"x\"] = {\n");
+        held.Set();
+        Thread.Sleep(2500);                                           // the gap, and more
+        lock (cdn.Requests) Assert.Equal([AUrl], cdn.Requests.Select(q => q.Url));
+    }
+
+    [Fact]
+    public void Hd_or_sd_changed_while_a_request_is_out_its_answer_is_dropped_and_the_new_one_asked()
+    {
+        using var t = new TempInstall();
+        Roster(t, updated: DaysAgo(3));                               // outside the hours after play
+        using var held = new ManualResetEventSlim();
+        var cdn = new FakeCdn
+        {
+            Respond = r =>
+            {
+                if (r.RequestUri!.ToString() == AUrl) held.Wait(TimeSpan.FromSeconds(10));
+                return FakeCdn.Png(FakeCdn.RenderPng(150), "\"v1\"", Made);
+            },
+        };
+        using var c = Started(t, cdn);
+        Until(() => cdn.Count == 1, "the HD request");
+        c.SetArmorySd(true);
+        held.Set();
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.ReadArmoryMeta("karuzo-macphisto")?.Url == Armory.Url(A, true), "the SD render");
+        lock (cdn.Requests) Assert.Equal([AUrl, Armory.Url(A, true)], cdn.Requests.Select(q => q.Url));
+    }
+
+    [Fact]
+    public void A_character_told_to_wait_is_asked_again_once_the_wait_is_over()
+    {
+        using var t = new TempInstall();
+        Roster(t, updated: DaysAgo(3));                               // outside the hours after play
+        var shift = TimeSpan.Zero;
+        var cdn = new FakeCdn { Respond = _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) };
+        using var c = Started(t, cdn, clock: () => DateTime.Now + shift);
+        Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.ArmoryNote == "the armory asked to wait") == true, "the wait");
+        cdn.Respond = _ => FakeCdn.Png(FakeCdn.RenderPng(150), "\"v1\"", Made);
+        shift = ArmoryClient.DefaultBusy + TimeSpan.FromMinutes(1);
+        c.SetArmoryRemakeDays(8);                                     // wakes the worker, as its minute's tick would
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        Until(() => folder.ArmoryRenders().ContainsKey(A), "the render after the wait");
+        Assert.Equal(2, cdn.Count);
     }
 }

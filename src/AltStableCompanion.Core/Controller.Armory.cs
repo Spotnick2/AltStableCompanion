@@ -202,19 +202,36 @@ public sealed partial class Controller
                 continue;
             }
             if (!ArmoryPlanner.Due(c, state.LastChecked, state.Checked, state.Held, now)) continue;
+            // Who may be asked about, read again before each request: a character hidden while
+            // the one before was asked, or an account that can no longer be read, is not sent.
+            var (fresh, refusedNow) = ArmoryEligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)));
+            if (refusedNow is not null)
+            {
+                ArmoryRefuse(refusedNow + ": not knowing who is hidden is not permission");
+                break;
+            }
+            if (fresh.All(x => x.Guid != c.Guid)) continue;
             var url = Armory.Url(c.Guid, settings.ArmorySd)!;
             renders ??= folder.ArmoryRenders();
             // Validators only for the file they describe: a render of another URL (HD/SD), or a
             // file that is not whole, is fetched whole.
             var have = renders.TryGetValue(c.Guid, out var r) && r.Meta.Url == url ? r.Meta : null;
             var fetch = await _armoryClient!.FetchAsync(url, have?.ETag, have?.LastModified, stop);
+            bool stale;
             lock (_gate)
             {
-                state.LastChecked = now;
-                state.Checked = true;
-                state.Held = false;
+                // HD or SD changed while this was asked: the answer is of the other picture, and
+                // the character stays due for the one now chosen.
+                stale = Armory.Url(c.Guid, _settings.ArmorySd) != url;
+                // A busy answer is no answer: the character stays due once everyone may ask again.
+                if (!stale && fetch.Status != ArmoryStatus.Busy)
+                {
+                    state.LastChecked = now;
+                    state.Checked = true;
+                    state.Held = false;
+                }
             }
-            switch (fetch.Status)
+            switch (stale && fetch.Status != ArmoryStatus.Busy ? (ArmoryStatus?)null : fetch.Status)
             {
                 case ArmoryStatus.NotModified:
                     changed |= Note(state, null);
