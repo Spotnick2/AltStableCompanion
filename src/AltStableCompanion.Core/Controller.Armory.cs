@@ -87,15 +87,41 @@ public sealed partial class Controller
     /// <summary>The player's answer to "portraits from the armory?", or a change of it in Settings.</summary>
     public void SetArmory(bool on)
     {
+        WowInstall? install;
+        int generation;
         lock (_gate)
         {
             if (_settings.Armory == on) return;
             _current = _current with { Armory = on };
+            if (_pass is not null) _pass.Options = _pass.Options with { Armory = on };
+            install = _stopping ? null : _current.Shell.Install;
+            generation = _generation;
         }
         Save(s => s with { Armory = on });
         _log?.Write("armory: turned " + (on ? "on" : "off"));
         if (!on) RefreshArmoryRows();
         WakeArmory();
+        // The manifest's armory = true follows the answer: on, the addon stops asking for a
+        // capture after a gear change for a character the armory draws; off, it asks again.
+        if (install is not null) _ = Task.Run(() => RewriteManifest(install, generation));
+    }
+
+    private void RewriteManifest(WowInstall install, int generation)
+    {
+        try
+        {
+            var folder = new CutoutFolder(install.CutoutAddonDir);
+            if (!folder.Exists) return;
+            lock (_passGate)
+            {
+                lock (_gate) if (_stopping || generation != _generation) return;
+                RefreshAfterEnhancement(folder, generation, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log?.Write($"armory: the manifest could not be written again: {ex}");
+        }
     }
 
     /// <summary>HD or SD: another URL, so every character is looked at again.</summary>

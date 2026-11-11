@@ -177,6 +177,23 @@ public static class Armory
     private const int Floor = 5;
 
     /// <summary>
+    /// The manifest's <c>armory = true</c> (contract section 4): on the entry of each character
+    /// the armory may be asked about (this region, level 10 or more, hidden nowhere) that has a
+    /// whole render in <c>Armory\</c>, whichever file the entry names. A character the armory
+    /// has not drawn yet keeps the capture prompt: no render may ever come. A roster that
+    /// cannot be read flags nobody, and the addon asks as it did before.
+    /// </summary>
+    public static IReadOnlyList<ManifestEntry> Flag(IReadOnlyList<ManifestEntry> entries, CutoutFolder folder, WowInstall install, Action<string>? log = null)
+    {
+        if (RegionOf(install) != Region) return entries;
+        // A roster that cannot be read selects nobody.
+        var (characters, _) = ArmoryEligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, log));
+        var renders = folder.ArmoryRenders();
+        var kept = characters.Select(c => c.Guid).Where(renders.ContainsKey).ToHashSet(StringComparer.Ordinal);
+        return [.. entries.Select(e => e.Guid is { } g && kept.Contains(g) ? e with { KeptByArmory = true } : e)];
+    }
+
+    /// <summary>
     /// The game's region, from <c>WTF\Config.wtf</c>'s <c>SET portal "US"</c>, upper-case; null
     /// when it says nothing or cannot be read.
     /// </summary>
@@ -244,7 +261,7 @@ public static class ArmoryEligibility
                 if (hidden.Contains(c.Guid) || Armory.PlayerNumber(c.Guid) is null) continue;
                 if (!newest.TryGetValue(c.Guid, out var have) || c.Updated > have.Updated) newest[c.Guid] = c;
                 level[c.Guid] = Math.Max(c.Level, level.GetValueOrDefault(c.Guid));
-                played[c.Guid] = Math.Max(Math.Max(c.Updated, c.GearAt), played.GetValueOrDefault(c.Guid));
+                played[c.Guid] = Math.Max(Math.Max(Seconds(c.Updated), Seconds(c.GearAt)), played.GetValueOrDefault(c.Guid));
             }
         }
         return ([.. newest.Values
@@ -253,6 +270,12 @@ public static class ArmoryEligibility
             .Where(c => c.Level >= minLevel)
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Guid, StringComparer.Ordinal)], null);
     }
+
+    // A time the roster may say, or 0. The reader takes any number: one no date can hold
+    // (lastUpdate = 999999999999) is no time at all, not a reason to stop the manifest.
+    private static readonly long MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
+
+    private static long Seconds(long value) => value > 0 && value <= MaxSeconds ? value : 0;
 }
 
 /// <summary>

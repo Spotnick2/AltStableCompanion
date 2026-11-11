@@ -259,7 +259,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
             if (_current.KeepScreenshots == keep) return;
             _current = _current with { KeepScreenshots = keep };
             // The option, not the pass: the pass remembers the pairs it would not use.
-            if (_pass is not null) _pass.Options = new ConvertOptions(KeepScreenshots: keep);
+            if (_pass is not null) _pass.Options = _pass.Options with { KeepScreenshots = keep };
         }
         Save(s => s with { KeepScreenshots = keep });
     }
@@ -319,7 +319,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         {
             try
             {
-                pass = new ConvertPass(install, new ConvertOptions(Current.KeepScreenshots), m => _log?.Write(m));
+                pass = new ConvertPass(install, new ConvertOptions(Current.KeepScreenshots, Current.Armory == true), m => _log?.Write(m));
                 watcher = Watcher.For(install, () => RunPass(generation), Failed);
             }
             catch (Exception ex)
@@ -342,7 +342,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
             _generation = generation;
             old = _watcher;
             _pass = pass;
-            if (pass is not null) pass.Options = new ConvertOptions(KeepScreenshots: _current.KeepScreenshots);
+            if (pass is not null) pass.Options = new ConvertOptions(KeepScreenshots: _current.KeepScreenshots, Armory: _settings.Armory == true);
             if (watcher is not null) watcher.Paused = _current.Shell.Paused;
             _watcher = watcher;
             // Detect again, or Browse to the folder already in use, finds the same game: what
