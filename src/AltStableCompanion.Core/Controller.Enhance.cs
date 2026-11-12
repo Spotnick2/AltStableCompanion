@@ -237,6 +237,9 @@ public sealed partial class Controller
                     RefreshAfterEnhancement(swept, generation, null);
                 }
             }
+            // Free, so before the settings that decide spending: a picture made before is drawn
+            // whether enhancing is on or not.
+            if (!shell.FirstStart) RestoreFromOriginals(install, generation);
             if (!settings.Enhance || shell.FirstStart || shell.Paused) return Idle(null);
             if (codex is null) return Idle("the Codex CLI is not on this PC");
             if (!install.RosterDrawsEnhanced) return Idle("the installed AltStable Roster cannot draw enhanced pictures");
@@ -477,8 +480,8 @@ public sealed partial class Controller
             // A picture made from THIS portrait, with other settings or wording, stays until the
             // player asks for it: a style change or an app update is not a decision to spend. A
             // new capture (another epoch or other bytes) or no picture at all is.
-            var made = history.LastWritten;
-            if (!allowed.Contains(signature) && made is not null && made.Epoch == meta.Epoch && made.SourceHash == sourceHash
+            var made = history.WrittenFrom(meta.Epoch, sourceHash);
+            if (!allowed.Contains(signature) && made is not null
                 && File.Exists(Path.Combine(folder.EnhancedDir, c.FileBase + ".tga")))
             {
                 held.Add((c.Character.Name, signature, false));
@@ -776,6 +779,59 @@ public sealed partial class Controller
     public string OriginalsDir => Path.Combine(_dataDir, "originals");
 
     public string OriginalPath(string signature) => Path.Combine(OriginalsDir, signature + ".png");
+
+    /// <summary>
+    /// A portrait whose picture was made before, but whose Enhanced\&lt;base&gt;.tga is now another
+    /// one's: rebuilt from its kept original, with no Codex run. 1.2.0 put a render in a capture's
+    /// place and made the render's picture over the capture's; when the capture became the
+    /// portrait again, the enhancer counted its picture as made (its signature is in the history)
+    /// and the game drew it plain. The same happens whenever a capture and a render trade places.
+    /// Nothing is recorded: nothing was launched, and the attempt that made it still says so.
+    /// </summary>
+    private void RestoreFromOriginals(WowInstall install, int generation)
+    {
+        var folder = new CutoutFolder(install.CutoutAddonDir);
+        if (!folder.Exists || !Directory.Exists(OriginalsDir)) return;
+        lock (_passGate)
+        {
+            var restored = 0;
+            var judge = PortraitJudge.From(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)));
+            foreach (var (guid, p) in folder.Primaries(judge))
+            {
+                if (folder.Attached(p.Base, p.Path, p.Meta.Guid) is not null) continue;
+                try
+                {
+                    // The history first: only a portrait with a picture made for its epoch is hashed.
+                    var history = AttemptHistory.Load(folder.EnhancedDir, guid);
+                    if (!history.Attempts.Any(a => a.Outcome == Attempt.Written && a.Epoch == p.Meta.Epoch)) continue;
+                    var made = history.WrittenFrom(p.Meta.Epoch, EnhancementSignature.HashOf(p.Path));
+                    if (made is null || !File.Exists(OriginalPath(made.Signature))) continue;
+                    var cutout = Enhancement.ToCutout(PngCodec.Read(File.ReadAllBytes(OriginalPath(made.Signature))), p.Meta with
+                    {
+                        Shots = null,
+                        Url = null, ETag = null, LastModified = null, Fetched = null, TgaHash = null, Skew = null,
+                        Enhancement = new EnhancementMeta
+                        {
+                            SourceHash = made.SourceHash, Style = made.Style, Model = made.Model, Effort = made.Effort,
+                            Prompt = made.Prompt, Signature = made.Signature, Generated = (made.Ended ?? made.Started).ToUniversalTime(),
+                        },
+                    });
+                    var ms = new MemoryStream();
+                    TgaCodec.Write(ms, cutout.Canvas);
+                    var outputHash = EnhancementSignature.HashOf(ms.ToArray());
+                    folder.WriteEnhanced(p.Base, cutout.Canvas, cutout.Meta with { Enhancement = cutout.Meta.Enhancement! with { OutputHash = outputHash } });
+                    _log?.Write($"enhance: {p.Base}: the picture made from it before was rebuilt from its original (no Codex run)");
+                    restored++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or AttemptHistoryException
+                    or PngFormatException or ThumbnailException or ArgumentException)
+                {
+                    _log?.Write($"enhance: {p.Base}: the picture made before could not be rebuilt: {ex.Message}");
+                }
+            }
+            if (restored > 0) RefreshAfterEnhancement(folder, generation, null);
+        }
+    }
 
     /// <summary>
     /// After the picture is written, never instead of it: the TGA is what the player sees, and

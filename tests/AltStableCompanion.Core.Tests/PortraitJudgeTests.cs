@@ -227,6 +227,99 @@ public class PortraitChoiceTests
     }
 
     [Fact]
+    public void A_capture_s_picture_that_a_render_s_took_the_file_of_is_rebuilt_from_its_original_with_no_codex_run()
+    {
+        // The owner's Kalizo, Karuzo and Morphisto after 1.2.1: 1.2.0 made the render's picture
+        // over the capture's; the capture is the portrait again, its picture "made", drawn plain.
+        using var t = new TempInstall();
+        var at = DateTime.Now.AddDays(-2);
+        var epoch = TestData.Epoch(at);
+        string Record(int shot, DateTime when) =>
+            TestData.Record("Karuzo Macphisto", A, shot, when, epoch).Replace("[\"shot\"]", "[\"look\"] = \"1:100;5:300\",\n[\"shot\"]");
+        t.WriteStore("1#1", "AltStableDB = {\n[\"" + A + "\"] = {\n[\"name\"] = \"Karuzo Macphisto\",\n[\"class\"] = \"WARLOCK\",\n[\"race\"] = \"Troll\",\n"
+            + "[\"gender\"] = \"Female\",\n[\"level\"] = 25,\n[\"lastUpdate\"] = " + (epoch + 60) + ",\n[\"gearAt\"] = " + (epoch - 600) + ",\n"
+            + "[\"gearid_head\"] = 100,\n[\"gearid_chest\"] = 300,\n},\n}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n},\n}\n"
+            + "AltStablePortraits = {\n[\"version\"] = 1,\n[\"renders\"] = {\n" + Record(1, at) + ",\n" + Record(2, at.AddSeconds(1)) + ",\n},\n}\n");
+        Directory.CreateDirectory(Path.Combine(t.Install.FlavorDir, "WTF"));
+        File.WriteAllText(Path.Combine(t.Install.FlavorDir, "WTF", "Config.wtf"), "SET portal \"US\"\n");
+        var toc = Path.Combine(t.Install.AddOnsDir, "AltStableRoster", "AltStableRoster.toc");
+        Directory.CreateDirectory(Path.GetDirectoryName(toc)!);
+        File.WriteAllText(toc, "## X-AltStable-Enhanced: 1\n");
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        folder.EnsureToc();
+        var capture = Path.Combine(folder.CutoutsDir, "karuzo-macphisto.tga");
+        folder.WriteCutout("karuzo-macphisto", TestData.Solid(4, 8, 77, 30, 30),
+            new CutoutMeta { W = 4, H = 8, TexW = 4, TexH = 8, Guid = A, Epoch = epoch });
+        folder.WriteArmory("karuzo-macphisto", ArmoryFolderTests.Tga(4, 8, 9), new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A, Url = Armory.Url(A, false), ETag = "\"v1\"", LastModified = DateTimeOffset.UtcNow.ToString("R"),
+        });
+        var render = Path.Combine(folder.ArmoryDir, "karuzo-macphisto.tga");
+        var cdn = new FakeCdn { Respond = _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotModified) };
+        PortraitJudge Judge() => PortraitJudge.From(SavedVariablesReader.Snapshot(t.Install.AccountsDir));
+        EnhancedTexture? Drawn() => folder.Inventory(Judge()).Single().Enhanced;
+
+        // The capture's picture, made by the app: its record and its original are real.
+        var first = new ArmoryEnhanceTests.FakeCodex();
+        using (var c = ArmoryWorkerTests.Started(t, cdn, enhance: true, hooks: first.Hooks))
+        {
+            ArmoryWorkerTests.Until(() => Drawn() is not null && first.Calls == 1, "the capture's picture");
+            // Kept just after the picture is written.
+            ArmoryWorkerTests.Until(() => AttemptHistory.Load(folder.EnhancedDir, A).LastWritten is { } w
+                && File.Exists(Path.Combine(ArmoryWorkerTests.Data(t), "originals", w.Signature + ".png")), "its original kept");
+        }
+        var made = AttemptHistory.Load(folder.EnhancedDir, A).LastWritten!;
+
+        // 1.2.0: the render's picture written over it, and recorded.
+        var picture = TestData.Solid(4, 8, 200, 0, 0);
+        var ms = new MemoryStream();
+        TgaCodec.Write(ms, picture);
+        folder.WriteEnhanced("karuzo-macphisto", picture, new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A,
+            Enhancement = new EnhancementMeta { SourceHash = EnhancementSignature.HashOf(render), OutputHash = EnhancementSignature.HashOf(ms.ToArray()), Style = "wow-like" },
+        });
+        var history = AttemptHistory.Load(folder.EnhancedDir, A);
+        history.Begin(new Attempt { Signature = "render-sig", Base = "karuzo-macphisto", Started = DateTime.Now, Style = "wow-like",
+            SourceHash = EnhancementSignature.HashOf(render), Source = Attempt.FromArmory });
+        history.End("render-sig", Attempt.Written, DateTime.Now, EnhancementSignature.HashOf(ms.ToArray()));
+        Assert.Null(Drawn());
+
+        // The next start, enhancing off - a rebuild spends nothing: rebuilt from the original, drawn with the capture.
+        var second = new ArmoryEnhanceTests.FakeCodex();
+        using (var c = ArmoryWorkerTests.Started(t, cdn, enhance: false, hooks: second.Hooks))
+        {
+            ArmoryWorkerTests.Until(() => Drawn() is not null, "the capture's picture, rebuilt");
+            Assert.Equal(EnhancementSignature.HashOf(capture), folder.ReadEnhancedMeta("karuzo-macphisto")!.Enhancement!.SourceHash);
+            Assert.Equal(made.Signature, folder.ReadEnhancedMeta("karuzo-macphisto")!.Enhancement!.Signature);
+            ArmoryWorkerTests.Until(() => File.ReadAllText(folder.ManifestPath).Contains(@"Cutouts\Enhanced\karuzo-macphisto.tga]]"), "the manifest");
+            Thread.Sleep(2500);
+            // Once: drawn now, so not rebuilt at every look.
+            Assert.Single(File.ReadAllLines(c.LogPath), l => l.Contains("rebuilt from its original (no Codex run)", StringComparison.Ordinal));
+            // Another style: the picture made from this portrait stays, offered, as a style change is.
+            c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+            ArmoryWorkerTests.Until(() => c.Current.Shell.EnhanceHeld is not null, "the new style, offered");
+            Thread.Sleep(1500);
+            Assert.Equal(0, second.Calls);
+        }
+
+        // No original kept (an older app, a cleaned folder): nothing to rebuild, and nothing said at every look.
+        File.Delete(Path.Combine(ArmoryWorkerTests.Data(t), "originals", made.Signature + ".png"));
+        folder.WriteEnhanced("karuzo-macphisto", picture, new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A,
+            Enhancement = new EnhancementMeta { SourceHash = EnhancementSignature.HashOf(render), OutputHash = EnhancementSignature.HashOf(ms.ToArray()), Style = "wow-like" },
+        });
+        using (var c = ArmoryWorkerTests.Started(t, cdn, enhance: false, hooks: second.Hooks))
+        {
+            ArmoryWorkerTests.Until(() => c.Current.Shell.Report is not null, "the first pass");
+            Thread.Sleep(2500);
+            Assert.Null(Drawn());
+            Assert.DoesNotContain("could not be rebuilt", File.ReadAllText(c.LogPath));
+        }
+    }
+
+    [Fact]
     public void The_armory_worker_fetches_a_render_of_the_same_look_and_the_capture_stays_the_portrait_the_enhancer_enhances()
     {
         // The owner's 11 November run: a render of later play, nothing changed. 1.2.0 swapped

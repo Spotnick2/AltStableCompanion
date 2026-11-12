@@ -104,6 +104,14 @@ public sealed class AttemptHistory
     public Attempt? LastWritten => _attempts.LastOrDefault(a => a.Outcome == Attempt.Written);
 
     /// <summary>
+    /// The last attempt that wrote a picture from THIS portrait (its epoch and bytes), if any.
+    /// Not always <see cref="LastWritten"/>: a render that was the portrait for a while had its
+    /// own picture made, and the capture it gave way back to keeps the one made from it.
+    /// </summary>
+    public Attempt? WrittenFrom(long? epoch, string sourceHash) =>
+        _attempts.LastOrDefault(a => a.Outcome == Attempt.Written && a.Epoch == epoch && a.SourceHash == sourceHash);
+
+    /// <summary>
     /// Record a launch before it happens. Refuses a signature that <see cref="MayLaunch"/> does
     /// not allow. Written to disk atomically before this returns; if that fails, nothing is launched.
     /// </summary>

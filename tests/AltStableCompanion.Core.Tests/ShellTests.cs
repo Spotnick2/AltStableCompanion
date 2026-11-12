@@ -477,9 +477,11 @@ public class PassTextTests
         Assert.Equal("Captured today 23:56 · not enhanced: hidden in WoW12", PassText.RowSummary(rows[0], today));
         Assert.Equal("latest capture today 23:56 · converted · not enhanced: hidden in WoW12", PassText.RowDetail(rows[0], today));
         // Beside a picture made earlier: that one stays, no new one is made.
-        var made = rows[0] with { EnhanceNote = "enhanced (realistic)" };
+        var made = rows[0] with { EnhanceNote = "enhanced (realistic)", Enhanced = new EnhancedTexture(1, 2, 4, 4) };
         Assert.Equal("Captured today 23:56 · no new pictures: hidden in WoW12", PassText.RowSummary(made, today));
         Assert.EndsWith("· enhanced (realistic) · no new pictures: hidden in WoW12", PassText.RowDetail(made, today));
+        // A picture on record that is not the one drawn (another portrait's took its file): not said to be enhanced.
+        Assert.Contains("· not enhanced yet ·", PassText.RowDetail(made with { Enhanced = null }, today));
         Assert.Equal("Captured today 23:56", PassText.RowSummary(zoruka, today));
     }
 
