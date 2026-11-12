@@ -53,14 +53,14 @@ public class EnhancedManifestTests
     {
         using var t = new TempInstall();
         var (f, _, _) = Pair(t);
-        var entry = f.Inventory().Single();
+        var entry = f.Inventory(PortraitJudge.Unknown).Single();
         Assert.Equal(new EnhancedTexture(6, 8, 8, 8), entry.Enhanced);
         Assert.Equal((3, 4), (entry.W, entry.H));
         var lua = ManifestWriter.Render([entry], new DateTime(2026, 9, 30));
         Assert.Contains(@"enhanced = { file = [[Interface\AddOns\AltStableCutouts\Cutouts\Enhanced\kaleid-sumner.tga]], w = 6, h = 8, texw = 8, texh = 8 }", lua);
         Assert.Contains(@"file = [[Interface\AddOns\AltStableCutouts\Cutouts\kaleid-sumner.tga]], w = 3, h = 4", lua);
         // The enhanced picture is never listed as a portrait of its own.
-        Assert.Single(f.Inventory());
+        Assert.Single(f.Inventory(PortraitJudge.Unknown));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class EnhancedManifestTests
         EnhancedTexture? Now()
         {
             warnings.Clear();
-            return f.Inventory(warnings.Add).Single().Enhanced;
+            return f.Inventory(PortraitJudge.Unknown, warnings.Add).Single().Enhanced;
         }
         Assert.NotNull(Now());
         Assert.Empty(warnings);
@@ -118,11 +118,11 @@ public class EnhancedManifestTests
             File.SetLastWriteTimeUtc(path, stamp);
         }
         Rewrite(primary, TestData.Solid(4, 4, 5, 5, 5));
-        Assert.Null(new CutoutFolder(f.AddonDir).Inventory().Single().Enhanced);
+        Assert.Null(new CutoutFolder(f.AddonDir).Inventory(PortraitJudge.Unknown).Single().Enhanced);
         File.WriteAllBytes(primary, bytes);
         Assert.NotNull(Now());
         Rewrite(enhanced, TestData.Solid(8, 8, 2, 2, 2));
-        Assert.Null(new CutoutFolder(f.AddonDir).Inventory().Single().Enhanced);
+        Assert.Null(new CutoutFolder(f.AddonDir).Inventory(PortraitJudge.Unknown).Single().Enhanced);
         File.WriteAllBytes(enhanced, made);
         Assert.NotNull(Now());
     }
@@ -136,31 +136,31 @@ public class EnhancedManifestTests
 
         var warnings = new List<string>();
         WriteEnhancedSidecar(f, "kaleid-sumner", meta with { Guid = "Player-1-0000BBBB" });
-        Assert.Null(f.Inventory(warnings.Add).Single().Enhanced);
+        Assert.Null(f.Inventory(PortraitJudge.Unknown, warnings.Add).Single().Enhanced);
         Assert.Contains(warnings, w => w.Contains("another character"));
         WriteEnhancedSidecar(f, "kaleid-sumner", meta with { W = 0 });
-        Assert.Null(f.Inventory(warnings.Add).Single().Enhanced);
+        Assert.Null(f.Inventory(PortraitJudge.Unknown, warnings.Add).Single().Enhanced);
         Assert.Contains(warnings, w => w.Contains("not positive"));
         WriteEnhancedSidecar(f, "kaleid-sumner", meta with { TexH = -8 });
-        Assert.Null(f.Inventory().Single().Enhanced);
+        Assert.Null(f.Inventory(PortraitJudge.Unknown).Single().Enhanced);
         // Hashes at the top level, not inside the enhancement block: not the contract's shape.
         WriteEnhancedSidecar(f, "kaleid-sumner", meta with { Enhancement = null });
-        Assert.Null(f.Inventory().Single().Enhanced);
+        Assert.Null(f.Inventory(PortraitJudge.Unknown).Single().Enhanced);
         WriteEnhancedSidecar(f, "kaleid-sumner", meta);
-        Assert.NotNull(f.Inventory().Single().Enhanced);
+        Assert.NotNull(f.Inventory(PortraitJudge.Unknown).Single().Enhanced);
 
         // A name-only legacy primary (no guid of its own) never attaches, whatever the sidecar says.
         using var t2 = new TempInstall();
         var (f2, _, _) = Pair(t2, guid: null, epoch: null);
         var legacy = new List<string>();
-        Assert.Null(f2.Inventory(legacy.Add).Single().Enhanced);
-        Assert.Null(f2.Inventory().Single().Guid);
+        Assert.Null(f2.Inventory(PortraitJudge.Unknown, legacy.Add).Single().Enhanced);
+        Assert.Null(f2.Inventory(PortraitJudge.Unknown).Single().Guid);
         Assert.Contains(legacy, w => w.Contains("no GUID of its own"));
 
         // An undated primary (the Python script's) attaches by hash alone.
         using var t3 = new TempInstall();
         var (f3, _, _) = Pair(t3, epoch: null);
-        Assert.NotNull(f3.Inventory().Single().Enhanced);
+        Assert.NotNull(f3.Inventory(PortraitJudge.Unknown).Single().Enhanced);
     }
 
     [Fact]
@@ -168,18 +168,18 @@ public class EnhancedManifestTests
     {
         using var t = new TempInstall();
         var (f, _, enhanced) = Pair(t);
-        Assert.True(f.WriteManifest(f.Inventory(), new DateTime(2026, 9, 30)));
+        Assert.True(f.WriteManifest(f.Inventory(PortraitJudge.Unknown), new DateTime(2026, 9, 30)));
         Assert.Contains("enhanced = {", File.ReadAllText(f.ManifestPath));
         // An old writer's manifest: the same entries without the field.
-        var plain = f.Inventory().Select(e => e with { Enhanced = null }).ToList();
+        var plain = f.Inventory(PortraitJudge.Unknown).Select(e => e with { Enhanced = null }).ToList();
         Assert.True(f.WriteManifest(plain, new DateTime(2026, 9, 30, 0, 1, 0)));
         Assert.DoesNotContain("enhanced = {", File.ReadAllText(f.ManifestPath));
         // The files stayed; the next enhancement-aware rebuild puts the field back.
         Assert.True(File.Exists(enhanced));
-        Assert.True(f.WriteManifest(f.Inventory(), new DateTime(2026, 9, 30, 0, 2, 0)));
+        Assert.True(f.WriteManifest(f.Inventory(PortraitJudge.Unknown), new DateTime(2026, 9, 30, 0, 2, 0)));
         Assert.Contains("enhanced = {", File.ReadAllText(f.ManifestPath));
         // And nothing changed: nothing written.
-        Assert.False(f.WriteManifest(f.Inventory(), new DateTime(2026, 9, 30, 0, 3, 0)));
+        Assert.False(f.WriteManifest(f.Inventory(PortraitJudge.Unknown), new DateTime(2026, 9, 30, 0, 3, 0)));
     }
 
     [Fact]

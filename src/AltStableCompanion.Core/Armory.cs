@@ -76,7 +76,8 @@ public static class Armory
     }
 
     /// <summary>
-    /// Which of a capture and a render the manifest names: the render when it is newer by the
+    /// The old rule, now the contract's case 5 (<see cref="PortraitJudge"/>, when it cannot
+    /// tell whether the character changed): the render when it is newer by the
     /// estimate - it shows the character as of its date minus <see cref="RenderDelay"/> - and
     /// the capture when its epoch is at least that. A capture that does not say when it was
     /// taken (an older converter's) is older than any render. An estimate: a capture taken
@@ -275,7 +276,7 @@ public static class ArmoryEligibility
     // (lastUpdate = 999999999999) is no time at all, not a reason to stop the manifest.
     private static readonly long MaxSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
 
-    private static long Seconds(long value) => value > 0 && value <= MaxSeconds ? value : 0;
+    internal static long Seconds(long value) => value > 0 && value <= MaxSeconds ? value : 0;
 }
 
 /// <summary>

@@ -206,11 +206,13 @@ public sealed class CutoutFolder(string addonDir)
         FileBaseOf(guid) ?? ArmoryBaseOf(guid) ?? Slugger.FileBase(name, guid, OwnerOf);
 
     /// <summary>
-    /// Each character's primary: its capture cutout, or its render when the render is newer
-    /// (<see cref="Armory.RenderWins"/>). Characters with neither are not in it; nor is a
-    /// name-only legacy cutout, which is nobody's in particular.
+    /// Each character's primary: its capture cutout, or its render when <paramref name="judge"/>
+    /// says the render shows a change the capture does not (<see cref="PortraitJudge.RenderWins"/>).
+    /// Characters with neither are not in it; nor is a name-only legacy cutout, which is nobody's
+    /// in particular. Every caller passes the same kind of judge, so the manifest and the
+    /// enhancer agree on what a character's portrait is.
     /// </summary>
-    public IReadOnlyDictionary<string, Primary> Primaries()
+    public IReadOnlyDictionary<string, Primary> Primaries(PortraitJudge judge)
     {
         var primaries = new Dictionary<string, Primary>(StringComparer.Ordinal);
         foreach (var (guid, (fileBase, meta)) in Captures())
@@ -219,7 +221,7 @@ public sealed class CutoutFolder(string addonDir)
         }
         foreach (var (guid, (fileBase, meta)) in ArmoryRenders())
         {
-            if (primaries.TryGetValue(guid, out var capture) && !Armory.RenderWins(capture.Meta.Epoch, meta)) continue;
+            if (primaries.TryGetValue(guid, out var capture) && !judge.RenderWins(guid, capture.Meta.Epoch, meta)) continue;
             primaries[guid] = new Primary(fileBase, Path.Combine(ArmoryDir, fileBase + ".tga"), meta, Armory: true);
         }
         return primaries;
@@ -264,7 +266,10 @@ public sealed class CutoutFolder(string addonDir)
     /// touched. The primary is hashed only when an enhanced sidecar exists: that is the one
     /// case that needs it.
     /// </summary>
-    public EnhancedTexture? Attached(string fileBase, string primaryPath, string? primaryGuid, Action<string>? warn = null)
+    /// <param name="render">The primary is a render: one newer than its enhanced picture is a
+    /// picture waiting for its new one (the day limit, the cap, an offer), which is how this is
+    /// meant to work and not a warning (contract section 4).</param>
+    public EnhancedTexture? Attached(string fileBase, string primaryPath, string? primaryGuid, Action<string>? warn = null, bool render = false)
     {
         var sidecar = Path.Combine(EnhancedDir, fileBase + ".json");
         if (!File.Exists(sidecar)) return null;
@@ -300,7 +305,7 @@ public sealed class CutoutFolder(string addonDir)
             }
             if (!string.Equals(HashRemembered(primaryPath), source, StringComparison.Ordinal))
             {
-                warn?.Invoke($"{name} is not drawn: {fileBase}.tga is not the portrait it was made from");
+                if (!render) warn?.Invoke($"{name} is not drawn: {fileBase}.tga is not the portrait it was made from");
                 return null;
             }
             if (!string.Equals(HashRemembered(enhanced), output, StringComparison.Ordinal))
@@ -452,11 +457,11 @@ public sealed class CutoutFolder(string addonDir)
     /// (see <see cref="ManifestWriter"/>), and a second file carrying a GUID another file
     /// already answers for - two entries with one key, and Lua keeps the last.
     /// </summary>
-    public IReadOnlyList<ManifestEntry> Inventory(Action<string>? warn = null)
+    public IReadOnlyList<ManifestEntry> Inventory(PortraitJudge judge, Action<string>? warn = null)
     {
         var entries = new List<ManifestEntry>();
         if (!Directory.Exists(CutoutsDir)) return entries;
-        var primaries = Primaries();
+        var primaries = Primaries(judge);
         foreach (var tga in Directory.EnumerateFiles(CutoutsDir, "*.tga").Order(StringComparer.Ordinal))
         {
             var fileBase = Path.GetFileNameWithoutExtension(tga);
@@ -469,8 +474,9 @@ public sealed class CutoutFolder(string addonDir)
             }
             if (meta?.Guid is { } guid && primaries.TryGetValue(guid, out var chosen))
             {
-                // The render is newer: it is listed below, under the same GUID. Not a warning -
-                // a capture that a later render replaced is how this is meant to work.
+                // The render shows a change the capture does not: it is listed below, under the
+                // same GUID. Not a warning - a capture that a later render replaced is how this
+                // is meant to work.
                 if (chosen.Armory) continue;
                 if (!string.Equals(chosen.Base, fileBase, StringComparison.OrdinalIgnoreCase))
                 {
@@ -504,7 +510,7 @@ public sealed class CutoutFolder(string addonDir)
         foreach (var p in primaries.Values.Where(p => p.Armory).OrderBy(p => p.Base, StringComparer.Ordinal))
         {
             entries.Add(new ManifestEntry(p.Meta.Guid!, p.Meta.Guid, p.Base + ".tga", p.Meta.W, p.Meta.H, p.Meta.TexW, p.Meta.TexH,
-                null, null, Attached(p.Base, p.Path, p.Meta.Guid, warn), ArmoryFolder));
+                null, null, Attached(p.Base, p.Path, p.Meta.Guid, warn, render: true), ArmoryFolder));
         }
         return entries;
     }
@@ -538,8 +544,8 @@ public sealed class CutoutFolder(string addonDir)
     /// idle pass writes nothing: every write is a chance to meet the client reading the file
     /// during a /reload. Returns whether it wrote.
     /// </summary>
-    public bool WriteManifest(DateTime now, Action<string>? warn = null) =>
-        WriteManifest(Inventory(warn), now);
+    public bool WriteManifest(PortraitJudge judge, DateTime now, Action<string>? warn = null) =>
+        WriteManifest(Inventory(judge, warn), now);
 
     /// <summary>The same, for an inventory already taken: the folder is listed once a pass.</summary>
     public bool WriteManifest(IReadOnlyList<ManifestEntry> entries, DateTime now)

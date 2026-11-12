@@ -290,7 +290,7 @@ public class EnhanceWorkerTests
         var fake = new Fake();
         using var c = Started(t, fake);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the enhanced picture");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the enhanced picture");
         Assert.Equal(1, fake.Calls);
         Assert.Contains("two toes", fake.Prompts.Single());
 
@@ -342,7 +342,7 @@ public class EnhanceWorkerTests
         var fake = new Fake();
         using var c = Started(t, fake);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the first picture");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the first picture");
         Until(() => c.Current.Shell.Enhancing is null, "the first job over");
         Assert.Null(c.Current.Shell.EnhanceHeld);
 
@@ -392,7 +392,7 @@ public class EnhanceWorkerTests
 
         // D: a picture made, wow-like. E: an attempt that failed, wow-like.
         Roster(t, "4#1", "Dee", "Player-1-0000000D", T0);
-        Until(() => fake.Calls == 1 && folder.Inventory().Any(e => e.Enhanced is not null), "D's picture");
+        Until(() => fake.Calls == 1 && folder.Inventory(PortraitJudge.Unknown).Any(e => e.Enhanced is not null), "D's picture");
         fake.Failure = "refused: test";
         Roster(t, "5#1", "Eee", "Player-1-0000000E", T0.AddMinutes(1), fw: 110);
         Until(() => fake.Calls == 2, "E's attempt");
@@ -404,7 +404,7 @@ public class EnhanceWorkerTests
         Roster(t, "1#1", "Aaa", "Player-1-0000000A", T0.AddMinutes(2), fw: 120);
         Roster(t, "2#1", "Bbb", "Player-1-0000000B", T0.AddMinutes(3), level: 5, fw: 130);
         Roster(t, "3#1", "Ccc", "Player-1-0000000C", T0.AddMinutes(4), fw: 140, hidden: true);
-        Until(() => folder.Inventory().Count == 5, "five portraits");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).Count == 5, "five portraits");
         Until(() => !c.Current.Shell.Converting, "the pass over");
 
         // The same style: only A. D is made and E was tried - both done.
@@ -469,14 +469,14 @@ public class EnhanceWorkerTests
         var fake = new Fake();
         using var c = Started(t, fake, enhance: false);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Until(() => folder.Inventory().Count == 1 && !c.Current.Shell.Converting, "A's portrait");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).Count == 1 && !c.Current.Shell.Converting, "A's portrait");
         Until(() => c.Current.CodexProbed, "Codex looked for");
         var shown = c.PlanEnhancement(10, EnhanceStyles.WowLike);
         Assert.Equal(new EnhancePlan(1, 0, 0), shown);
 
         // The player reads; a capture comes in.
         Roster(t, "2#1", "Bbb", "Player-1-0000000B", T0.AddMinutes(1), fw: 120);
-        Until(() => folder.Inventory().Count == 2 && !c.Current.Shell.Converting, "B's portrait");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).Count == 2 && !c.Current.Shell.Converting, "B's portrait");
 
         // "Make 1 picture" is no longer true: it stays off, and the new count comes back.
         Assert.Equal(new EnhancePlan(2, 0, 0), c.TurnOnEnhance(10, EnhanceStyles.WowLike, shown, c.PressEnhance()));
@@ -630,7 +630,7 @@ public class EnhanceWorkerTests
         var fake = new Fake();
         using var c = Started(t, fake);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the first picture");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the first picture");
 
         Roster(t, "1#1", "Kaleid Sumner", Guid1, T0.AddMinutes(10), fw: 120);
         Until(() => fake.Calls == 2, "the new capture's picture");
@@ -655,7 +655,7 @@ public class EnhanceWorkerTests
         var fake = new Fake();
         using var c = Started(t, fake);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the first picture");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the first picture");
         Until(() => c.Current.Shell.Enhancing is null, "the first job over");
         // Another style, held in flight: the note says both, the row says Enhancing, and sits first.
         fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -687,7 +687,7 @@ public class EnhanceWorkerTests
         var fake = new Fake();
         using var c = Started(t, fake);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "A in WoW style");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "A in WoW style");
         c.SetEnhance(true, 10, EnhanceStyles.Realistic);
         Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "A held");
         c.RemakeEnhanced();
@@ -726,7 +726,7 @@ public class EnhanceWorkerTests
         var fake = new Fake();
         using var c = Started(t, fake);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "the picture");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "the picture");
         c.SetEnhance(true, 10, EnhanceStyles.Realistic);
         Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "held");
         // Off: nothing is offered, and the button - were it pressed - arms nothing.
@@ -754,7 +754,7 @@ public class EnhanceWorkerTests
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
         using (var c = Started(t, fake))
         {
-            Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "the picture");
+            Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null && c.Current.Shell.Enhancing is null, "the picture");
             c.SetEnhance(true, 10, EnhanceStyles.Realistic);
             Until(() => c.Current.Shell.EnhanceHeld is { Count: 1 }, "held");
             fake.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1114,7 +1114,7 @@ public class EnhanceWorkerTests
         using var again = Started(t, fake);
         // Closed - the row must not say "enhancing" about a run that is dead - and, a cancel
         // being nobody's fault, tried once more.
-        Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the picture, on the second try");
+        Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the picture, on the second try");
         Assert.Equal(1, fake.Calls);
         var attempts = AttemptHistory.Load(folder.EnhancedDir, Guid1).Attempts;
         Assert.Equal(["cancelled: the app did not live to finish it", Attempt.Written], attempts.Select(a => a.Outcome));

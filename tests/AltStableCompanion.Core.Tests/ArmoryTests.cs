@@ -291,12 +291,12 @@ public class ArmoryFolderTests
         Render(folder, "d", D, Made);                                 // below level 10
         Capture(folder, "e", E, Made);                                // never drawn: the prompt stays
         IReadOnlyDictionary<string, bool> Kept() =>
-            Armory.Flag(folder.Inventory(), folder, t.Install).ToDictionary(e => e.Guid!, e => e.KeptByArmory);
+            Armory.Flag(folder.Inventory(PortraitJudge.Unknown), folder, t.Install).ToDictionary(e => e.Guid!, e => e.KeptByArmory);
 
         Assert.Equal(new Dictionary<string, bool> { [A] = true, [B] = true, [C] = false, [D] = false, [E] = false }, Kept());
-        Assert.Null(Assert.Single(folder.Inventory(), e => e.Guid == B).Folder);
+        Assert.Null(Assert.Single(folder.Inventory(PortraitJudge.Unknown), e => e.Guid == B).Folder);
 
-        var lua = ManifestWriter.Render(Armory.Flag(folder.Inventory(), folder, t.Install), DateTime.Now);
+        var lua = ManifestWriter.Render(Armory.Flag(folder.Inventory(PortraitJudge.Unknown), folder, t.Install), DateTime.Now);
         Assert.Contains(@"Cutouts\Armory\a.tga]], w = 4, h = 8, texw = 4, texh = 8, armory = true },", lua);
         Assert.Contains(@"Cutouts\b.tga]], w = 4, h = 8, texw = 4, texh = 8, armory = true },", lua);
         Assert.DoesNotContain(@"e.tga]], w = 4, h = 8, texw = 4, texh = 8, armory", lua);
@@ -343,10 +343,10 @@ public class ArmoryFolderTests
         using var t = new TempInstall();
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
         Render(folder, "karuzo", A, Made);
-        var entry = Assert.Single(folder.Inventory());
+        var entry = Assert.Single(folder.Inventory(PortraitJudge.Unknown));
         Assert.Equal((A, "karuzo.tga", "Armory"), (entry.Key, entry.FileName, entry.Folder));
         Assert.Null(entry.NativeH);
-        folder.WriteManifest(DateTime.Now);
+        folder.WriteManifest(PortraitJudge.Unknown, DateTime.Now);
         Assert.Contains(@"file = [[Interface\AddOns\AltStableCutouts\Cutouts\Armory\karuzo.tga]]", File.ReadAllText(folder.ManifestPath));
     }
 
@@ -358,13 +358,13 @@ public class ArmoryFolderTests
         Render(folder, "karuzo", A, Made);
         // Captured during the session the render shows (it ended about 04:40): the render.
         Capture(folder, "karuzo", A, Made.AddHours(-8));
-        Assert.Equal("Armory", Assert.Single(folder.Inventory()).Folder);
-        Assert.True(folder.Primaries()[A].Armory);
+        Assert.Equal("Armory", Assert.Single(folder.Inventory(PortraitJudge.Unknown)).Folder);
+        Assert.True(folder.Primaries(PortraitJudge.Unknown)[A].Armory);
         // Captured after it: the capture, with its own size and native height.
         Capture(folder, "karuzo", A, Made.AddHours(-7));
-        var entry = Assert.Single(folder.Inventory());
+        var entry = Assert.Single(folder.Inventory(PortraitJudge.Unknown));
         Assert.Null(entry.Folder);
-        Assert.False(folder.Primaries()[A].Armory);
+        Assert.False(folder.Primaries(PortraitJudge.Unknown)[A].Armory);
     }
 
     [Fact]
@@ -377,7 +377,7 @@ public class ArmoryFolderTests
         // The app stopped between the TGA and its sidecar.
         File.WriteAllBytes(Path.Combine(folder.ArmoryDir, "karuzo.tga"), Tga(4, 8, 77));
         Assert.Empty(folder.ArmoryRenders());
-        Assert.Null(Assert.Single(folder.Inventory()).Folder);      // the capture, old as it is
+        Assert.Null(Assert.Single(folder.Inventory(PortraitJudge.Unknown)).Folder);      // the capture, old as it is
         Assert.Equal("karuzo", folder.ArmoryBaseOf(A));               // and the name is kept for the refetch
     }
 
@@ -391,7 +391,7 @@ public class ArmoryFolderTests
         var second = folder.BaseFor(B, "Twin Name");
         Assert.Equal(("twin-name", "twin-name-00bbbb"), (first, second));
         Render(folder, second, B, Made);
-        Assert.Equal(2, folder.Inventory().Count);
+        Assert.Equal(2, folder.Inventory(PortraitJudge.Unknown).Count);
         // Fetched again: the same names.
         Assert.Equal(("twin-name", "twin-name-00bbbb"), (folder.BaseFor(A, "Twin Name"), folder.BaseFor(B, "Twin Name")));
     }
@@ -424,7 +424,7 @@ public class ArmoryFolderTests
         new ConvertPass(u.Install, new ConvertOptions(KeepScreenshots: true)).Run();
         Assert.Equal("an-older-name", other.FileBaseOf(A));
         // The capture is the newer: it is listed, from Cutouts\.
-        Assert.Null(Assert.Single(other.Inventory()).Folder);
+        Assert.Null(Assert.Single(other.Inventory(PortraitJudge.Unknown)).Folder);
     }
 
     [Fact]
@@ -442,13 +442,13 @@ public class ArmoryFolderTests
             W = 4, H = 8, TexW = 4, TexH = 8, Guid = A,
             Enhancement = new EnhancementMeta { SourceHash = EnhancementSignature.HashOf(primary), OutputHash = EnhancementSignature.HashOf(ms.ToArray()) },
         });
-        var entry = Assert.Single(folder.Inventory());
+        var entry = Assert.Single(folder.Inventory(PortraitJudge.Unknown));
         Assert.NotNull(entry.Enhanced);
-        folder.WriteManifest(DateTime.Now);
+        folder.WriteManifest(PortraitJudge.Unknown, DateTime.Now);
         var lua = File.ReadAllText(folder.ManifestPath);
         Assert.Contains(@"Cutouts\Armory\karuzo.tga]]", lua);
         Assert.Contains(@"Cutouts\Enhanced\karuzo.tga]]", lua);
-        var row = Collection.Build(folder.Inventory(), [], folder.FileTimes(folder.Inventory())).Single();
+        var row = Collection.Build(folder.Inventory(PortraitJudge.Unknown), [], folder.FileTimes(folder.Inventory(PortraitJudge.Unknown))).Single();
         Assert.Equal(Path.Combine("Enhanced", "karuzo.tga"), row.ThumbnailFile);
         Assert.True(row.FromArmory);
         Assert.NotNull(row.FileModified);

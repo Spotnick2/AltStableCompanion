@@ -103,7 +103,8 @@ public sealed partial class Controller
 
     /// <summary>What one launch carries from its preparation to its publication.</summary>
     private sealed record EnhanceJob(string Guid, string Base, string Name, string Signature, string SourceHash,
-        CutoutMeta PrimaryMeta, string Style, string Dir, CodexJob Codex, int Generation, string InstallDir, string PrimaryPath);
+        CutoutMeta PrimaryMeta, string Style, string Dir, CodexJob Codex, int Generation, string InstallDir, string PrimaryPath,
+        string AccountsDir);
 
     /// <summary>The worker is nudged: something that decides who is eligible changed.</summary>
     private void WakeEnhancer()
@@ -264,8 +265,9 @@ public sealed partial class Controller
                 // since, below the level, another portrait, another race or class - or an
                 // account that can no longer be read, which refuses everyone - and the look is
                 // done again rather than spending on the old one.
-                var primaries = folder.Primaries();
-                var fresh = Eligibility.Select(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)),
+                var freshSnapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
+                var primaries = folder.Primaries(PortraitJudge.From(freshSnapshot));
+                var fresh = Eligibility.Select(freshSnapshot,
                     settings.EnhanceMinLevel, guid => primaries.TryGetValue(guid, out var p) ? p.Base : null);
                 if (fresh.Refused is { } refusedNow) { _batch = null; return Idle(refusedNow); }
                 var still = fresh.Candidates.FirstOrDefault(e => e.Guid == c.Guid);
@@ -367,7 +369,7 @@ public sealed partial class Controller
                 Changed?.Invoke();
                 _log?.Write($"enhance: {c.Character.Name} ({c.FileBase}), {settings.EnhanceStyle}, {settings.EnhanceModel} {settings.EnhanceEffort}");
                 return new EnhanceJob(c.Guid, c.FileBase, c.Character.Name, signature, sourceHash, meta, settings.EnhanceStyle,
-                    dir, codexJob, generation, install.CutoutAddonDir, primary);
+                    dir, codexJob, generation, install.CutoutAddonDir, primary, install.AccountsDir);
             }
             return Idle(null, keepHeld: true);
         }
@@ -427,7 +429,7 @@ public sealed partial class Controller
     private LaunchPlan PlanLaunches(CutoutFolder folder, WowInstall install, Settings settings, IReadOnlySet<string> allowed)
     {
         var snapshot = SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
-        var primaries = folder.Primaries();
+        var primaries = folder.Primaries(PortraitJudge.From(snapshot));
         var eligible = Eligibility.Select(snapshot, settings.EnhanceMinLevel, guid => primaries.TryGetValue(guid, out var p) ? p.Base : null);
         if (eligible.Refused is { } refused) return new([], [], 0, [], refused, new Dictionary<string, string>());
 
@@ -729,7 +731,8 @@ public sealed partial class Controller
                 string now;
                 try
                 {
-                    now = folder.Primaries().TryGetValue(job.Guid, out var p) && SamePath(p.Path, job.PrimaryPath)
+                    var judge = PortraitJudge.From(SavedVariablesReader.Snapshot(job.AccountsDir, m => _log?.Write(m)));
+                    now = folder.Primaries(judge).TryGetValue(job.Guid, out var p) && SamePath(p.Path, job.PrimaryPath)
                         ? EnhancementSignature.HashOf(job.PrimaryPath) : "";
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { now = ""; }
@@ -825,7 +828,6 @@ public sealed partial class Controller
             ConvertPass? pass;
             lock (_gate) pass = generation == _generation ? _pass : null;
             var listed = new List<string>();
-            entries = folder.Inventory(listed.Add);
             WowInstall? install;
             bool armory;
             lock (_gate)
@@ -833,6 +835,10 @@ public sealed partial class Controller
                 install = generation == _generation ? _current.Shell.Install : null;
                 armory = _settings.Armory == true;
             }
+            // Another install meanwhile: nothing this writes is kept, and its roster is not this one's.
+            var judge = install is null ? PortraitJudge.Unknown
+                : PortraitJudge.From(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)));
+            entries = folder.Inventory(judge, listed.Add);
             if (armory && install is not null) entries = Armory.Flag(entries, folder, install, m => _log?.Write(m));
             if (pass is not null) pass.Listed(listed);
             else foreach (var m in listed) _log?.Write(m);

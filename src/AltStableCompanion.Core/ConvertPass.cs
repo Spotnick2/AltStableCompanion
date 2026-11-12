@@ -119,7 +119,10 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             Warn($"could not list the accounts: {ex.Message}");
             accounts = [];
         }
-        var stores = SavedVariablesReader.ReadAll(accounts, Warn);
+        // Read once: the capture stores, and the roster that says whether a character changed
+        // since its capture (which of capture and render the manifest names).
+        var snapshot = SavedVariablesReader.Snapshot(accounts, Warn);
+        var stores = snapshot.Stores;
         foreach (var refused in stores.Where(s => s.Refused is not null))
         {
             Warn($"{refused.Path}: {refused.Refused}");
@@ -285,7 +288,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             {
                 if (folder.EnsureToc()) folderCreated = true;
                 var listed = new List<string>();
-                entries = folder.Inventory(listed.Add);
+                entries = folder.Inventory(PortraitJudge.From(snapshot), listed.Add);
                 if (options.Armory) entries = Armory.Flag(entries, folder, install, log);
                 warnings.AddRange(listed);
                 Listed(listed);

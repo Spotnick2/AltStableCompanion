@@ -45,7 +45,7 @@ public class CutoutFolderTests
         f.WriteCutout("old-pixels", TestData.Solid(4, 4, 1, 1, 1),
             new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, NativeW = 100, NativeH = 600 });
 
-        var lua = ManifestWriter.Render(f.Inventory(), new DateTime(2026, 9, 29, 1, 7, 30));
+        var lua = ManifestWriter.Render(f.Inventory(PortraitJudge.Unknown), new DateTime(2026, 9, 29, 1, 7, 30));
         Assert.Contains("-- Generated 2026-09-29 01:07:30", lua);
         Assert.Contains(@"    ['Player-4618-006B8614'] = { guid = 'Player-4618-006B8614', file = [[Interface\AddOns\AltStableCutouts\Cutouts\kaleid-sumner.tga]], w = 3, h = 4, texw = 4, texh = 4, nativeW = 0.20509, nativeH = 0.63472 },", lua);
         Assert.Contains(@"    ['zoruka-sumner'] = { file = [[Interface\AddOns\AltStableCutouts\Cutouts\zoruka-sumner.tga]], w = 2, h = 4, texw = 8, texh = 8 },", lua);
@@ -79,7 +79,7 @@ public class CutoutFolderTests
 
         Assert.Equal("kaleid-sumner", f.FileBaseOf("Player-1-AAAA"));
         var warnings = new List<string>();
-        var entry = Assert.Single(f.Inventory(warnings.Add));
+        var entry = Assert.Single(f.Inventory(PortraitJudge.Unknown, warnings.Add));
         Assert.Equal("kaleid-sumner.tga", entry.FileName);
         Assert.Equal(2, warnings.Count);
     }
@@ -97,7 +97,7 @@ public class CutoutFolderTests
             new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4, Guid = "a'] = 1, evil = { ['b" });
 
         var warnings = new List<string>();
-        Assert.Equal("fine.tga", Assert.Single(f.Inventory(warnings.Add)).FileName);
+        Assert.Equal("fine.tga", Assert.Single(f.Inventory(PortraitJudge.Unknown, warnings.Add)).FileName);
         Assert.Equal(3, warnings.Count);
 
         // And the writer holds the line by itself, whatever it is handed.
@@ -120,12 +120,12 @@ public class CutoutFolderTests
         var f = new CutoutFolder(t.Install.CutoutAddonDir);
         f.EnsureToc();
         f.WriteCutout("one", TestData.Solid(4, 4, 1, 1, 1), new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4 });
-        Assert.True(f.WriteManifest(new DateTime(2026, 9, 29, 1, 0, 0)));
-        Assert.False(f.WriteManifest(new DateTime(2026, 9, 29, 2, 0, 0)));
+        Assert.True(f.WriteManifest(PortraitJudge.Unknown, new DateTime(2026, 9, 29, 1, 0, 0)));
+        Assert.False(f.WriteManifest(PortraitJudge.Unknown, new DateTime(2026, 9, 29, 2, 0, 0)));
         Assert.Contains("-- Generated 2026-09-29 01:00:00", File.ReadAllText(f.ManifestPath));
 
         f.WriteCutout("two", TestData.Solid(4, 4, 1, 1, 1), new CutoutMeta { W = 3, H = 4, TexW = 4, TexH = 4 });
-        Assert.True(f.WriteManifest(new DateTime(2026, 9, 29, 3, 0, 0)));
+        Assert.True(f.WriteManifest(PortraitJudge.Unknown, new DateTime(2026, 9, 29, 3, 0, 0)));
         Assert.Contains("['two']", File.ReadAllText(f.ManifestPath));
     }
 
@@ -141,7 +141,7 @@ public class CutoutFolderTests
         f.WriteCutout("kaleid's new", TestData.Solid(4, 4, 1, 1, 1), meta with { Epoch = 100 });
 
         Assert.Equal("kaleid", f.FileBaseOf("Player-1-AAAA"));
-        Assert.Equal("kaleid.tga", Assert.Single(f.Inventory()).FileName);
+        Assert.Equal("kaleid.tga", Assert.Single(f.Inventory(PortraitJudge.Unknown)).FileName);
     }
 
     [Fact]
@@ -277,7 +277,7 @@ public class ConvertPassTests
 
         Assert.Equal(3, report.Written.Count);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        Assert.Equal(who, folder.Inventory().Select(e => e.Guid).Order());
+        Assert.Equal(who, folder.Inventory(PortraitJudge.Unknown).Select(e => e.Guid).Order());
         Assert.Equal(["twin", "twin-bbbbbb", "twin-player-3-00bbbbbb"],
             Directory.EnumerateFiles(folder.CutoutsDir, "*.tga").Select(Path.GetFileNameWithoutExtension).Order());
     }
