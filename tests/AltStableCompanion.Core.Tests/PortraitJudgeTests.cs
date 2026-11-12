@@ -79,6 +79,29 @@ public class PortraitJudgeTests
     }
 
     [Fact]
+    public void A_roster_older_than_the_capture_is_no_change_and_a_render_from_before_the_capture_never_wins()
+    {
+        // Codex on #68: a capture at E showing the helm hidden, the roster's last read two hours
+        // before it showing the helm, and a render as of an hour before the capture.
+        var before = new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A,
+            LastModified = (DateTimeOffset.FromUnixTimeSeconds(E - 3600) + Armory.RenderDelay).ToString("R"),
+        };
+        var stale = Judge(Roster(gear: "1:100;3:0;5:300;15:400;16:500", gearAt: E - 9000, gearReadAt: E - 7200, updated: E - 7200), look: "1:h;5:300");
+        Assert.False(stale.RenderWins(A, E, before));
+        // An item the roster saw before the capture, likewise, and with a newer render too.
+        var item = Judge(Roster(gear: "1:100;3:0;5:301;15:400;16:500", gearAt: E - 7200, updated: E - 7200));
+        Assert.False(item.RenderWins(A, E, before));
+        Assert.False(RenderWins(item));
+        // Seen in the capture's own second: at, not after, so not a change since it.
+        Assert.False(RenderWins(Judge(Roster(gear: "1:100;3:0;5:301;15:400;16:500", gearAt: E, updated: E))));
+        // A change after it still counts, beside a stale one.
+        Assert.True(RenderWins(Judge(Roster(gear: "1:101;3:0;5:301;15:400;16:500", gearAt: AsOf - 60, gearReadAt: E - 7200, updated: AsOf - 60),
+            look: "1:100;5:300")));
+    }
+
+    [Fact]
     public void Both_changed_waits_for_the_later()
     {
         Assert.False(RenderWins(Judge(Roster(gear: "1:101;3:0;5:300;15:400;16:500", gearAt: AsOf - 60, lookAt: AsOf + 60))));

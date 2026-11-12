@@ -122,6 +122,10 @@ public sealed partial class PortraitJudge
             var shownOnly = (then == Hidden && now != Empty) || (now == Hidden && then != Empty);
             var at = shownOnly ? First(c.GearReadAt, c.Updated) : First(c.GearAt, c.Updated);
             if (at == 0) return (false, null);
+            // Seen at or before the capture: the roster's record is older than the capture,
+            // which read what was worn itself. Not a change since it. So a render can only
+            // win with a change after the capture, and a render from before it never does.
+            if (at <= epoch) continue;
             when = Math.Max(when, at);
         }
         var lookAt = ArmoryEligibility.Seconds(c.LookAt);
