@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.1]
+
+A capture stays your portrait until the character changes. 1.2.0 put the armory picture in
+its place too soon, which dropped enhanced pictures; this brings them back.
+
 ### Fixed
 
 - An armory picture no longer replaces a capture just because it is newer. A capture is
@@ -13,8 +18,8 @@ version's section, as it stands here, for the notes of its GitHub Release.
   picture, so it stays the portrait until the character changes: their gear, or their look at
   the barber. The armory picture then takes over once it shows the change. 1.2.0 switched
   characters that had not changed to their armory picture, which dropped their enhanced
-  pictures; this puts them back, with no new capture. Needs the gear AltStable records, as
-  1.2.0 and later do; a capture without it falls back to the date, as before.
+  pictures; this puts them back, with no new capture. It uses the gear AltStable records
+  with each capture; a capture recorded without it falls back to the date, as before.
 - An armory picture waiting for its new enhanced picture is no longer listed under Warnings.
 
 ## [1.2.0]
