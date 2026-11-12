@@ -128,17 +128,21 @@ public sealed class BlizzardApi(Func<HttpMessageHandler> handler, string version
 
     /// <summary>
     /// The character's profile, only when its id is <paramref name="playerNumber"/>. A 401 gets
-    /// one new token and one more try; a second 401 is a refusal. <paramref name="mayAsk"/> is
-    /// asked right before each request that names the character, after any wait for a token:
-    /// false, and nothing is sent.
+    /// one new token and one more try; a second 401 is a refusal. <paramref name="current"/>
+    /// (this is still the player's client, and the API may be used) is asked before each token
+    /// request and each profile request; <paramref name="mayName"/> (the character may be
+    /// named) right before each profile request, after any wait for a token. False, and nothing
+    /// more is sent: no token for a client removed while its request was out.
     /// </summary>
-    public async Task<BlizzardAnswer> ProfileAsync(BlizzardClient client, string name, long playerNumber, Func<bool> mayAsk, CancellationToken ct)
+    public async Task<BlizzardAnswer> ProfileAsync(BlizzardClient client, string name, long playerNumber,
+        Func<bool> current, Func<bool> mayName, CancellationToken ct)
     {
         for (var attempt = 0; ; attempt++)
         {
+            if (!current()) return new BlizzardAnswer(BlizzardStatus.NotAsked);
             var (token, failed) = await TokenAsync(client, ct);
             if (token is null) return failed!;
-            if (!mayAsk()) return new BlizzardAnswer(BlizzardStatus.NotAsked);
+            if (!current() || !mayName()) return new BlizzardAnswer(BlizzardStatus.NotAsked);
             var url = $"https://{ApiHost}/profile/wow/character/{Slug(name)}?namespace={Namespace}&locale=en_US";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);

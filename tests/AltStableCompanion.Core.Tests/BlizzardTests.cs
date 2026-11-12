@@ -48,12 +48,31 @@ public class BlizzardApiTests
         var api = Api(cdn);
         var asked = 0;
         // Allowed for the first request only: the 401's new token is fetched, the request is not sent again.
-        var answer = await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, () => ++asked == 1, default);
+        var answer = await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, () => ++asked == 1, default);
         Assert.Equal(BlizzardStatus.NotAsked, answer.Status);
         Assert.Equal(1, FakeBattleNet.Count(cdn, BlizzardApi.ApiHost));
         Assert.Equal(2, FakeBattleNet.Count(cdn, BlizzardApi.TokenHost));
         // Not allowed at all: the token, and nothing else.
-        Assert.Equal(BlizzardStatus.NotAsked, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, () => false, default)).Status);
+        Assert.Equal(BlizzardStatus.NotAsked, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, () => false, default)).Status);
+        Assert.Equal(1, FakeBattleNet.Count(cdn, BlizzardApi.ApiHost));
+    }
+
+    [Fact]
+    public async Task A_401_for_a_client_no_longer_current_asks_for_no_new_token()
+    {
+        var retired = false;
+        var cdn = new FakeCdn
+        {
+            Respond = r =>
+            {
+                if (FakeBattleNet.IsToken(r)) return FakeBattleNet.TokenOk();
+                retired = true;                                       // removed while its request was out
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            },
+        };
+        var answer = await Api(cdn).ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, () => !retired, Always, default);
+        Assert.Equal(BlizzardStatus.NotAsked, answer.Status);
+        Assert.Equal(1, FakeBattleNet.Count(cdn, BlizzardApi.TokenHost));
         Assert.Equal(1, FakeBattleNet.Count(cdn, BlizzardApi.ApiHost));
     }
 
@@ -72,9 +91,9 @@ public class BlizzardApiTests
             },
         };
         api = Api(cdn);
-        Assert.Equal(BlizzardStatus.NotAsked, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default)).Status);
+        Assert.Equal(BlizzardStatus.NotAsked, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default)).Status);
         Assert.Equal(0, FakeBattleNet.Count(cdn, BlizzardApi.ApiHost));
-        Assert.Equal(BlizzardStatus.Ok, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default)).Status);
+        Assert.Equal(BlizzardStatus.Ok, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default)).Status);
         Assert.Equal(2, tokens);                                      // a new one: the first was not kept
     }
 
@@ -85,7 +104,7 @@ public class BlizzardApiTests
         {
             Respond = r => FakeBattleNet.IsToken(r) ? FakeBattleNet.TokenOk() : FakeBattleNet.Profile(Karuzo, 23, Login),
         };
-        var answer = await Api(cdn).ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default);
+        var answer = await Api(cdn).ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default);
 
         Assert.Equal(BlizzardStatus.Ok, answer.Status);
         Assert.Equal(new BlizzardProfile(23, Login), answer.Profile);
@@ -108,13 +127,13 @@ public class BlizzardApiTests
                 : new HttpResponseMessage(code),
         };
         var api = Api(cdn);
-        Assert.Equal(BlizzardStatus.Ok, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default)).Status);
+        Assert.Equal(BlizzardStatus.Ok, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default)).Status);
         Assert.Equal(1, FakeBattleNet.Count(cdn, BlizzardApi.TokenHost));
         // A 401: one new token, and the same question again.
-        Assert.Equal(BlizzardStatus.Ok, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default)).Status);
+        Assert.Equal(BlizzardStatus.Ok, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default)).Status);
         Assert.Equal(2, FakeBattleNet.Count(cdn, BlizzardApi.TokenHost));
         // A 401 with the new token too: refused, and no third token.
-        Assert.Equal(BlizzardStatus.Refused, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default)).Status);
+        Assert.Equal(BlizzardStatus.Refused, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default)).Status);
         Assert.Equal(3, FakeBattleNet.Count(cdn, BlizzardApi.TokenHost));
         Assert.Equal(8, cdn.Count);                                   // 2, then 3 (401, token, 200), then 3 (401, token, 401)
     }
@@ -128,7 +147,7 @@ public class BlizzardApiTests
     public async Task A_token_that_is_not_given_says_why_and_nothing_else_is_asked(HttpStatusCode code, BlizzardStatus status)
     {
         var cdn = new FakeCdn { Respond = _ => new HttpResponseMessage(code) };
-        var answer = await Api(cdn).ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default);
+        var answer = await Api(cdn).ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default);
         Assert.Equal(status, answer.Status);
         Assert.Equal(1, cdn.Count);
         Assert.DoesNotContain(FakeBattleNet.Secret, answer.Problem ?? "");
@@ -140,7 +159,7 @@ public class BlizzardApiTests
     public async Task A_profile_counts_only_when_its_id_is_the_guid_s_number(long id, BlizzardStatus status)
     {
         var cdn = new FakeCdn { Respond = r => FakeBattleNet.IsToken(r) ? FakeBattleNet.TokenOk() : FakeBattleNet.Profile(id, 30) };
-        var answer = await Api(cdn).ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default);
+        var answer = await Api(cdn).ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default);
         Assert.Equal(status, answer.Status);
         Assert.Equal(status == BlizzardStatus.Ok ? 30 : null, answer.Profile?.Level);
     }
@@ -151,9 +170,9 @@ public class BlizzardApiTests
         var code = HttpStatusCode.NotFound;
         var cdn = new FakeCdn { Respond = r => FakeBattleNet.IsToken(r) ? FakeBattleNet.TokenOk() : new HttpResponseMessage(code) };
         var api = Api(cdn);
-        Assert.Equal(BlizzardStatus.NotFound, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default)).Status);
+        Assert.Equal(BlizzardStatus.NotFound, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default)).Status);
         code = HttpStatusCode.TooManyRequests;
-        Assert.Equal(BlizzardStatus.Busy, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, default)).Status);
+        Assert.Equal(BlizzardStatus.Busy, (await api.ProfileAsync(FakeBattleNet.Client, "Karuzo Macphisto", Karuzo, Always, Always, default)).Status);
     }
 
     [Theory]
@@ -464,6 +483,69 @@ public class ArmoryApiWorkerTests
             Until(() => Renders(cdn) == 1, "the CDN look after the API");
             Assert.Equal(0, Profiles(cdn));
         }
+
+        // The armory turned off while the token is on its way: nothing is asked with it.
+        using (var t = new TempInstall())
+        {
+            ArmoryWorkerTests.Roster(t, updated: DaysAgo(3));
+            using var held = new ManualResetEventSlim();
+            var cdn = new FakeCdn
+            {
+                Respond = r =>
+                {
+                    if (FakeBattleNet.IsToken(r)) { held.Wait(TimeSpan.FromSeconds(10)); return FakeBattleNet.TokenOk(); }
+                    return FakeBattleNet.IsApi(r) ? FakeBattleNet.Profile(ANumber, 25) : new HttpResponseMessage(HttpStatusCode.Forbidden);
+                },
+            };
+            using var c = Started(t, cdn);
+            Until(() => FakeBattleNet.Count(cdn, BlizzardApi.TokenHost) == 1, "the token asked for");
+            c.SetArmory(false);
+            held.Set();
+            Thread.Sleep(1500);
+            Assert.Equal(1, cdn.Count);                               // the token, and nothing after it
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_401_after_the_client_is_removed_or_replaced_sends_nothing_more_with_the_old_one(bool replace)
+    {
+        using var t = new TempInstall();
+        ArmoryWorkerTests.Roster(t, updated: DaysAgo(3));
+        using var held = new ManualResetEventSlim();
+        var old = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes("client-id-42:" + FakeBattleNet.Secret));
+        var first = true;
+        var cdn = new FakeCdn
+        {
+            Respond = r =>
+            {
+                if (FakeBattleNet.IsToken(r)) return FakeBattleNet.TokenOk();
+                if (!FakeBattleNet.IsApi(r)) return new HttpResponseMessage(HttpStatusCode.Forbidden);
+                if (!first) return FakeBattleNet.Profile(ANumber, 25);
+                first = false;
+                held.Wait(TimeSpan.FromSeconds(10));
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            },
+        };
+        using var c = Started(t, cdn);
+        Until(() => Profiles(cdn) == 1, "the profile asked");
+        if (replace) Assert.Null(c.SetBlizzardClient("another-id", "another-secret"));
+        else Assert.Null(c.RemoveBlizzardClient());
+        held.Set();
+        if (replace) Until(() => Profiles(cdn) == 2, "the new client asked");
+        else Until(() => Renders(cdn) == 1, "the CDN look after the API");
+        Thread.Sleep(500);
+        // One token with the old client, the first: none after its 401.
+        int oldTokens, newTokens;
+        lock (cdn.Requests)
+        {
+            var tokens = cdn.Requests.Select((q, i) => (q.Url, Auth: cdn.Auth[i])).Where(q => new Uri(q.Url).Host == BlizzardApi.TokenHost).ToList();
+            oldTokens = tokens.Count(q => q.Auth == old);
+            newTokens = tokens.Count(q => q.Auth != old);
+        }
+        Assert.Equal(1, oldTokens);
+        Assert.Equal(replace ? 1 : 0, newTokens);
     }
 
     [Fact]

@@ -393,17 +393,21 @@ public sealed partial class Controller
             }
             if (fresh.All(x => x.Guid != c.Guid)) continue;
             // And again once a token is in hand, right before the request: a token can take 30 seconds.
-            bool MayAsk()
+            // The client is the one this began with, and the API may be used: before each token too.
+            bool Current()
             {
                 lock (_gate)
                 {
-                    if (_stopping || generation != _generation || _settings.Armory != true || _current.Shell.Paused) return false;
-                    if (revision != _blizzardRevision || _blizzardRefused || ArmoryNow() < _armoryBusyUntil) return false;
+                    return !_stopping && generation == _generation && _settings.Armory == true && !_current.Shell.Paused
+                        && revision == _blizzardRevision && !_blizzardRefused && ArmoryNow() >= _armoryBusyUntil;
                 }
+            }
+            bool MayName()
+            {
                 var (roster, refused) = ArmoryRoster(install);
                 return refused is null && roster.Any(x => x.Guid == c.Guid);
             }
-            var answer = await _blizzard!.ProfileAsync(client, c.Name, Armory.PlayerNumber(c.Guid)!.Value, MayAsk, stop);
+            var answer = await _blizzard!.ProfileAsync(client, c.Name, Armory.PlayerNumber(c.Guid)!.Value, Current, MayName, stop);
             bool kept;
             lock (_gate)
             {
@@ -470,7 +474,6 @@ public sealed partial class Controller
             _log?.Write($"armory: the Blizzard API client could not be saved: {ex.GetType().Name}");
             return "The client could not be saved.";
         }
-        _blizzard?.Forget();
         bool removed;
         lock (_gate)
         {
@@ -479,10 +482,12 @@ public sealed partial class Controller
             _blizzardUnreadable = false;
             _blizzardNotDeleted = false;
             _blizzardRefused = false;
+            // The revision before the token: a request of the old client's sees it is not current.
             _blizzardRevision++;
             foreach (var s in _armory.Values) s.ApiChecked = false;
             PublishBlizzardState();
         }
+        _blizzard?.Forget();
         if (removed) Save(s => s with { BlizzardRemoved = false }, quiet: true);
         _log?.Write("armory: a Blizzard API client was saved");
         Changed?.Invoke();
@@ -501,7 +506,6 @@ public sealed partial class Controller
         bool removed;
         lock (_gate) removed = _settings.BlizzardRemoved;
         if (removed == deleted) Save(s => s with { BlizzardRemoved = !deleted }, quiet: true);
-        _blizzard?.Forget();
         lock (_gate)
         {
             _blizzardClient = null;
@@ -511,6 +515,7 @@ public sealed partial class Controller
             _blizzardRevision++;
             PublishBlizzardState();
         }
+        _blizzard?.Forget();
         _log?.Write(deleted ? "armory: the Blizzard API client was removed" : "armory: the Blizzard API client is no longer used; its file is still there");
         Changed?.Invoke();
         return deleted ? null : PassText.BlizzardState(BlizzardClientState.NotDeleted);
