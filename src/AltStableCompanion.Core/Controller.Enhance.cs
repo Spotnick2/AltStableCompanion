@@ -238,8 +238,8 @@ public sealed partial class Controller
                 }
             }
             // Free, so before the settings that decide spending: a picture made before is drawn
-            // whether enhancing is on or not.
-            if (!shell.FirstStart) RestoreFromOriginals(install, generation);
+            // whether enhancing is on or not. Not while paused: nothing is written then.
+            if (!shell.FirstStart && !shell.Paused) RestoreFromOriginals(install, generation);
             if (!settings.Enhance || shell.FirstStart || shell.Paused) return Idle(null);
             if (codex is null) return Idle("the Codex CLI is not on this PC");
             if (!install.RosterDrawsEnhanced) return Idle("the installed AltStable Roster cannot draw enhanced pictures");

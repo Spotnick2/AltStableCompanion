@@ -434,8 +434,14 @@ public static class PassText
             // The picture on record is not the one drawn: made from the capture the armory picture
             // replaced, or from an armory picture the capture took back from. The game draws the
             // portrait plain until its own is made, or rebuilt.
-            parts.Add(row.Enhanced is null && note.StartsWith("enhanced (", StringComparison.Ordinal)
-                ? (row.FromArmory ? "armory picture not enhanced yet" : "not enhanced yet") : note);
+            // Only the success is stale: what the last attempt said after it ("; realistic failed:
+            // ...") stays, since that picture is not tried again on its own.
+            if (row.Enhanced is null && note.StartsWith("enhanced (", StringComparison.Ordinal))
+            {
+                var after = note.IndexOf("; ", StringComparison.Ordinal) is var i and >= 0 ? note[i..] : "";
+                note = (row.FromArmory ? "armory picture not enhanced yet" : "not enhanced yet") + after;
+            }
+            parts.Add(note);
         }
         if (Skipped(row) is { } skipped) parts.Add(skipped);
         if (ArmoryWord(row, today) is { } armory) parts.Add(armory);

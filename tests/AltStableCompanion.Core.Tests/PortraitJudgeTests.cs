@@ -286,9 +286,14 @@ public class PortraitChoiceTests
         Assert.Null(Drawn());
 
         // The next start, enhancing off - a rebuild spends nothing: rebuilt from the original, drawn with the capture.
+        // Saved paused, first: nothing is written until the player resumes (Codex on #73).
         var second = new ArmoryEnhanceTests.FakeCodex();
-        using (var c = ArmoryWorkerTests.Started(t, cdn, enhance: false, hooks: second.Hooks))
+        using (var c = ArmoryWorkerTests.Started(t, cdn, enhance: false, hooks: second.Hooks, paused: true))
         {
+            ArmoryWorkerTests.Until(() => c.Current.Shell.Paused, "the saved pause");
+            Thread.Sleep(2500);
+            Assert.Null(Drawn());
+            c.SetPaused(false);
             ArmoryWorkerTests.Until(() => Drawn() is not null, "the capture's picture, rebuilt");
             Assert.Equal(EnhancementSignature.HashOf(capture), folder.ReadEnhancedMeta("karuzo-macphisto")!.Enhancement!.SourceHash);
             Assert.Equal(made.Signature, folder.ReadEnhancedMeta("karuzo-macphisto")!.Enhancement!.Signature);
