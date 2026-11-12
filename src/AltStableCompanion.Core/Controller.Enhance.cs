@@ -355,6 +355,8 @@ public sealed partial class Controller
                     TryDeleteDir(dir);
                     continue;
                 }
+                // The player's "Check now" is spent on this attempt, whatever comes of it.
+                AskedDone(c.Guid);
                 var codexJob = new CodexJob(EnhancementPrompt.Build(c.Character, settings.EnhanceStyle),
                     Path.Combine(dir, "reference.png"), settings.EnhanceModel, settings.EnhanceEffort,
                     TimeSpan.FromSeconds(settings.EnhanceTimeoutSeconds));

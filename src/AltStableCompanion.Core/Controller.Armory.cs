@@ -635,14 +635,22 @@ public sealed partial class Controller
     /// <summary>
     /// The player asked for this character's armory picture ("Check now"): its render with these
     /// bytes is enhanced at once while it is the portrait, past the days hold, the daily limit and
-    /// "enhance on their own". Under _gate. Not taken back once its picture is made: that picture
-    /// is in the history, which does not launch it again, and another render has other bytes.
+    /// "enhance on their own". Under _gate. One picture: spent when its attempt is recorded,
+    /// whatever comes of it (<see cref="AskedDone"/>); and tied to the render's bytes, so a later
+    /// render is not it.
     /// </summary>
     private readonly Dictionary<string, string> _armoryAsked = new(StringComparer.Ordinal);
 
     private bool AskedFor(string guid, Primary primary)
     {
         lock (_gate) return primary.Armory && _armoryAsked.TryGetValue(guid, out var hash) && hash == primary.Meta.TgaHash;
+    }
+
+    // Spent: one picture per press. A picture that fails, or one of another style asked for
+    // after it, is not the one the player said yes to.
+    private void AskedDone(string guid)
+    {
+        lock (_gate) _armoryAsked.Remove(guid);
     }
 
     private void ArmoryRefuse(string why)

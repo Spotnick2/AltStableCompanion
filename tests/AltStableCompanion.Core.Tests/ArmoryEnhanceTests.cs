@@ -138,6 +138,35 @@ public class ArmoryEnhanceTests
     }
 
     [Fact]
+    public void Check_now_is_one_picture_a_failed_one_and_another_style_after_it_wait_for_the_hold()
+    {
+        // Codex on #71: the yes outlived its picture; a style change after a failure made a new
+        // signature, and it was spent again.
+        using var t = new TempInstall();
+        Setup(t);
+        byte shade = 150;
+        var cdn = new FakeCdn { Respond = _ => FakeCdn.Png(FakeCdn.RenderPng(shade), $"\"v{shade}\"", DateTimeOffset.UtcNow) };
+        var codex = new FakeCodex();
+        using var c = ArmoryWorkerTests.Started(t, cdn, enhance: true, hooks: codex.Hooks);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        ArmoryWorkerTests.Until(() => codex.Calls == 1 && Last(folder).Ended is not null, "the first picture");
+
+        codex.Failure = "no picture";
+        shade = 60;
+        c.CheckArmoryNow(A);
+        ArmoryWorkerTests.Until(() => codex.Calls == 2 && Last(folder).Ended is not null, "the asked-for picture, failed");
+        Assert.True(Last(folder).Confirmed);
+
+        codex.Failure = null;
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Thread.Sleep(2500);
+        Assert.Equal(2, codex.Calls);
+        // Another press is another yes.
+        c.CheckArmoryNow(A);
+        ArmoryWorkerTests.Until(() => codex.Calls == 3, "the picture asked for again");
+    }
+
+    [Fact]
     public void A_failed_armory_picture_holds_the_next_one_as_a_made_one_does()
     {
         using var t = new TempInstall();
