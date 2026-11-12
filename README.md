@@ -74,10 +74,13 @@ change your answer.
 - **When.** Once each time the app starts, then every hour from 6 to 24 hours after you
   played a character: the armory draws it again about 7 hours after you log off. One
   request at a time, a second apart. A picture that has not changed is not downloaded again.
-- **Which picture shows.** A new capture shows at once. An armory picture from later play
-  then takes its place. The app judges "later" by the picture's date minus 7 hours. That is
-  an estimate, and the next capture or picture puts it right. Capture with `/alts portrait`
-  whenever you want the new look now.
+- **Which picture shows.** A capture is sharper than the armory's picture and may have an
+  enhanced picture, so it stays the portrait for as long as it shows the character as they
+  are. Once the character changes gear, or their look at the barber, the armory picture
+  takes over as soon as it shows the change (its date minus 7 hours). A capture always shows
+  at once: capture with `/alts portrait` whenever you want the new look now. A capture made
+  before AltStable recorded the gear (or one whose record is gone) falls back to the date
+  alone.
 - **HD or SD.** Settings picks the armory's HD model or its SD (classic) one.
 - **No capture prompt after a gear change.** For a character the armory has drawn, the
   spyglass button no longer glows after a gear change: the armory picture shows the new gear

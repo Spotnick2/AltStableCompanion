@@ -159,8 +159,8 @@ public static class PassText
         "When on, the app asks Blizzard's picture server (render.worldofwarcraft.com) for the armory's picture of each "
         + "character of level 10 or more that is not hidden: once when it starts, then every hour from 6 to 24 hours after "
         + "you played that character, since the armory draws it again about 7 hours after you log off. One request at a time; "
-        + "the address names the character by the number in its GUID, and nothing else is sent. A new capture shows at once; "
-        + "an armory picture from later play then takes its place. US region only, for now. "
+        + "the address names the character by the number in its GUID, and nothing else is sent. A capture stays the portrait "
+        + "until the character changes gear or look; the armory picture takes over once it shows the change. US region only, for now. "
         + "With enhanced portraits on, a new armory picture is "
         + (auto ? "enhanced on its own" : "offered under the enhancement settings, and enhanced when you ask")
         + $" - at most once every {days} day{(days == 1 ? "" : "s")} per character, and the armory is not asked about that character meanwhile"

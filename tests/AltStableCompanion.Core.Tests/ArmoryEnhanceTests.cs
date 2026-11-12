@@ -8,7 +8,7 @@ public class ArmoryEnhanceTests
     private const string A = "Player-6796-000A598A";
     private const string Base = "karuzo-macphisto";
 
-    private sealed class FakeCodex
+    internal sealed class FakeCodex
     {
         public int Calls;
         public string? Failure;
@@ -74,7 +74,7 @@ public class ArmoryEnhanceTests
         var codex = new FakeCodex();
         using var c = ArmoryWorkerTests.Started(t, cdn, enhance: true, hooks: codex.Hooks);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        ArmoryWorkerTests.Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the render's enhanced picture");
+        ArmoryWorkerTests.Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the render's enhanced picture");
         Assert.Equal(1, codex.Calls);
         Assert.Equal((Attempt.FromArmory, (bool?)null), (Last(folder).Source, Last(folder).Confirmed));
 
@@ -88,7 +88,7 @@ public class ArmoryEnhanceTests
         c.ConvertNow();
         Thread.Sleep(2500);
         Assert.Equal(1, codex.Calls);
-        Assert.Null(folder.Inventory().Single().Enhanced);          // the plain render shows meanwhile
+        Assert.Null(folder.Inventory(PortraitJudge.Unknown).Single().Enhanced);          // the plain render shows meanwhile
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class ArmoryEnhanceTests
         using (var c = ArmoryWorkerTests.Started(t, cdn, enhance: true, hooks: third.Hooks))
         {
             ArmoryWorkerTests.Until(() => third.Calls == 1, "the retry at expiry");
-            ArmoryWorkerTests.Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the picture");
+            ArmoryWorkerTests.Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the picture");
         }
     }
 
@@ -157,7 +157,7 @@ public class ArmoryEnhanceTests
         Thread.Sleep(1000);
         Assert.Equal(0, codex.Calls);
         c.SetEnhance(true, 10, EnhanceStyles.WowLike);
-        ArmoryWorkerTests.Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the picture");
+        ArmoryWorkerTests.Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the picture");
         Assert.Equal(Attempt.FromArmory, Last(folder).Source);
         Assert.NotNull(Armory.HeldUntil(AttemptHistory.Load(folder.EnhancedDir, A), 7, DateTime.Now));
     }
@@ -171,7 +171,7 @@ public class ArmoryEnhanceTests
         var codex = new FakeCodex();
         using var c = ArmoryWorkerTests.Started(t, cdn, enhance: true, hooks: codex.Hooks, days: 1);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        ArmoryWorkerTests.Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the picture");
+        ArmoryWorkerTests.Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the picture");
         var tga = Path.Combine(folder.ArmoryDir, Base + ".tga");
         var bytes = File.ReadAllBytes(tga);
 
@@ -186,7 +186,7 @@ public class ArmoryEnhanceTests
         ArmoryWorkerTests.Until(() => folder.ReadArmoryMeta(Base)?.ETag == "\"v2\"", "the new date");
         Thread.Sleep(2000);
         Assert.Equal(bytes, File.ReadAllBytes(tga));
-        Assert.NotNull(folder.Inventory().Single().Enhanced);
+        Assert.NotNull(folder.Inventory(PortraitJudge.Unknown).Single().Enhanced);
         Assert.Equal(1, codex.Calls);
 
         // Another look: drawn again, changed.
@@ -211,7 +211,7 @@ public class ArmoryEnhanceTests
         Assert.Equal("Make it now (1 generation)", PassText.EnhanceHeldButton(c.Current.Shell.EnhanceHeld, c.Current.Shell.ArmoryHeld));
         c.RemakeEnhanced();
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        ArmoryWorkerTests.Until(() => folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the picture asked for");
+        ArmoryWorkerTests.Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the picture asked for");
         Assert.Equal((Attempt.FromArmory, (bool?)true), (Last(folder).Source, Last(folder).Confirmed));
     }
 
@@ -254,7 +254,7 @@ public class ArmoryEnhanceTests
         var codex = new FakeCodex();
         using var c = ArmoryWorkerTests.Started(t, Cdn(DateTimeOffset.UtcNow.AddHours(-8)), enhance: true, hooks: codex.Hooks);
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
-        ArmoryWorkerTests.Until(() => codex.Calls == 1 && folder.Inventory().SingleOrDefault()?.Enhanced is not null, "the render's picture");
+        ArmoryWorkerTests.Until(() => codex.Calls == 1 && folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the render's picture");
 
         // The player captures: the capture is newer than the render, and is the player's own act.
         var at = DateTime.Now;
@@ -265,7 +265,7 @@ public class ArmoryEnhanceTests
             + TestData.Record("Karuzo Macphisto", A, 1, at) + ",\n" + TestData.Record("Karuzo Macphisto", A, 2, at.AddSeconds(1)) + ",\n},\n}\n");
         c.ConvertNow();
         ArmoryWorkerTests.Until(() => codex.Calls == 2, "the capture's picture");
-        ArmoryWorkerTests.Until(() => folder.Inventory().SingleOrDefault() is { Folder: null, Enhanced: not null }, "the capture, enhanced, listed");
+        ArmoryWorkerTests.Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault() is { Folder: null, Enhanced: not null }, "the capture, enhanced, listed");
         Assert.Equal(Attempt.FromCapture, Last(folder).Source);
         Assert.Equal(Base, folder.FileBaseOf(A));                    // the render's name
     }

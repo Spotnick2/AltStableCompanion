@@ -13,16 +13,20 @@ public sealed record RenderRecord(
     int? ScreenH,
     string? Race,
     string? Class,
-    string StorePath);
+    string StorePath,
+    string? Look = null);
 
 /// <summary>
 /// What the addon's roster knows of a character (<c>AltStableDB[guid]</c>): what an enhanced
 /// portrait's prompt says about them, and whether they are worth one. <see cref="Updated"/> is
 /// the addon's <c>lastUpdate</c>, seconds since the epoch, for choosing between two accounts'
-/// records of the same character.
+/// records of the same character. <see cref="Gear"/> is what it wears in the slots a portrait
+/// shows, written as a capture's <c>look</c> is (<see cref="PortraitJudge.GearOf"/>), or null
+/// when the record has no gear; <see cref="GearReadAt"/> and <see cref="LookAt"/> are the
+/// addon's <c>gearReadAt</c> and <c>lookAt</c>, 0 when missing.
 /// </summary>
 public sealed record RosterCharacter(string Guid, string Name, string? Class, string? Race, string? Gender, int Level, long Updated,
-    string? RaceName = null, long GearAt = 0);
+    string? RaceName = null, long GearAt = 0, string? Gear = null, long GearReadAt = 0, long LookAt = 0);
 
 /// <summary>One account's capture store. <see cref="Refused"/> is set for a version this app does not know.</summary>
 public sealed record PortraitStore(string Path, int Version, IReadOnlyList<RenderRecord> Renders, string? Refused = null);
@@ -108,7 +112,7 @@ public static class SavedVariablesReader
                     Num(e, "epoch") is double ep ? (long)ep : null,
                     Num(e, "screenW") is double sw ? (int)sw : null,
                     Num(e, "screenH") is double sh ? (int)sh : null,
-                    Str(e, "race"), Str(e, "class"), path));
+                    Str(e, "race"), Str(e, "class"), path, Str(e, "look")));
             }
         }
         return new PortraitStore(path, version, renders);
@@ -159,7 +163,9 @@ public static class SavedVariablesReader
             if (string.IsNullOrWhiteSpace(name)) continue;
             chars.Add(new RosterCharacter(guid, name, Str(e, "class"), Str(e, "race"), Str(e, "gender"),
                 Num(e, "level") is double lv ? (int)lv : 0, Num(e, "lastUpdate") is double up ? (long)up : 0,
-                Str(e, "raceName"), Num(e, "gearAt") is double gear ? (long)gear : 0));
+                Str(e, "raceName"), Num(e, "gearAt") is double gear ? (long)gear : 0,
+                PortraitJudge.GearOf(key => Num(e, key)),
+                Num(e, "gearReadAt") is double read ? (long)read : 0, Num(e, "lookAt") is double look ? (long)look : 0));
         }
         return chars;
     }
