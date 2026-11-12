@@ -6,6 +6,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.2]
+
+A held armory picture says when it resumes, to the minute, and can be asked for now.
+
 ### Added
 
 - A character held by the armory's days limit says when it resumes to the minute ("armory
