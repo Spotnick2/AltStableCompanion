@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.3]
+
+Enhanced pictures that 1.2.0 lost come back, rebuilt from the copies the app kept, with no new
+Codex run.
+
 ### Fixed
 
 - A capture whose enhanced picture 1.2.0 replaced with the armory picture's gets its own
