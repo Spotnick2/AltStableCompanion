@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.0]
+
+Portraits from the armory: a character you never captured gets a portrait, and a portrait
+follows the gear on its own. The app asks once whether to use it.
+
 ### Added
 
 - Portraits from the armory (#63). Blizzard's armory website draws each character of level
@@ -17,7 +22,7 @@ version's section, as it stands here, for the notes of its GitHub Release.
   - A new capture always shows at once; an armory picture from later play takes its place.
   - HD or SD model, in Settings.
   - For a character the armory has drawn, the addon no longer asks for a capture after a
-    gear change (the spyglass button's glow), with the AltStable release after 1.1.0.
+    gear change (the spyglass button's glow), with AltStable 1.2.0 or later.
   - US region only for now.
   - Optional: your own Blizzard API client, under Settings, with a link to make one. With it,
     the app learns each character's level and last login from Blizzard's profile API, on any
