@@ -81,8 +81,8 @@ change your answer.
 - **HD or SD.** Settings picks the armory's HD model or its SD (classic) one.
 - **No capture prompt after a gear change.** For a character the armory has drawn, the
   spyglass button no longer glows after a gear change: the armory picture shows the new gear
-  on its own. A character it has not drawn yet is still asked for a capture. This needs an
-  AltStable release after 1.1.0; 1.1.0 and older keep asking.
+  on its own. A character it has not drawn yet is still asked for a capture. This needs
+  AltStable 1.2.0 or later; older versions keep asking.
 - **With enhanced portraits.** The armory draws a character again every time you play it,
   and each enhanced picture uses Codex usage, so three settings hold that back:
   - **Enhance new armory pictures on their own** (on by default). Off, each new armory
@@ -178,7 +178,7 @@ You can also quit the app and run a newer file from the releases page. Starting 
 copy only brings the running one's window forward.
 
 The running file keeps its name: if you kept the release's name
-(`AltStableCompanion-1.0.0-win-x64.exe`), it carries an older version in its name than
+(`AltStableCompanion-1.1.0-win-x64.exe`), it carries an older version in its name than
 the one it is. **Help → About** is the authority on what is running.
 
 ## What it touches
