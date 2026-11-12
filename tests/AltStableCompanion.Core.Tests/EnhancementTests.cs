@@ -533,6 +533,27 @@ public class AttemptHistoryTests
     }
 
     [Fact]
+    public void The_picture_made_from_a_portrait_is_found_by_its_epoch_and_its_bytes_not_by_being_the_last()
+    {
+        using var t = new TempInstall();
+        var h = AttemptHistory.Load(Path.Combine(t.Root, "Enhanced"), "Player-1-AAAA");
+        void Made(string sig, long? epoch, string hash, string outcome = Attempt.Written)
+        {
+            h.Begin(new Attempt { Signature = sig, Started = T0, Epoch = epoch, SourceHash = hash });
+            h.End(sig, outcome, T0.AddMinutes(1));
+        }
+        Made("old-size", 100, "bytes-a");                       // the capture, converted at another size
+        Made("capture", 100, "bytes-b");                        // the same capture, converted again
+        Made("failed", 100, "bytes-b", Attempt.Failed + ": x");  // not a picture
+        Made("render", null, "bytes-r");                        // the render that had its place
+        Assert.Equal("render", h.LastWritten!.Signature);
+        Assert.Equal("capture", h.WrittenFrom(100, "bytes-b")!.Signature);
+        Assert.Equal("old-size", h.WrittenFrom(100, "bytes-a")!.Signature);
+        Assert.Null(h.WrittenFrom(100, "bytes-c"));
+        Assert.Null(h.WrittenFrom(101, "bytes-b"));
+    }
+
+    [Fact]
     public void An_attempt_is_written_before_the_launch_and_a_signature_is_never_launched_twice()
     {
         using var t = new TempInstall();

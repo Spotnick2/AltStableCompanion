@@ -618,9 +618,9 @@ public class ArmoryWorkerTests
     internal static string Data(TempInstall t) => Path.Combine(t.Root, "data");
 
     internal static Controller Started(TempInstall t, FakeCdn cdn, bool? armory = true, bool enhance = false, EnhanceHooks? hooks = null, int days = 7,
-        Func<DateTime>? clock = null)
+        Func<DateTime>? clock = null, bool paused = false)
     {
-        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Armory = armory, Enhance = enhance, ArmoryRemakeDays = days }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Armory = armory, Enhance = enhance, ArmoryRemakeDays = days, Paused = paused }.Save(Data(t));
         var c = new Controller(new StartupOptions(DataDir: Data(t)), () => throw new InvalidOperationException("detection was used"),
             enhance: hooks, armoryHttp: () => cdn, clock: clock);
         c.Start();

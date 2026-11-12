@@ -6,6 +6,16 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- A capture whose enhanced picture 1.2.0 replaced with the armory picture's gets its own
+  back, rebuilt from the full-size picture the app kept, with no new Codex run. 1.2.1 made
+  the capture the portrait again, but its enhanced picture stayed lost: it was drawn plain,
+  with a warning, and was never made again. The same rebuild covers any capture and armory
+  picture that trade places.
+- A portrait whose enhanced picture is not the one drawn no longer says "enhanced" on its
+  line.
+
 ## [1.2.2]
 
 A held armory picture says when it resumes, to the minute, and can be asked for now.
