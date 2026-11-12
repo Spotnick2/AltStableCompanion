@@ -126,6 +126,12 @@ public sealed record Settings
     } = Core.Armory.DefaultDailyMax;
 
     /// <summary>
+    /// The player removed their Blizzard API client but its file could not be deleted: it is
+    /// never loaded again, and deleted at the next start if it can be. Saving a client clears it.
+    /// </summary>
+    public bool BlizzardRemoved { get; init; }
+
+    /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
     /// notice is dismissed, so the notice survives the app being closed - or killed - in
@@ -173,11 +179,12 @@ public sealed record Settings
         && ArmoryEnhanceAuto == other.ArmoryEnhanceAuto
         && ArmoryDailyLimit == other.ArmoryDailyLimit
         && ArmoryDailyMax == other.ArmoryDailyMax
+        && BlizzardRemoved == other.BlizzardRemoved
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
         HashCode.Combine(HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, Enhance, RestartNoticeInstalls.Count),
-            Armory, ArmorySd, ArmoryRemakeDays, ArmoryEnhanceAuto, ArmoryDailyLimit, ArmoryDailyMax);
+            Armory, ArmorySd, ArmoryRemakeDays, ArmoryEnhanceAuto, ArmoryDailyLimit, ArmoryDailyMax, BlizzardRemoved);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

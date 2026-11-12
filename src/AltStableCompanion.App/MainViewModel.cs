@@ -101,6 +101,10 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private bool _armoryAuto = true;
     private bool _armoryLimit = true;
     private int _armoryMax = Core.Armory.DefaultDailyMax;
+    private BlizzardClientState _blizzard;
+    private string _blizzardId = "";
+    private string _blizzardSecret = "";
+    private string? _blizzardNote;
     private UpdateState _update = new();
     private string _search = "";
     private IReadOnlyList<PortraitRow> _rows = [];
@@ -128,6 +132,10 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         AnswerArmoryYes = new Command(() => controller.SetArmory(true));
         AnswerArmoryNo = new Command(() => controller.SetArmory(false));
         CheckArmory = new Command(controller.CheckArmoryNow);
+        SaveBlizzard = new Command(SaveBlizzardClient);
+        TestBlizzard = new Command(TestBlizzardClient);
+        RemoveBlizzard = new Command(() => BlizzardNote = controller.RemoveBlizzardClient());
+        OpenBlizzardClients = new Command(() => OpenUrl(PassText.BlizzardClientsUrl));
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
         ToggleHelp = new Command(() => ShowHelp = !ShowHelp);
         ClearSearch = new Command(() => Search = "");
@@ -170,6 +178,53 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public bool ArmoryOn => _armory == true;
+
+    // ---- the optional Battle.net API client (#63, M3): typed once, never shown again
+    public Command SaveBlizzard { get; }
+    public Command TestBlizzard { get; }
+    public Command RemoveBlizzard { get; }
+    public Command OpenBlizzardClients { get; }
+    public string BlizzardExplanation => PassText.BlizzardExplanation;
+    public string BlizzardClientId { get => _blizzardId; set => Set(ref _blizzardId, value); }
+    public string BlizzardClientSecret { get => _blizzardSecret; set => Set(ref _blizzardSecret, value); }
+
+    /// <summary>A client is saved (refused or not): Test and Remove, no boxes.</summary>
+    public bool BlizzardSaved => _blizzard is BlizzardClientState.Saved or BlizzardClientState.Refused;
+    /// <summary>Remove shows for a saved client, and for one whose file would not be deleted, to try again.</summary>
+    public bool BlizzardRemovable => BlizzardSaved || _blizzard is BlizzardClientState.NotDeleted;
+    public bool BlizzardEntering => !BlizzardSaved;
+
+    /// <summary>The last Test's or Save's words, else where the client stands.</summary>
+    public string BlizzardStatus => _blizzardNote ?? PassText.BlizzardState(_blizzard);
+
+    private string? BlizzardNote
+    {
+        get => _blizzardNote;
+        set { if (Set(ref _blizzardNote, value)) Raise(nameof(BlizzardStatus)); }
+    }
+
+    private void SaveBlizzardClient()
+    {
+        var problem = _controller.SetBlizzardClient(_blizzardId, _blizzardSecret);
+        if (problem is null)
+        {
+            // Out of the window's memory too: what was typed is never shown again.
+            BlizzardClientId = "";
+            BlizzardClientSecret = "";
+        }
+        BlizzardNote = problem;
+    }
+
+    private void TestBlizzardClient()
+    {
+        TestBlizzard.Enabled = false;
+        BlizzardNote = "Asking Battle.net...";
+        _controller.TestBlizzardClientAsync().ContinueWith(t => Dispatcher.UIThread.Post(() =>
+        {
+            TestBlizzard.Enabled = true;
+            BlizzardNote = t.IsCompletedSuccessfully ? t.Result : "Battle.net could not be asked.";
+        }));
+    }
 
     public bool ArmoryHd
     {
@@ -803,6 +858,13 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         ArmoryAsk = now.Armory is null && shell.Install is not null && !shell.Stopping;
         StartWatching.Enabled = now.Armory is not null;
         CheckArmory.Enabled = now.Armory == true && shell.Install is not null && !shell.Stopping;
+        if (Set(ref _blizzard, now.BlizzardClient, nameof(BlizzardSaved)))
+        {
+            Raise(nameof(BlizzardEntering));
+            Raise(nameof(BlizzardRemovable));
+            if (_blizzardNote != "Asking Battle.net...") _blizzardNote = null;
+            Raise(nameof(BlizzardStatus));
+        }
 
         // Through the fields: this is the controller telling the window, not the player.
         Set(ref _keepScreenshots, now.KeepScreenshots, nameof(KeepScreenshots));

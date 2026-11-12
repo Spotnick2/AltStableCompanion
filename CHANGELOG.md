@@ -19,6 +19,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
   - For a character the armory has drawn, the addon no longer asks for a capture after a
     gear change (the spyglass button's glow), with the AltStable release after 1.1.0.
   - US region only for now.
+  - Optional: your own Blizzard API client, under Settings, with a link to make one. With it,
+    the app learns each character's level and last login from Blizzard's profile API, on any
+    PC: a character that reached level 10 elsewhere is drawn, and play elsewhere is noticed.
+    It is kept encrypted for your Windows user and never shown again.
 - With enhanced portraits on, a new armory picture is enhanced on its own. Three settings
   limit that: it can be offered instead and made when you ask; at most one per character every
   7 days (1 to 90); and at most 5 a day, a limit you can untick. A picture drawn again that

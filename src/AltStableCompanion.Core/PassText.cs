@@ -132,6 +132,28 @@ public static class PassText
     public const string ArmoryYes = "Yes, use the armory";
     public const string ArmoryNo = "No, captures only";
 
+    /// <summary>Where to make a Battle.net API client.</summary>
+    public const string BlizzardClientsUrl = "https://develop.battle.net/access/clients";
+
+    /// <summary>The words under the optional API client: what it adds, what it sends, and how to get one.</summary>
+    public const string BlizzardExplanation =
+        "Optional. With your own Battle.net API client, the app also asks Blizzard's profile API about each character "
+        + "that is not hidden, at any level, at the start and then every 6 hours. It learns the character's level and "
+        + "when it last logged in, also on another PC, so it knows sooner when to look for a new picture. Each request "
+        + "goes to oauth.battle.net and us.api.blizzard.com and names the character. To get a client, sign in at "
+        + "develop.battle.net, create a client with any name (no redirect URL is needed), and copy its ID and secret here. "
+        + "They are kept for this Windows user only, and never shown again.";
+
+    /// <summary>Where the client stands, under its buttons.</summary>
+    public static string BlizzardState(BlizzardClientState state) => state switch
+    {
+        BlizzardClientState.Saved => "A client is saved. Test asks Battle.net for a token with it.",
+        BlizzardClientState.Refused => "Battle.net refused the saved client. The armory carries on without it; enter it again, or Test once it is fixed.",
+        BlizzardClientState.Unreadable => "The saved client cannot be read by this Windows user. Enter it again.",
+        BlizzardClientState.NotDeleted => "The client is not used, but its file (blizzard-client.bin, in the app's data folder) could not be deleted. Remove tries again, or delete the file yourself.",
+        _ => "No client: the armory works without one.",
+    };
+
     /// <summary>The words under the armory setting: what is asked, of whom, when, and what wins.</summary>
     public static string ArmoryExplanation(int days, bool auto = true, bool limit = true, int max = Armory.DefaultDailyMax) =>
         "When on, the app asks Blizzard's picture server (render.worldofwarcraft.com) for the armory's picture of each "

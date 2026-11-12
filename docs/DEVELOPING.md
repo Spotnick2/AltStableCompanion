@@ -20,7 +20,9 @@ With the player's yes, it also takes a portrait from the Forever armory's render
 character (#63): a public file on Blizzard's CDN, named after the GUID's player number,
 fetched conditionally and kept in `Cutouts\Armory\` beside the capture's cutout. Whichever of
 the two is newer is the one the manifest names; that rule, the schedule and the measurements
-it rests on are in `Armory.cs`.
+it rests on are in `Armory.cs`. A player who saves their own Battle.net API client also has
+the profile API asked about every character not hidden, every 6 hours (`BlizzardApi.cs`):
+its level and last login are merged in, never lowering what the roster says.
 
 What it reads and writes is specified in
 [`docs/PORTRAIT-CONTRACT.md`](https://github.com/Spotnick2/AltStable/blob/main/docs/PORTRAIT-CONTRACT.md)

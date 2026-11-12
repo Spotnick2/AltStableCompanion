@@ -34,7 +34,22 @@ public sealed record Snapshot(
     int ArmoryRemakeDays = Core.Armory.DefaultRemakeDays,
     bool ArmoryEnhanceAuto = true,
     bool ArmoryDailyLimit = true,
-    int ArmoryDailyMax = Core.Armory.DefaultDailyMax);
+    int ArmoryDailyMax = Core.Armory.DefaultDailyMax,
+    /// <summary>The player's own Battle.net API client (#63, M3): never the id or the secret, only where it stands.</summary>
+    BlizzardClientState BlizzardClient = BlizzardClientState.None);
+
+public enum BlizzardClientState
+{
+    None,
+    /// <summary>Saved, and not refused this run.</summary>
+    Saved,
+    /// <summary>A file this Windows user cannot decrypt: enter the client again.</summary>
+    Unreadable,
+    /// <summary>Battle.net refused it this run; the armory carries on without it.</summary>
+    Refused,
+    /// <summary>Removed, but its file could not be deleted: not used, now or at the next start.</summary>
+    NotDeleted,
+}
 
 /// <summary>
 /// Everything a shell does that is not drawing: which install, the watcher, the passes, the
