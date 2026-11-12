@@ -529,9 +529,9 @@
               <DataTemplate x:DataType="app:PortraitLine">
                 <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,0,0,1" Padding="14,7"
                         ToolTip.Tip="{Binding Tooltip}">
-                  <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
+                  <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="2">
                     <!-- The portrait, as the game draws it; the slot stays when there is none -->
-                    <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Classes="thumb">
+                    <Border Grid.Row="0" Grid.RowSpan="3" Grid.Column="0" Classes="thumb">
                       <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
                     </Border>
                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold"
@@ -544,6 +544,13 @@
                     </StackPanel>
                     <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Summary}" IsVisible="{Binding HasSummary}"
                                Classes.dim="{Binding Quiet}" Classes.warn="{Binding Attention}" />
+                    <!-- Held by the enhancement hold: ask the armory now, past it. The click is the yes to its picture. -->
+                    <Button Grid.Row="2" Grid.Column="1" Classes="link" HorizontalAlignment="Left" Padding="0"
+                            IsVisible="{Binding CheckNow}"
+                            Content="{Binding $parent[ItemsControl].((app:MainViewModel)DataContext).CheckNowText}"
+                            Command="{Binding $parent[ItemsControl].((app:MainViewModel)DataContext).CheckArmoryFor}"
+                            CommandParameter="{Binding Guid}"
+                            ToolTip.Tip="Ask the armory for this character now, past the hold; a new picture is enhanced at once" />
                   </Grid>
                 </Border>
               </DataTemplate>

@@ -314,7 +314,7 @@ public sealed partial class Controller
                 if (!history.MayLaunch(signature)) continue;
                 // The armory hold, at the launch too: a render's picture is made at most every N
                 // days unless the player asked for this one - the retry after a cancel included.
-                var confirmed = Allowed(signature);
+                var confirmed = Allowed(signature) || AskedFor(c.Guid, now);
                 if (now.Armory && !confirmed && (Armory.HeldUntil(history, settings.ArmoryRemakeDays, _clock()) is not null
                     || !settings.ArmoryEnhanceAuto
                     || (settings.ArmoryDailyLimit && Armory.LaunchedToday(folder.EnhancedDir, _clock()) >= settings.ArmoryDailyMax)))
@@ -355,6 +355,8 @@ public sealed partial class Controller
                     TryDeleteDir(dir);
                     continue;
                 }
+                // The player's "Check now" is spent on this attempt, whatever comes of it.
+                AskedDone(c.Guid);
                 var codexJob = new CodexJob(EnhancementPrompt.Build(c.Character, settings.EnhanceStyle),
                     Path.Combine(dir, "reference.png"), settings.EnhanceModel, settings.EnhanceEffort,
                     TimeSpan.FromSeconds(settings.EnhanceTimeoutSeconds));
@@ -482,7 +484,7 @@ public sealed partial class Controller
                 held.Add((c.Character.Name, signature, false));
                 continue;
             }
-            if (p.Armory && !allowed.Contains(signature))
+            if (p.Armory && !allowed.Contains(signature) && !AskedFor(c.Guid, p))
             {
                 // A render's picture at most every N days (#63): this one waits, unasked, until then.
                 if (Armory.HeldUntil(history, settings.ArmoryRemakeDays, _clock()) is not null) continue;

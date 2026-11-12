@@ -269,5 +269,26 @@ public class PortraitChoiceTests
         Assert.Contains(@"Cutouts\karuzo-macphisto.tga]]", lua);
         Assert.Contains(@"Cutouts\Enhanced\karuzo-macphisto.tga]]", lua);
         Assert.DoesNotContain(@"Cutouts\Armory\karuzo-macphisto.tga]]", lua);
+
+        // "Check now" while the capture stays: nothing to enhance. The yes was for that render:
+        // a later one that shows a change waits, offered (not on their own), as before.
+        c.SetArmoryEnhance(auto: false, limit: true, max: 5);
+        c.CheckArmoryNow(A);
+        ArmoryWorkerTests.Until(() => cdn.Count == 2, "the armory asked again");
+        Thread.Sleep(1500);
+        Assert.Equal(1, codex.Calls);
+        var changedAt = DateTimeOffset.UtcNow.AddHours(-8).ToUnixTimeSeconds();
+        t.WriteStore("1#1", "AltStableDB = {\n[\"" + A + "\"] = {\n[\"name\"] = \"Karuzo Macphisto\",\n[\"class\"] = \"WARLOCK\",\n[\"race\"] = \"Troll\",\n"
+            + "[\"gender\"] = \"Female\",\n[\"level\"] = 25,\n[\"lastUpdate\"] = " + changedAt + ",\n[\"gearAt\"] = " + changedAt + ",\n"
+            + "[\"gearid_head\"] = 100,\n[\"gearid_chest\"] = 301,\n},\n}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n},\n}\n"
+            + "AltStablePortraits = {\n[\"version\"] = 1,\n[\"renders\"] = {\n" + Record(1, at) + ",\n" + Record(2, at.AddSeconds(1)) + ",\n},\n}\n");
+        folder.WriteArmory("karuzo-macphisto", ArmoryFolderTests.Tga(4, 8, 50), new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A, Url = Armory.Url(A, false), ETag = "\"v2\"", LastModified = DateTimeOffset.UtcNow.ToString("R"),
+        });
+        c.ConvertNow();
+        ArmoryWorkerTests.Until(() => File.ReadAllText(folder.ManifestPath).Contains(@"Cutouts\Armory\karuzo-macphisto.tga]]"), "the render, now the portrait");
+        Thread.Sleep(2500);
+        Assert.Equal(1, codex.Calls);
     }
 }

@@ -15,8 +15,9 @@ namespace AltStableCompanion.App;
 ///   something to add to it; null means no tooltip.</param>
 /// <param name="Thumbnail">The portrait, small; null for a row without one, or one that could
 ///   not be read this time. The same instance for the same file, so two lines compare equal.</param>
+/// <param name="CheckNow">The armory's hold keeps it from this character: the row offers to ask it now.</param>
 internal sealed record PortraitLine(string Name, string State, string Summary, string? Tooltip, bool Ready, bool Attention,
-    IImage? Thumbnail, bool Working = false)
+    IImage? Thumbnail, bool Working = false, string? Guid = null, bool CheckNow = false)
 {
     public bool Quiet => !Attention;
     public bool HasSummary => Summary.Length > 0;
@@ -28,7 +29,7 @@ internal sealed record PortraitLine(string Name, string State, string Summary, s
         var detail = PassText.RowDetail(row, today);
         var summary = PassText.RowSummary(row, today);
         return new(row.Name, PassText.RowState(row), summary ?? detail, PassText.RowTooltip(summary, detail, previewFailed),
-            row.Ready, row.NeedsAttention, thumbnail, row.Enhancing);
+            row.Ready, row.NeedsAttention, thumbnail, row.Enhancing, row.Guid, row.ArmoryHeldUntil is not null && row.Guid is not null);
     }
 }
 
@@ -132,6 +133,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         AnswerArmoryYes = new Command(() => controller.SetArmory(true));
         AnswerArmoryNo = new Command(() => controller.SetArmory(false));
         CheckArmory = new Command(controller.CheckArmoryNow);
+        CheckArmoryFor = new Command<string>(controller.CheckArmoryNow);
         SaveBlizzard = new Command(SaveBlizzardClient);
         TestBlizzard = new Command(TestBlizzardClient);
         RemoveBlizzard = new Command(() => BlizzardNote = controller.RemoveBlizzardClient());
@@ -164,6 +166,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public Command AnswerArmoryYes { get; }
     public Command AnswerArmoryNo { get; }
     public Command CheckArmory { get; }
+    /// <summary>A held row's "Check now": the armory, for that character, past the hold.</summary>
+    public Command<string> CheckArmoryFor { get; }
+    public string CheckNowText => PassText.CheckNow;
     public string ArmoryQuestion => PassText.ArmoryQuestion;
     public string ArmoryYesText => PassText.ArmoryYes;
     public string ArmoryNoText => PassText.ArmoryNo;

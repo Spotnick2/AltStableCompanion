@@ -81,7 +81,7 @@ public class ArmoryEnhanceTests
         // The armory is not asked again while the picture is under 7 days old...
         var asked = cdn.Count;
         c.CheckArmoryNow();
-        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Single().ArmoryNote?.StartsWith("armory updates resume on") == true, "the row's hold");
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Single().ArmoryHeldUntil is not null, "the row's hold");
         Assert.Equal(asked, cdn.Count);
         // ...and a render that arrived anyway (fetched with enhancement off, say) waits too.
         NewRender(folder, 60);
@@ -89,6 +89,81 @@ public class ArmoryEnhanceTests
         Thread.Sleep(2500);
         Assert.Equal(1, codex.Calls);
         Assert.Null(folder.Inventory(PortraitJudge.Unknown).Single().Enhanced);          // the plain render shows meanwhile
+    }
+
+    [Fact]
+    public void Check_now_asks_the_armory_past_the_hold_and_the_picture_it_leaves_is_enhanced_at_once()
+    {
+        using var t = new TempInstall();
+        Setup(t);
+        byte shade = 150;
+        var notModified = false;
+        var cdn = new FakeCdn
+        {
+            Respond = _ => notModified ? new HttpResponseMessage(System.Net.HttpStatusCode.NotModified)
+                : FakeCdn.Png(FakeCdn.RenderPng(shade), $"\"v{shade}\"", DateTimeOffset.UtcNow),
+        };
+        var codex = new FakeCodex();
+        using var c = ArmoryWorkerTests.Started(t, cdn, enhance: true, hooks: codex.Hooks);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        PortraitRow Row() => c.Current.Shell.Report!.Portraits!.Single();
+        ArmoryWorkerTests.Until(() => codex.Calls == 1 && Last(folder).Ended is not null, "the first picture");
+
+        // Held: the row says until when, to the minute; the armory is not asked.
+        c.CheckArmoryNow();
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Single().ArmoryHeldUntil is not null, "the row's hold");
+        Assert.Equal(Last(folder).Started.AddDays(7), Row().ArmoryHeldUntil);
+        Thread.Sleep(1500);
+        var asked = cdn.Count;
+
+        // "Check now": asked at once, past the hold, and the new picture made at once, as asked for.
+        shade = 60;
+        c.CheckArmoryNow(A);
+        ArmoryWorkerTests.Until(() => cdn.Count == asked + 1, "the armory asked past the hold");
+        ArmoryWorkerTests.Until(() => codex.Calls == 2 && Last(folder).Ended is not null, "the new picture, at once");
+        Assert.Equal((Attempt.FromArmory, (bool?)true), (Last(folder).Source, Last(folder).Confirmed));
+        c.CheckArmoryNow();                                           // the next look, as its minute's tick would
+        ArmoryWorkerTests.Until(() => Row().ArmoryHeldUntil == Last(folder).Started.AddDays(7), "the hold again, from the new picture");
+
+        // Spent: a render that arrives anyway waits for the hold, as before.
+        NewRender(folder, 30);
+        c.ConvertNow();
+        Thread.Sleep(2500);
+        Assert.Equal(2, codex.Calls);
+        // "Check now" with nothing newer at the armory (304): the render waiting is the one asked for.
+        notModified = true;
+        c.CheckArmoryNow(A);
+        ArmoryWorkerTests.Until(() => codex.Calls == 3, "the waiting render, enhanced at once");
+        Assert.True(Last(folder).Confirmed);
+    }
+
+    [Fact]
+    public void Check_now_is_one_picture_a_failed_one_and_another_style_after_it_wait_for_the_hold()
+    {
+        // Codex on #71: the yes outlived its picture; a style change after a failure made a new
+        // signature, and it was spent again.
+        using var t = new TempInstall();
+        Setup(t);
+        byte shade = 150;
+        var cdn = new FakeCdn { Respond = _ => FakeCdn.Png(FakeCdn.RenderPng(shade), $"\"v{shade}\"", DateTimeOffset.UtcNow) };
+        var codex = new FakeCodex();
+        using var c = ArmoryWorkerTests.Started(t, cdn, enhance: true, hooks: codex.Hooks);
+        var folder = new CutoutFolder(t.Install.CutoutAddonDir);
+        ArmoryWorkerTests.Until(() => codex.Calls == 1 && Last(folder).Ended is not null, "the first picture");
+
+        codex.Failure = "no picture";
+        shade = 60;
+        c.CheckArmoryNow(A);
+        ArmoryWorkerTests.Until(() => codex.Calls == 2 && Last(folder).Ended is not null, "the asked-for picture, failed");
+        Assert.True(Last(folder).Confirmed);
+
+        codex.Failure = null;
+        c.SetEnhance(true, 10, EnhanceStyles.Realistic);
+        Thread.Sleep(2500);
+        Assert.Equal(2, codex.Calls);
+        // Another press is another yes.
+        c.CheckArmoryNow(A);
+        ArmoryWorkerTests.Until(() => codex.Calls == 3, "the picture asked for again");
     }
 
     [Fact]

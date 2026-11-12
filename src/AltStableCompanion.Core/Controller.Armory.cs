@@ -18,6 +18,8 @@ public sealed partial class Controller
         public DateTimeOffset? LastChecked;
         public bool Checked;          // this run: the sweep at the start, or since "Check the armory now"
         public bool Held;             // skipped for the enhancement hold: due once when it ends
+        public DateTime? HeldUntil;   // when the hold ends, while it holds this character
+        public bool Forced;           // "Check now" on its row: asked once, past the hold
         public string? Note;
         // What the player's own API client said (M3): levels only go up, a login only later.
         public bool ApiChecked;       // this run
@@ -86,6 +88,25 @@ public sealed partial class Controller
     private void StopArmory()
     {
         try { _armoryStop.Cancel(); } catch (ObjectDisposedException) { }
+        WakeArmory();
+    }
+
+    /// <summary>
+    /// "Check now" on a held row: the armory is asked about this character at once, past the
+    /// enhancement hold. The click is the player's yes: the picture it leaves as the portrait is
+    /// enhanced at once, past the days and the daily limit (<see cref="AskedFor"/>).
+    /// </summary>
+    public void CheckArmoryNow(string guid)
+    {
+        lock (_gate)
+        {
+            if (!_armory.TryGetValue(guid, out var s)) return;
+            s.Forced = true;
+            s.Checked = false;
+            s.HeldUntil = null;
+        }
+        _log?.Write("armory: a check of one character asked for, past its hold");
+        RefreshArmoryRows();
         WakeArmory();
     }
 
@@ -256,18 +277,21 @@ public sealed partial class Controller
         {
             var now = ArmoryNow();
             ArmoryState state;
+            bool forced;
             lock (_gate)
             {
                 if (_stopping || generation != _generation || _settings.Armory != true || _current.Shell.Paused) break;
                 settings = _settings;
                 if (now < _armoryBusyUntil) break;
                 if (!_armory.TryGetValue(c.Guid, out state!)) _armory[c.Guid] = state = new ArmoryState();
+                forced = state.Forced;
             }
             // The enhancement hold: with enhancement on, a character whose last armory picture is
             // under N days old is not looked at - the render would only wait for the enhancer.
-            if (settings.Enhance && HeldUntil(folder, c.Guid, settings.ArmoryRemakeDays) is { } until)
+            // Unless the player pressed "Check now" on its row.
+            if (settings.Enhance && !forced && HeldUntil(folder, c.Guid, settings.ArmoryRemakeDays) is { } until)
             {
-                changed |= Note(state, $"armory updates resume on {until:d MMM}", held: true);
+                changed |= Hold(state, until);
                 continue;
             }
             if (!ArmoryPlanner.Due(c, state.LastChecked, state.Checked, state.Held, now)) continue;
@@ -298,6 +322,8 @@ public sealed partial class Controller
                     state.LastChecked = now;
                     state.Checked = true;
                     state.Held = false;
+                    state.HeldUntil = null;
+                    state.Forced = false;
                 }
             }
             switch (stale && fetch.Status != ArmoryStatus.Busy ? (ArmoryStatus?)null : fetch.Status)
@@ -322,6 +348,18 @@ public sealed partial class Controller
                     changed |= Note(state, note);
                     renders = null;
                     break;
+            }
+            // Asked for by the player: the render now on disk - new, or the one a 304 kept - may
+            // be enhanced at once, while it is the portrait. Tied to its bytes, so a later render
+            // is not.
+            if (forced && !stale && fetch.Status is ArmoryStatus.Ok or ArmoryStatus.NotModified)
+            {
+                renders ??= folder.ArmoryRenders();
+                if (renders.TryGetValue(c.Guid, out var kept) && kept.Meta.TgaHash is { } hash)
+                {
+                    lock (_gate) _armoryAsked[c.Guid] = hash;
+                    WakeEnhancer();
+                }
             }
             await Task.Delay(ArmoryGap, stop);
         }
@@ -571,15 +609,48 @@ public sealed partial class Controller
     }
 
     // Under nothing. True when the row's words changed.
-    private bool Note(ArmoryState state, string? note, bool held = false)
+    private bool Note(ArmoryState state, string? note)
     {
         lock (_gate)
         {
-            if (held) state.Held = true;
             if (state.Note == note) return false;
             state.Note = note;
             return true;
         }
+    }
+
+    // The enhancement hold, until when: the row says it, with the time, and offers "Check now".
+    private bool Hold(ArmoryState state, DateTime until)
+    {
+        lock (_gate)
+        {
+            state.Held = true;
+            if (state.HeldUntil == until && state.Note is null) return false;
+            state.HeldUntil = until;
+            state.Note = null;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The player asked for this character's armory picture ("Check now"): its render with these
+    /// bytes is enhanced at once while it is the portrait, past the days hold, the daily limit and
+    /// "enhance on their own". Under _gate. One picture: spent when its attempt is recorded,
+    /// whatever comes of it (<see cref="AskedDone"/>); and tied to the render's bytes, so a later
+    /// render is not it.
+    /// </summary>
+    private readonly Dictionary<string, string> _armoryAsked = new(StringComparer.Ordinal);
+
+    private bool AskedFor(string guid, Primary primary)
+    {
+        lock (_gate) return primary.Armory && _armoryAsked.TryGetValue(guid, out var hash) && hash == primary.Meta.TgaHash;
+    }
+
+    // Spent: one picture per press. A picture that fails, or one of another style asked for
+    // after it, is not the one the player said yes to.
+    private void AskedDone(string guid)
+    {
+        lock (_gate) _armoryAsked.Remove(guid);
     }
 
     private void ArmoryRefuse(string why)
@@ -707,9 +778,11 @@ public sealed partial class Controller
         var on = _settings.Armory == true;
         var kept = rows.Where(r => !(r.FileName is null && r.Outcome == CaptureOutcome.None && r.LatestCapture is null)).ToList();
         string? NoteOf(string? guid) => on && guid is not null && _armory.TryGetValue(guid, out var s) ? s.Note : null;
+        DateTime? HeldOf(string? guid) => on && guid is not null && _armory.TryGetValue(guid, out var s) && s.Held && !s.Forced ? s.HeldUntil : null;
         var result = kept.Select(r => r with
         {
             ArmoryNote = NoteOf(r.Guid),
+            ArmoryHeldUntil = HeldOf(r.Guid),
             Name = r.Source == PortraitSource.File && r.Guid is not null && _armoryNames.TryGetValue(r.Guid, out var name) ? name : r.Name,
         }).ToList();
         if (on)
@@ -719,7 +792,7 @@ public sealed partial class Controller
             {
                 if (listed.Contains(guid)) continue;
                 result.Add(new PortraitRow(name, guid, null, PortraitSource.None, null, null, CaptureOutcome.None, null,
-                    ArmoryNote: NoteOf(guid) ?? "waiting for the armory"));
+                    ArmoryNote: NoteOf(guid) ?? (HeldOf(guid) is null ? "waiting for the armory" : null), ArmoryHeldUntil: HeldOf(guid)));
             }
         }
         return result;
