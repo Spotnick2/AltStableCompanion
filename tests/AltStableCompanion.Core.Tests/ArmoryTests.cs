@@ -221,8 +221,12 @@ public class ArmoryTextTests
         Assert.Equal("armory picture · fetched today 13:00", PassText.RowDetail(render, Today));
         Assert.Equal("Ready", PassText.RowState(render));
 
-        var held = render with { ArmoryNote = "armory updates resume on 18 Nov" };
-        Assert.Equal("Armory picture, today 13:00 · armory updates resume on 18 Nov", PassText.RowSummary(held, Today));
+        // The hold, with its time: today and tomorrow by name, any other day by its date; over any other note.
+        var held = render with { ArmoryHeldUntil = Today.AddHours(4).AddMinutes(29), ArmoryNote = "no armory render yet" };
+        Assert.Equal("Armory picture, today 13:00 · armory updates resume today 19:29", PassText.RowSummary(held, Today));
+        Assert.EndsWith("armory updates resume today 19:29", PassText.RowDetail(held, Today));
+        Assert.EndsWith("armory updates resume tomorrow 19:29", PassText.RowSummary(held with { ArmoryHeldUntil = Today.AddDays(1).AddHours(4).AddMinutes(29) }, Today));
+        Assert.EndsWith("armory updates resume 2026-11-18 19:29", PassText.RowSummary(held with { ArmoryHeldUntil = Today.AddDays(7).AddHours(4).AddMinutes(29) }, Today));
 
         // A capture, converted, and a later armory picture showing.
         var both = new PortraitRow("Karuzo Macphisto", "Player-1-0000AAAA", "karuzo.tga", PortraitSource.ByGuid, Today.AddHours(-1),

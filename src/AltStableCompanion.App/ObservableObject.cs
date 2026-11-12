@@ -46,3 +46,16 @@ internal sealed class Command(Action run) : ICommand
         if (_enabled) run();
     }
 }
+
+/// <summary>A button's action that takes what the button names: a row's GUID.</summary>
+internal sealed class Command<T>(Action<T> run) : ICommand
+{
+    public event EventHandler? CanExecuteChanged { add { } remove { } }
+
+    public bool CanExecute(object? parameter) => parameter is T;
+
+    public void Execute(object? parameter)
+    {
+        if (parameter is T value) run(value);
+    }
+}

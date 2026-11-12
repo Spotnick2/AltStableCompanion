@@ -92,7 +92,9 @@ change your answer.
     picture is offered on the Settings page, and made when you press **Make it now**.
   - **At most every 7 days** per character (1 to 90). Meanwhile the app does not ask the
     armory about that character, and the picture made before stays. If a picture failed, the
-    plain armory picture can stay that long too.
+    plain armory picture can stay that long too. The character's line says when it resumes,
+    to the minute, and **Check now** under it asks the armory at once: the picture that leaves
+    is enhanced at once, as you asked for it, past this hold and the daily limit.
   - **At most 5 armory pictures in a day** (any 24 hours), which you can untick.
 
   A picture drawn again that looks the same (under 1 % of it changed) keeps the enhanced

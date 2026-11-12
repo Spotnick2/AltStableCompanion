@@ -6,6 +6,12 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- A character held by the armory's days limit says when it resumes to the minute ("armory
+  updates resume tomorrow 19:29"), and offers **Check now**: the armory is asked about that
+  character at once, and the picture it leaves is enhanced at once, as you asked for it.
+
 ## [1.2.1]
 
 A capture stays your portrait until the character changes. 1.2.0 put the armory picture in

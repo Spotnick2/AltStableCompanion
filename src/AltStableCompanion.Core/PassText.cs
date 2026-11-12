@@ -364,7 +364,7 @@ public static class PassText
             : row.FileModified is { } modified ? "Updated " + When(modified, today)
             : "";
         // What the armory last said: a hold, no render yet, a failure - the row's news.
-        if (row.ArmoryNote is { } armory) when = when.Length == 0 ? Cap(armory) : when + " · " + armory;
+        if (ArmoryWord(row, today) is { } armory) when = when.Length == 0 ? Cap(armory) : when + " · " + armory;
         // A skip is said on the line itself: it is decided in another account, where the game
         // logged in now cannot show it.
         return Skipped(row) is { } skipped ? (when.Length == 0 ? skipped : when + " · " + skipped) : when;
@@ -437,10 +437,17 @@ public static class PassText
                 ? "armory picture not enhanced yet" : note);
         }
         if (Skipped(row) is { } skipped) parts.Add(skipped);
-        if (row.ArmoryNote is { } armory) parts.Add(armory);
+        if (ArmoryWord(row, today) is { } armory) parts.Add(armory);
         if (row.ShowGuid && row.Guid is not null) parts.Add(row.Guid);
         return string.Join(" · ", parts.Where(p => p.Length > 0));
     }
+
+    // The armory's word on a row: the hold and when it ends, or what it last said.
+    private static string? ArmoryWord(PortraitRow row, DateTime today) =>
+        row.ArmoryHeldUntil is { } until ? "armory updates resume " + When(until, today) : row.ArmoryNote;
+
+    /// <summary>The words of the row's link that asks the armory now, past the hold.</summary>
+    public const string CheckNow = "Check now";
 
     // "today 12:13", "yesterday 09:05", else the date: for a row, where the minute is enough.
     private static string When(DateTime t, DateTime today) => Stamp(t, today, "HH:mm");
@@ -491,6 +498,7 @@ public static class PassText
         var time = t.ToString(clock, System.Globalization.CultureInfo.InvariantCulture);
         if (t.Date == today.Date) return "today " + time;
         if (t.Date == today.Date.AddDays(-1)) return "yesterday " + time;
+        if (t.Date == today.Date.AddDays(1)) return "tomorrow " + time;
         return t.ToString("yyyy-MM-dd ", System.Globalization.CultureInfo.InvariantCulture) + time;
     }
 

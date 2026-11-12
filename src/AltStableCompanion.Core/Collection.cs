@@ -68,7 +68,9 @@ public sealed record PortraitRow(
     /// <summary>Where the file is under Cutouts\: null, or "Armory" for a render (#63).</summary>
     string? Folder = null,
     /// <summary>What the armory last said of this character, in a few words ("no render yet"), or null.</summary>
-    string? ArmoryNote = null)
+    string? ArmoryNote = null,
+    /// <summary>The enhancement hold keeps the armory from this character until then (local time): the row says when, and offers "Check now".</summary>
+    DateTime? ArmoryHeldUntil = null)
 {
     /// <summary>The portrait is the armory's render, not a capture.</summary>
     public bool FromArmory => Folder is not null;
