@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.5]
+
+The list follows AltStable's, and can be cleaned up of characters AltStable no longer has;
+enhanced portraits keep small details such as painted nails.
+
 ### Added
 
 - The list follows AltStable's: a character AltStable no longer has (forgotten, deleted, or

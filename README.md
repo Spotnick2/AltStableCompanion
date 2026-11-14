@@ -184,7 +184,7 @@ You can also quit the app and run a newer file from the releases page. Starting 
 copy only brings the running one's window forward.
 
 The running file keeps its name: if you kept the release's name
-(`AltStableCompanion-1.2.3-win-x64.exe`), it carries an older version in its name than
+(`AltStableCompanion-1.2.4-win-x64.exe`), it carries an older version in its name than
 the one it is. **Help → About** is the authority on what is running.
 
 ## What it touches
