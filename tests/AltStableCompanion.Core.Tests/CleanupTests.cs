@@ -110,12 +110,19 @@ public class CleanupTests
     {
         using var t = new TempInstall();
         var (folder, originals, gone, kept) = Files(t);
-        var files = Leftovers.FilesOf(G, folder, t.Install.Screenshots, originals);
+        var groups = Leftovers.FilesOf(G, folder, t.Install.Screenshots, originals);
+        var files = groups.SelectMany(g => g.All).ToList();
         Assert.Equal(gone.Order(StringComparer.OrdinalIgnoreCase), files.Order(StringComparer.OrdinalIgnoreCase));
         Assert.Empty(files.Intersect(kept, StringComparer.OrdinalIgnoreCase));
+        // Each owner after what it names: the cutout's sidecar owns its screenshots and its TGA,
+        // the history its originals; and the enhanced picture comes before the cutout whose base finds it.
+        var capture = groups.Single(g => g.Owner == gone[1]);
+        Assert.Equal([gone[2], gone[3], gone[0]], capture.Files);
+        Assert.Equal([gone[9]], groups.Single(g => g.Owner == gone[8]).Files);
+        Assert.True(groups.ToList().FindIndex(g => g.Owner == gone[7]) < groups.ToList().IndexOf(capture));
         // Another history that cannot be read may name its originals: they stay.
         File.WriteAllText(AttemptHistory.PathFor(folder.EnhancedDir, "Player-1-00000001"), "{ not json");
-        Assert.DoesNotContain(Path.Combine(originals, "gsig.png"), Leftovers.FilesOf(G, folder, t.Install.Screenshots, originals));
+        Assert.DoesNotContain(Path.Combine(originals, "gsig.png"), Leftovers.FilesOf(G, folder, t.Install.Screenshots, originals).SelectMany(g => g.All));
         // Not a GUID: nothing.
         Assert.Empty(Leftovers.FilesOf(@"..\x", folder, t.Install.Screenshots, originals));
     }
@@ -145,7 +152,7 @@ public class CleanupTests
         ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G && r.Gone) == true, "the gone row");
         Assert.All(gone.Concat(kept), f => Assert.True(File.Exists(f), f));    // found, nothing deleted before the yes
 
-        var said = await c.CleanUpCharactersAsync([G]);
+        var said = await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]);
         Assert.Equal("Deleted 10 files of 1 character.", said);
         Assert.All(gone, f => Assert.False(File.Exists(f), f));
         Assert.All(kept, f => Assert.True(File.Exists(f), f));
@@ -169,8 +176,86 @@ public class CleanupTests
         using var c = ArmoryWorkerTests.Started(t, new FakeCdn(), armory: false);
         ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G && r.Gone) == true, "the gone row");
         t.WriteStore("1#1", Store(gIsBack: true));
-        Assert.Equal("Nothing deleted. 1 is in AltStable again, so it was kept.", await c.CleanUpCharactersAsync([G]));
+        Assert.Equal("Nothing deleted. 1 is in AltStable again, so it was kept.", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
         Assert.All(gone, f => Assert.True(File.Exists(f), f));
+    }
+
+    [Fact]
+    public void An_account_whose_file_is_missing_or_has_no_roster_table_makes_the_roster_unknown()
+    {
+        // Codex on #78: the game swaps AltStable.lua through a .bak; an account caught between
+        // the two is missing from the snapshot, and its characters are not gone for that.
+        using var t = new TempInstall();
+        t.WriteStore("1#1", Store());
+        Assert.NotNull(Leftovers.Roster(t.Install.AccountsDir, SavedVariablesReader.Snapshot(t.Install.AccountsDir)));
+        var other = Path.Combine(t.Install.AccountsDir, "2#2", "SavedVariables");
+        Directory.CreateDirectory(other);
+        File.WriteAllText(Path.Combine(other, "OtherAddon.lua"), "x = 1\n");
+        // An account that never ran AltStable is no account of its: nothing missing.
+        Assert.NotNull(Leftovers.Roster(t.Install.AccountsDir, SavedVariablesReader.Snapshot(t.Install.AccountsDir)));
+        // One of its modules' files, or its own .bak, with no AltStable.lua: unknown.
+        File.WriteAllText(Path.Combine(other, "AltStableSync.lua"), "AltStableSyncDB = {}\n");
+        Assert.Null(Leftovers.Roster(t.Install.AccountsDir, SavedVariablesReader.Snapshot(t.Install.AccountsDir)));
+        File.Delete(Path.Combine(other, "AltStableSync.lua"));
+        File.WriteAllText(Path.Combine(other, "AltStable.lua.bak"), "");
+        Assert.Null(Leftovers.Roster(t.Install.AccountsDir, SavedVariablesReader.Snapshot(t.Install.AccountsDir)));
+        // A file with no AltStableDB table: not an empty roster.
+        File.WriteAllText(Path.Combine(other, "AltStable.lua"), "AltStableConfig = {\n}\n");
+        Assert.False(SavedVariablesReader.Snapshot(t.Install.AccountsDir).Rosters.Single(r => r.Path.Contains("2#2")).HasRoster);
+        Assert.Null(Leftovers.Roster(t.Install.AccountsDir, SavedVariablesReader.Snapshot(t.Install.AccountsDir)));
+        File.WriteAllText(Path.Combine(other, "AltStable.lua"), "AltStableDB = {\n}\n");
+        Assert.NotNull(Leftovers.Roster(t.Install.AccountsDir, SavedVariablesReader.Snapshot(t.Install.AccountsDir)));
+    }
+
+    [Fact]
+    public async Task A_missing_account_file_marks_nobody_and_deletes_nothing()
+    {
+        using var t = new TempInstall();
+        var (_, _, gone, _) = Files(t);
+        t.WriteStore("1#1", Store());
+        var other = Path.Combine(t.Install.AccountsDir, "2#2", "SavedVariables");
+        Directory.CreateDirectory(other);
+        File.WriteAllText(Path.Combine(other, "AltStable.lua.bak"), "");
+        using var c = ArmoryWorkerTests.Started(t, new FakeCdn(), armory: false);
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G) == true, "the first pass");
+        Assert.DoesNotContain(c.Current.Shell.Report!.Portraits!, r => r.Gone);
+        Assert.StartsWith("Not cleaned up: an account file could not be read", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
+        Assert.All(gone, f => Assert.True(File.Exists(f), f));
+    }
+
+    [Fact]
+    public async Task A_question_about_another_game_folder_deletes_nothing()
+    {
+        using var t = new TempInstall();
+        var (_, _, gone, _) = Files(t);
+        t.WriteStore("1#1", Store());
+        using var c = ArmoryWorkerTests.Started(t, new FakeCdn(), armory: false);
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G && r.Gone) == true, "the gone row");
+        Assert.Equal("Not cleaned up: the game folder changed since the question.",
+            await c.CleanUpCharactersAsync(Path.Combine(t.Root, "another", "_forever_"), [G]));
+        Assert.All(gone, f => Assert.True(File.Exists(f), f));
+    }
+
+    [Fact]
+    public async Task A_file_that_cannot_be_deleted_keeps_its_owner_so_the_character_is_offered_again()
+    {
+        // Codex on #78: a read-only cutout whose sidecar went first became nobody's portrait.
+        using var t = new TempInstall();
+        var (_, _, gone, _) = Files(t);
+        t.WriteStore("1#1", Store());
+        File.SetAttributes(gone[0], FileAttributes.ReadOnly);                  // the capture's TGA
+        using var c = ArmoryWorkerTests.Started(t, new FakeCdn(), armory: false);
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G && r.Gone) == true, "the gone row");
+        var said = await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]);
+        Assert.Contains("1 could not be deleted (karuzo-macphisto.tga)", said);
+        Assert.True(File.Exists(gone[0]));
+        Assert.True(File.Exists(gone[1]));                                      // its sidecar: still says whose it is
+        Assert.False(File.Exists(gone[2]));                                     // its screenshots went
+        Assert.Contains(c.Current.Shell.Report!.Portraits!, r => r.Guid == G && r.Gone);
+        // The flag cleared, asked again: the rest goes.
+        File.SetAttributes(gone[0], FileAttributes.Normal);
+        Assert.Equal("Deleted 2 files of 1 character.", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
+        Assert.All(gone, f => Assert.False(File.Exists(f), f));
     }
 
     [Fact]

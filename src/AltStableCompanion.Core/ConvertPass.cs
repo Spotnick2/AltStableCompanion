@@ -306,7 +306,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
 
         IReadOnlyList<CharacterStatus> characters =
             [.. statuses.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)];
-        var roster = Leftovers.RosterGuids(snapshot);
+        var roster = Leftovers.Roster(install.AccountsDir, snapshot);
         return new PassReport(
             characters, written, freed, stale, folderCreated, warnings,
             Accounts: accounts.Count,

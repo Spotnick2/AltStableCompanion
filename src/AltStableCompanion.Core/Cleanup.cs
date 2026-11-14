@@ -1,91 +1,145 @@
 namespace AltStableCompanion.Core;
 
 /// <summary>
+/// Files deleted together: <see cref="Files"/> first, then <see cref="Owner"/> - the sidecar or
+/// history that says whose they are - only once every one of them is gone. A file that could
+/// not be deleted keeps its owner, so the character is still found, and offered again, and the
+/// rest can be retried (Codex on #78).
+/// </summary>
+public sealed record FileGroup(IReadOnlyList<string> Files, string? Owner)
+{
+    public IEnumerable<string> All => Owner is null ? Files : Files.Append(Owner);
+}
+
+/// <summary>
 /// Characters AltStable no longer has (#77): a portrait in the companion's files for a GUID that
 /// no account's <c>AltStableDB</c> holds - a character forgotten, deleted, or left over from the
 /// beta. The list follows AltStable's: such a character is offered to "Clean up the character
 /// list", which deletes the companion's files for it once the player says yes.
 ///
 /// What it cannot delete: the capture records in <c>AltStable.lua</c>. The game rewrites that
-/// file at logout, and the companion never writes it (AltStable#343 is the addon's side).
+/// file at logout, and the companion never writes it (AltStable#344 drops them on a forget).
 /// </summary>
 public static class Leftovers
 {
     /// <summary>
     /// Every GUID in <c>AltStableDB</c> on any account, hidden ones included (AltStable still
-    /// has them). Null when a file could not be read, or a roster stopped mid-way: what it
-    /// would have said is not known, and an unreadable file is not a deletion.
+    /// has them), or null when that is not known - and an unknown roster marks nobody gone and
+    /// deletes nothing:
+    /// <list type="bullet">
+    /// <item>a file could not be read, or a roster stopped mid-way;</item>
+    /// <item>a file has no <c>AltStableDB</c> table: absent is not empty;</item>
+    /// <item>an account that uses AltStable has no <c>AltStable.lua</c> in the snapshot
+    ///   (<see cref="AccountFiles"/>): the game replaces the file through a <c>.bak</c> and a
+    ///   rename, and in between it is missing - or <c>File.Exists</c> said no for a file it
+    ///   could not reach. Its characters are not gone for that.</item>
+    /// </list>
     /// </summary>
+    public static IReadOnlySet<string>? Roster(string accountsDir, SavedVariablesSnapshot snapshot)
+    {
+        if (RosterGuids(snapshot) is not { } guids) return null;
+        try
+        {
+            var read = snapshot.Rosters.Select(r => Path.GetFullPath(r.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return AccountFiles(accountsDir).All(f => read.Contains(Path.GetFullPath(f))) ? guids : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The roster from these files alone: see <see cref="Roster"/>, which also checks no account's file is missing.</summary>
     public static IReadOnlySet<string>? RosterGuids(SavedVariablesSnapshot snapshot)
     {
-        if (snapshot.Skipped.Count > 0 || snapshot.Rosters.Any(r => r.Problem is not null)) return null;
+        if (snapshot.Skipped.Count > 0 || snapshot.Rosters.Any(r => r.Problem is not null || !r.HasRoster)) return null;
         return snapshot.Rosters.SelectMany(r => r.Characters).Select(c => c.Guid).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>
-    /// The files the companion keeps for one character, for "Clean up the character list":
+    /// The <c>AltStable.lua</c> each account that uses AltStable must have: an account whose
+    /// SavedVariables holds any of the addon's files - <c>AltStable.lua</c> itself, its
+    /// <c>.bak</c>, or its modules' (<c>AltStableRoster.lua</c>, ...).
+    /// </summary>
+    public static IEnumerable<string> AccountFiles(string accountsDir)
+    {
+        if (!Directory.Exists(accountsDir)) yield break;
+        foreach (var account in Directory.EnumerateDirectories(accountsDir))
+        {
+            var saved = Path.Combine(account, "SavedVariables");
+            if (Directory.Exists(saved) && Directory.EnumerateFiles(saved, "AltStable*").Any())
+            {
+                yield return Path.Combine(saved, SavedVariablesReader.FileName);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The files the companion keeps for one character, for "Clean up the character list", in
+    /// the order to delete them - each group's owner last:
     /// <list type="bullet">
-    /// <item>its capture cutouts, <c>Cutouts\&lt;base&gt;.tga</c> and <c>.json</c> - every one whose
-    ///   sidecar names it, the older ones a rename left behind too;</item>
-    /// <item>the screenshots those cutouts were made from (their sidecar's <c>shots</c>), where
-    ///   they are still there: with them, the next pass would make the cutout again;</item>
-    /// <item>its armory render and its enhanced picture, with their sidecars;</item>
-    /// <item>its enhancement history, and the originals kept for it that no other character's
-    ///   history names.</item>
+    /// <item>its enhanced picture (owned by its sidecar) - first, as an older one with no GUID
+    ///   of its own is found by the base of the capture or render it was made from;</item>
+    /// <item>its armory render (owned by its sidecar);</item>
+    /// <item>its capture cutouts, every one whose sidecar names it, and the screenshots each
+    ///   was made from (its <c>shots</c>), still there - with them, the next pass would make the
+    ///   cutout again (owned by the cutout's sidecar);</item>
+    /// <item>the originals kept for it that no other character's history names (owned by its
+    ///   history).</item>
     /// </list>
     /// Only files that exist, each once. Nothing for a GUID that is not one.
     /// </summary>
-    public static IReadOnlyList<string> FilesOf(string guid, CutoutFolder folder, string screenshotsDir, string originalsDir)
+    public static IReadOnlyList<FileGroup> FilesOf(string guid, CutoutFolder folder, string screenshotsDir, string originalsDir)
     {
         if (!ManifestWriter.IsSafeKey(guid)) return [];
-        var files = new List<string>();
+        var groups = new List<FileGroup>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var bases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        void Add(string path)
+        string? Take(string path) => File.Exists(path) && seen.Add(path) ? path : null;
+
+        void Group(string owner, params IEnumerable<string> files)
         {
-            if (File.Exists(path) && !files.Contains(path, StringComparer.OrdinalIgnoreCase)) files.Add(path);
+            var kept = files.Select(Take).OfType<string>().ToList();
+            var own = Take(owner);
+            if (kept.Count > 0 || own is not null) groups.Add(new FileGroup(kept, own));
         }
 
         IEnumerable<string> Sidecars(string dir) =>
             Directory.Exists(dir) ? Directory.EnumerateFiles(dir, "*.json").Order(StringComparer.Ordinal) : [];
 
-        foreach (var json in Sidecars(folder.CutoutsDir))
-        {
-            var fileBase = Path.GetFileNameWithoutExtension(json);
-            if (folder.ReadMeta(fileBase) is not { } meta || meta.Guid != guid) continue;
-            bases.Add(fileBase);
-            Add(Path.Combine(folder.CutoutsDir, fileBase + ".tga"));
-            Add(json);
-            // A name, never a path: the sidecar is a file anyone can edit.
-            foreach (var shot in meta.Shots ?? [])
-            {
-                if (!string.IsNullOrWhiteSpace(shot)) Add(Path.Combine(screenshotsDir, Path.GetFileName(shot)));
-            }
-        }
-        foreach (var json in Sidecars(folder.ArmoryDir))
-        {
-            var fileBase = Path.GetFileNameWithoutExtension(json);
-            if (folder.ReadArmoryMeta(fileBase)?.Guid != guid) continue;
-            bases.Add(fileBase);
-            Add(Path.Combine(folder.ArmoryDir, fileBase + ".tga"));
-            Add(json);
-        }
-        // Enhanced\ is keyed by the base of the capture or render: its sidecar names the GUID,
-        // and an older one that names none goes with the base it sits under.
+        // Whose bases they are, first: the enhanced pictures are found by them.
+        var captures = Sidecars(folder.CutoutsDir)
+            .Select(json => (Json: json, Base: Path.GetFileNameWithoutExtension(json)))
+            .Select(x => (x.Json, x.Base, Meta: folder.ReadMeta(x.Base)))
+            .Where(x => x.Meta?.Guid == guid).ToList();
+        var renders = Sidecars(folder.ArmoryDir)
+            .Select(json => (Json: json, Base: Path.GetFileNameWithoutExtension(json)))
+            .Where(x => folder.ReadArmoryMeta(x.Base)?.Guid == guid).ToList();
+        bases.UnionWith(captures.Select(c => c.Base));
+        bases.UnionWith(renders.Select(r => r.Base));
+
         foreach (var json in Sidecars(folder.EnhancedDir))
         {
             var fileBase = Path.GetFileNameWithoutExtension(json);
             if (fileBase.EndsWith(".attempts", StringComparison.OrdinalIgnoreCase)) continue;
             var owner = folder.ReadEnhancedMeta(fileBase)?.Guid;
             if (owner != guid && !(owner is null && bases.Contains(fileBase))) continue;
-            Add(Path.Combine(folder.EnhancedDir, fileBase + ".tga"));
-            Add(json);
+            Group(json, Path.Combine(folder.EnhancedDir, fileBase + ".tga"));
+        }
+        foreach (var (json, fileBase) in renders) Group(json, Path.Combine(folder.ArmoryDir, fileBase + ".tga"));
+        foreach (var (json, fileBase, meta) in captures)
+        {
+            // A name, never a path: the sidecar is a file anyone can edit.
+            var shots = (meta!.Shots ?? []).Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => Path.Combine(screenshotsDir, Path.GetFileName(s)));
+            Group(json, [.. shots, Path.Combine(folder.CutoutsDir, fileBase + ".tga")]);
         }
 
         var history = AttemptHistory.PathFor(folder.EnhancedDir, guid);
         if (File.Exists(history))
         {
-            Add(history);
+            var originals = new List<string>();
             try
             {
                 // Another character's history that cannot be read may name them: then they stay.
@@ -99,15 +153,16 @@ public static class Leftovers
                 }
                 foreach (var signature in unknown ? [] : SignaturesIn(folder.EnhancedDir, guid) ?? [])
                 {
-                    if (!others.Contains(signature)) Add(Path.Combine(originalsDir, signature + ".png"));
+                    if (!others.Contains(signature)) originals.Add(Path.Combine(originalsDir, signature + ".png"));
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // The originals stay: a few files in the app's folder, never drawn.
             }
+            Group(history, originals);
         }
-        return files;
+        return groups;
     }
 
     // The signatures a history names, or null when it cannot be read.

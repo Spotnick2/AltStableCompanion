@@ -897,7 +897,7 @@ public sealed partial class Controller
             // Another install meanwhile: nothing this writes is kept, and its roster is not this one's.
             var snapshot = install is null ? null : SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
             var judge = snapshot is null ? PortraitJudge.Unknown : PortraitJudge.From(snapshot);
-            roster = snapshot is null ? null : Leftovers.RosterGuids(snapshot);
+            roster = snapshot is null ? null : Leftovers.Roster(install!.AccountsDir, snapshot);
             entries = folder.Inventory(judge, listed.Add);
             if (armory && install is not null) entries = Armory.Flag(entries, folder, install, m => _log?.Write(m));
             if (pass is not null) pass.Listed(listed);

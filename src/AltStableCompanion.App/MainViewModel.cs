@@ -104,6 +104,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private string? _goneLine;
     private IReadOnlyList<string> _cleanUpLines = [];
     private IReadOnlyList<string> _cleanUpGuids = [];
+    private string? _cleanUpInstall;       // the game folder the question is about
     private bool _cleanUpAsking;
     private bool _cleaningUp;
     private string? _cleanUpResult;
@@ -490,17 +491,18 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     {
         CleanUpLines = PassText.CleanUpLines(_rows);
         _cleanUpGuids = [.. _rows.Where(r => r.Gone && r.Guid is not null).Select(r => r.Guid!)];
+        _cleanUpInstall = _controller.Current.Shell.Install?.FlavorDir;
         CleanUpResult = null;
-        CleanUpAsking = _cleanUpGuids.Count > 0;
+        CleanUpAsking = _cleanUpGuids.Count > 0 && _cleanUpInstall is not null;
     }
 
     private void CleanUp()
     {
-        if (_cleaningUp || _cleanUpGuids.Count == 0) return;
+        if (_cleaningUp || _cleanUpGuids.Count == 0 || _cleanUpInstall is not { } install) return;
         _cleaningUp = true;
         ConfirmCleanUp.Enabled = false;
         CancelCleanUp.Enabled = false;
-        _controller.CleanUpCharactersAsync(_cleanUpGuids).ContinueWith(t => Dispatcher.UIThread.Post(() =>
+        _controller.CleanUpCharactersAsync(install, _cleanUpGuids).ContinueWith(t => Dispatcher.UIThread.Post(() =>
         {
             _cleaningUp = false;
             ConfirmCleanUp.Enabled = true;
@@ -1033,6 +1035,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         Count = PassText.Count(_rows);
         Attention = PassText.Attention(_rows);
         GoneLine = PassText.GoneLine(_rows);
+        // A question asked about another game folder closes, unanswered.
+        if (CleanUpAsking && !_cleaningUp && !string.Equals(shell.Install?.FlavorDir, _cleanUpInstall, StringComparison.OrdinalIgnoreCase)) CleanUpAsking = false;
         Set(ref _hideGone, now.HideGone, nameof(HideGone));
         ShowRows(today);
 
