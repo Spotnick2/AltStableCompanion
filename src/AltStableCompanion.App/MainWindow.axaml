@@ -228,14 +228,19 @@
             <!-- With enhanced portraits on: what an armory picture may spend, and how often. -->
             <CheckBox IsChecked="{Binding ArmoryEnhanceAuto}" Content="Enhance new armory pictures on their own" Margin="28,0,0,0" IsEnabled="{Binding ArmoryOn}"
                       ToolTip.Tip="With enhanced portraits on. Otherwise each new armory picture is offered below, under the enhancement settings, and made when you ask" />
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0">
-              <CheckBox IsChecked="{Binding ArmoryDailyLimit}" Content="At most" IsEnabled="{Binding ArmoryOn}" VerticalAlignment="Center"
+            <!-- A grid, not a horizontal StackPanel: the last column takes what is left and wraps,
+                 so the words stay inside a 440 px window. -->
+            <Grid ColumnDefinitions="Auto,Auto,*" Margin="28,0,0,0">
+              <CheckBox Grid.Column="0" IsChecked="{Binding ArmoryDailyLimit}" Content="At most" IsEnabled="{Binding ArmoryOn}" VerticalAlignment="Center"
                         ToolTip.Tip="A guard on usage: automatic armory pictures stop for the day at this many; untick for no limit" />
-              <NumericUpDown Value="{Binding ArmoryDailyMax}" Minimum="1" Maximum="100" Increment="1" FormatString="0" Width="110" IsEnabled="{Binding ArmoryOn}" />
-              <TextBlock Text="armory pictures enhanced in a day" VerticalAlignment="Center" />
-            </StackPanel>
+              <NumericUpDown Grid.Column="1" Value="{Binding ArmoryDailyMax}" Minimum="1" Maximum="100" Increment="1" FormatString="0" Width="110"
+                             Margin="8,0" IsEnabled="{Binding ArmoryOn}" />
+              <TextBlock Grid.Column="2" Text="armory pictures enhanced in a day" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </Grid>
+            <!-- The label above the controls: a horizontal StackPanel does not narrow a wrapping
+                 label, so beside it the unit list fell outside a 440-540 px window (Codex on #75). -->
+            <TextBlock Text="Remake an enhanced picture after an armory update at most every" Margin="28,0,0,0" TextWrapping="Wrap" />
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0">
-              <TextBlock Text="Remake an enhanced picture after an armory update at most every" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="300" />
               <NumericUpDown Value="{Binding ArmoryRemakeAmount}" Minimum="1" Maximum="{Binding ArmoryRemakeMax}" Increment="1" FormatString="0" Width="110"
                              ToolTip.Tip="Each enhanced picture uses Codex usage; the armory draws a character again every time you play it" />
               <ComboBox SelectedIndex="{Binding ArmoryRemakeUnit}" VerticalAlignment="Center" MinWidth="90">
