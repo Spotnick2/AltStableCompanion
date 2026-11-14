@@ -321,6 +321,8 @@ public class EnhancementPromptTests
         // The design is preserved; the sculpt and the rendering are reinterpreted.
         Assert.StartsWith("Use the built-in image_gen tool. Use the attached character as the design reference and generate a distinctly World of Warcraft cinematic interpretation.", p);
         Assert.Contains("Preserve the recognizable character:", p);
+        // Prompt 3: a Skyborne's blue nails were lost from an armory picture.
+        Assert.Contains("Keep the small details too, even where the reference shows them only a few pixels wide: nail color, makeup, tattoos, and jewelry.", p);
         Assert.Contains("Reinterpret the facial sculpt and rendering substantially.", p);
         Assert.Contains("Keep the race's signature features - stature, ears, nose, tusks, horns, head-to-body proportions", p);
         Assert.DoesNotContain("gnome", p, StringComparison.OrdinalIgnoreCase);
@@ -347,7 +349,7 @@ public class EnhancementPromptTests
         Assert.True(p.IndexOf("Preserve the recognizable", StringComparison.Ordinal) < p.IndexOf("Reinterpret the facial", StringComparison.Ordinal));
         Assert.True(p.IndexOf("Reinterpret the facial", StringComparison.Ordinal) < p.IndexOf("cinematic depth", StringComparison.Ordinal));
         Assert.True(p.IndexOf("cinematic depth", StringComparison.Ordinal) < p.IndexOf("ARTIFACT_PATH", StringComparison.Ordinal));
-        Assert.Equal(2, EnhancementPrompt.Version);
+        Assert.Equal(3, EnhancementPrompt.Version);
     }
 
     [Fact]

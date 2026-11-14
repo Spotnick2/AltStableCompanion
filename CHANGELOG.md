@@ -6,6 +6,13 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- Enhanced portraits keep the small details: the prompt now names nail color, makeup, tattoos
+  and jewelry, which an armory picture shows only a few pixels wide (a Skyborne lost her blue
+  nails). Pictures made with the earlier wording are offered to be made again, not remade on
+  their own.
+
 ## [1.2.4]
 
 A character you are still gearing up gets their armory picture instead of last week's capture,

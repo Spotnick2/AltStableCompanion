@@ -167,8 +167,11 @@ public static class EnhancementPrompt
     /// and the pictures were the game model with better shading, realistic included. Now the
     /// design is preserved and the sculpt and the rendering are reinterpreted, in words
     /// measured on a gnome against seven other shapes.
+    /// 3 (2026-11-14): the small details are named - nail color, makeup, tattoos, jewelry. A
+    /// Skyborne's blue nails survived from a capture and were lost from an armory picture, whose
+    /// hands are a few pixels tall: nothing in the words said to look for them.
     /// </summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     public static string Build(RosterCharacter c, string style)
     {
@@ -193,6 +196,7 @@ public static class EnhancementPrompt
         sb.AppendLine($"The character is a {who}.");
         sb.AppendLine();
         sb.AppendLine("Preserve the recognizable character: race, gender, apparent age, expression, skin tone, hair color and hairstyle, eye color, clothing, equipment, color palette, and pose.");
+        sb.AppendLine("Keep the small details too, even where the reference shows them only a few pixels wide: nail color, makeup, tattoos, and jewelry.");
         sb.AppendLine();
         sb.AppendLine(w.Reinterpret);
         sb.AppendLine();
