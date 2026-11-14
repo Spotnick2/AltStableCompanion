@@ -131,15 +131,15 @@ public class CleanupTests
     }
 
     // The account file: A in the roster; the records of both A's and G's captures.
-    private static string Store(bool gIsBack = false)
+    private static string Store(bool gIsBack = false, bool gRecords = true)
     {
         static string Db(string guid, string name) =>
             "[\"" + guid + "\"] = {\n[\"name\"] = \"" + name + "\",\n[\"level\"] = 25,\n[\"lastUpdate\"] = 1794400050,\n},\n";
         return "AltStableDB = {\n" + Db(A, "Karuzo Macphisto") + (gIsBack ? Db(G, "Karuzo Macphisto") : "") + "}\n"
             + "AltStableConfig = {\n[\"hiddenCharacters\"] = {\n},\n}\n"
             + "AltStablePortraits = {\n[\"version\"] = 1,\n[\"renders\"] = {\n"
-            + TestData.Record("Karuzo Macphisto", G, 1, new DateTime(2026, 10, 21, 20, 58, 9), 1792630689) + ",\n"
-            + TestData.Record("Karuzo Macphisto", G, 2, new DateTime(2026, 10, 21, 20, 58, 10), 1792630690) + ",\n"
+            + (gRecords ? TestData.Record("Karuzo Macphisto", G, 1, new DateTime(2026, 10, 21, 20, 58, 9), 1792630689) + ",\n"
+                + TestData.Record("Karuzo Macphisto", G, 2, new DateTime(2026, 10, 21, 20, 58, 10), 1792630690) + ",\n" : "")
             + TestData.Record("Karuzo Macphisto", A, 1, new DateTime(2026, 11, 10, 16, 7, 0), 1794400000) + ",\n"
             + TestData.Record("Karuzo Macphisto", A, 2, new DateTime(2026, 11, 10, 16, 7, 1), 1794400001) + ",\n"
             + "},\n}\n";
@@ -326,6 +326,31 @@ public class CleanupTests
         Assert.Contains(c.Current.Shell.Report!.Portraits!, r => r.Guid == G && r.Gone);
         File.SetAttributes(gone[1], FileAttributes.Normal);
         Assert.Equal("Deleted 1 file of 1 character.", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
+        Assert.All(gone, f => Assert.False(File.Exists(f), f));
+        Assert.DoesNotContain(c.Current.Shell.Report!.Portraits!, r => r.Guid == G);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Files_of_a_character_with_no_capture_record_and_no_portrait_reach_the_list_and_the_clean_up(bool armory)
+    {
+        // Codex on #80: AltStable#344 drops a forgotten character's records; a clean-up cut short
+        // leaves a sidecar, an enhanced picture, a history. The row is "Unknown character", and
+        // the armory's own row filter, on or off, must not take it.
+        using var t = new TempInstall();
+        var (_, _, gone, _) = Files(t);
+        foreach (var f in new[] { gone[0], gone[4], gone[5] }) File.Delete(f);   // no capture TGA, no armory render
+        t.WriteStore("1#1", Store(gRecords: false));
+        using var c = ArmoryWorkerTests.Started(t, new FakeCdn(), armory: armory);
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G && r.Gone) == true, "the files-only row");
+        Assert.Equal(Collection.UnknownName, c.Current.Shell.Report!.Portraits!.Single(r => r.Guid == G).Name);
+        // A pass and a refresh later, still there.
+        c.ConvertNow();
+        Thread.Sleep(2000);
+        Assert.Contains(c.Current.Shell.Report!.Portraits!, r => r.Guid == G && r.Gone);
+        Assert.Equal("1 character AltStable no longer has", PassText.GoneLine(c.Current.Shell.Report.Portraits!));
+        Assert.Equal("Deleted 7 files of 1 character.", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
         Assert.All(gone, f => Assert.False(File.Exists(f), f));
         Assert.DoesNotContain(c.Current.Shell.Report!.Portraits!, r => r.Guid == G);
     }

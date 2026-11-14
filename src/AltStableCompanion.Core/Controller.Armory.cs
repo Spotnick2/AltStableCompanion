@@ -894,7 +894,8 @@ public sealed partial class Controller
     private IReadOnlyList<PortraitRow> WithArmory(IReadOnlyList<PortraitRow> rows)
     {
         var on = _settings.Armory == true;
-        var kept = rows.Where(r => !(r.FileName is null && r.Outcome == CaptureOutcome.None && r.LatestCapture is null)).ToList();
+        // A gone character's files-only row (#77) has that shape too, and is the clean-up's, not the armory's (Codex on #80).
+        var kept = rows.Where(r => r.Gone || !(r.FileName is null && r.Outcome == CaptureOutcome.None && r.LatestCapture is null)).ToList();
         string? NoteOf(string? guid) => on && guid is not null && _armory.TryGetValue(guid, out var s) ? s.Note : null;
         DateTime? HeldOf(string? guid) => on && guid is not null && _armory.TryGetValue(guid, out var s) && s.Held && !s.Forced ? s.HeldUntil : null;
         var result = kept.Select(r => r with
