@@ -3,10 +3,12 @@ namespace AltStableCompanion.Core;
 /// <summary>
 /// Files deleted together: <see cref="Files"/> first, then <see cref="Owner"/> - the sidecar or
 /// history that says whose they are - only once every one of them is gone. A file that could
-/// not be deleted keeps its owner, so the character is still found, and offered again, and the
-/// rest can be retried (Codex on #78).
+/// not be deleted keeps its owner, so the rest can be retried (Codex on #78).
+/// <see cref="Primary"/>: a portrait, capture or render - what makes the character a row of the
+/// list, and so offered again. Those groups go last, and only once everything else of the
+/// character is gone: a clean-up cut short leaves the character listed, to be tried again.
 /// </summary>
-public sealed record FileGroup(IReadOnlyList<string> Files, string? Owner)
+public sealed record FileGroup(IReadOnlyList<string> Files, string? Owner, bool Primary = false)
 {
     public IEnumerable<string> All => Owner is null ? Files : Files.Append(Owner);
 }
@@ -76,16 +78,16 @@ public static class Leftovers
 
     /// <summary>
     /// The files the companion keeps for one character, for "Clean up the character list", in
-    /// the order to delete them - each group's owner last:
+    /// the order to delete them - each group's owner last, and the portraits after the rest:
     /// <list type="bullet">
     /// <item>its enhanced picture (owned by its sidecar) - first, as an older one with no GUID
     ///   of its own is found by the base of the capture or render it was made from;</item>
-    /// <item>its armory render (owned by its sidecar);</item>
-    /// <item>its capture cutouts, every one whose sidecar names it, and the screenshots each
-    ///   was made from (its <c>shots</c>), still there - with them, the next pass would make the
-    ///   cutout again (owned by the cutout's sidecar);</item>
+    /// <item>the screenshots its capture cutouts were made from (their <c>shots</c>), still
+    ///   there - with them, the next pass would make the cutout again;</item>
     /// <item>the originals kept for it that no other character's history names (owned by its
-    ///   history).</item>
+    ///   history);</item>
+    /// <item>its portraits (<see cref="FileGroup.Primary"/>): its armory render, and its capture
+    ///   cutouts - every one whose sidecar names it - each owned by its sidecar.</item>
     /// </list>
     /// Only files that exist, each once. Nothing for a GUID that is not one.
     /// </summary>
@@ -98,11 +100,11 @@ public static class Leftovers
 
         string? Take(string path) => File.Exists(path) && seen.Add(path) ? path : null;
 
-        void Group(string owner, params IEnumerable<string> files)
+        void Group(string? owner, bool primary, params IEnumerable<string> files)
         {
             var kept = files.Select(Take).OfType<string>().ToList();
-            var own = Take(owner);
-            if (kept.Count > 0 || own is not null) groups.Add(new FileGroup(kept, own));
+            var own = owner is null ? null : Take(owner);
+            if (kept.Count > 0 || own is not null) groups.Add(new FileGroup(kept, own, primary));
         }
 
         IEnumerable<string> Sidecars(string dir) =>
@@ -125,16 +127,12 @@ public static class Leftovers
             if (fileBase.EndsWith(".attempts", StringComparison.OrdinalIgnoreCase)) continue;
             var owner = folder.ReadEnhancedMeta(fileBase)?.Guid;
             if (owner != guid && !(owner is null && bases.Contains(fileBase))) continue;
-            Group(json, Path.Combine(folder.EnhancedDir, fileBase + ".tga"));
+            Group(json, false, Path.Combine(folder.EnhancedDir, fileBase + ".tga"));
         }
-        foreach (var (json, fileBase) in renders) Group(json, Path.Combine(folder.ArmoryDir, fileBase + ".tga"));
-        foreach (var (json, fileBase, meta) in captures)
-        {
-            // A name, never a path: the sidecar is a file anyone can edit.
-            var shots = (meta!.Shots ?? []).Where(s => !string.IsNullOrWhiteSpace(s))
-                .Select(s => Path.Combine(screenshotsDir, Path.GetFileName(s)));
-            Group(json, [.. shots, Path.Combine(folder.CutoutsDir, fileBase + ".tga")]);
-        }
+        // Owned by the cutouts' sidecars, which stay until the portraits go.
+        // A name, never a path: the sidecar is a file anyone can edit.
+        Group(null, false, captures.SelectMany(c => c.Meta!.Shots ?? []).Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => Path.Combine(screenshotsDir, Path.GetFileName(s))));
 
         var history = AttemptHistory.PathFor(folder.EnhancedDir, guid);
         if (File.Exists(history))
@@ -160,8 +158,11 @@ public static class Leftovers
             {
                 // The originals stay: a few files in the app's folder, never drawn.
             }
-            Group(history, originals);
+            Group(history, false, originals);
         }
+
+        foreach (var (json, fileBase) in renders) Group(json, true, Path.Combine(folder.ArmoryDir, fileBase + ".tga"));
+        foreach (var (json, fileBase, _) in captures) Group(json, true, Path.Combine(folder.CutoutsDir, fileBase + ".tga"));
         return groups;
     }
 

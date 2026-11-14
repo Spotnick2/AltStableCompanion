@@ -114,11 +114,14 @@ public class CleanupTests
         var files = groups.SelectMany(g => g.All).ToList();
         Assert.Equal(gone.Order(StringComparer.OrdinalIgnoreCase), files.Order(StringComparer.OrdinalIgnoreCase));
         Assert.Empty(files.Intersect(kept, StringComparer.OrdinalIgnoreCase));
-        // Each owner after what it names: the cutout's sidecar owns its screenshots and its TGA,
-        // the history its originals; and the enhanced picture comes before the cutout whose base finds it.
+        // Each owner after what it names, the history after its originals; the portraits after
+        // everything else; and the enhanced picture before the cutout whose base finds it.
         var capture = groups.Single(g => g.Owner == gone[1]);
-        Assert.Equal([gone[2], gone[3], gone[0]], capture.Files);
+        Assert.Equal([gone[0]], capture.Files);
         Assert.Equal([gone[9]], groups.Single(g => g.Owner == gone[8]).Files);
+        Assert.Equal([gone[2], gone[3]], groups.Single(g => g.Owner is null).Files);
+        Assert.Equal([gone[4]], groups.Single(g => g.Owner == gone[5]).Files);
+        Assert.Equal([false, false, false, true, true], groups.Select(g => g.Primary));
         Assert.True(groups.ToList().FindIndex(g => g.Owner == gone[7]) < groups.ToList().IndexOf(capture));
         // Another history that cannot be read may name its originals: they stay.
         File.WriteAllText(AttemptHistory.PathFor(folder.EnhancedDir, "Player-1-00000001"), "{ not json");
@@ -256,6 +259,30 @@ public class CleanupTests
         File.SetAttributes(gone[0], FileAttributes.Normal);
         Assert.Equal("Deleted 2 files of 1 character.", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
         Assert.All(gone, f => Assert.False(File.Exists(f), f));
+    }
+
+    [Fact]
+    public async Task A_screenshot_that_cannot_be_deleted_keeps_the_portraits_so_the_character_is_offered_again()
+    {
+        // Codex on #78: the screenshot failed, the portrait went anyway, and the character with
+        // its leftovers left the list for good.
+        using var t = new TempInstall();
+        var (_, _, gone, _) = Files(t);
+        t.WriteStore("1#1", Store());
+        File.SetAttributes(gone[2], FileAttributes.ReadOnly);                  // the capture's first screenshot
+        using var c = ArmoryWorkerTests.Started(t, new FakeCdn(), armory: false);
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G && r.Gone) == true, "the gone row");
+        Assert.Contains("1 could not be deleted (WoWScrnShot_102126_205809.tga)", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
+        Assert.True(File.Exists(gone[2]));
+        Assert.False(File.Exists(gone[3]));                                     // the other screenshot went
+        Assert.All(gone[..2].Concat(gone[4..6]), f => Assert.True(File.Exists(f), f));   // the portraits and their sidecars stay
+        Assert.All(gone[6..], f => Assert.False(File.Exists(f), f));            // the enhanced picture, the history, the original went
+        // Still in the list, offered again.
+        Assert.Contains(c.Current.Shell.Report!.Portraits!, r => r.Guid == G && r.Gone && r.Ready);
+        File.SetAttributes(gone[2], FileAttributes.Normal);
+        Assert.Equal("Deleted 5 files of 1 character.", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
+        Assert.All(gone, f => Assert.False(File.Exists(f), f));
+        Assert.DoesNotContain(c.Current.Shell.Report!.Portraits!, r => r.Guid == G);
     }
 
     [Fact]

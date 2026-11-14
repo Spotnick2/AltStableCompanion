@@ -57,14 +57,24 @@ public sealed partial class Controller
                 var groups = Leftovers.FilesOf(guid, folder, install.Screenshots, OriginalsDir);
                 if (groups.Count == 0) continue;
                 characters++;
+                // The owner goes last, and only after all it names: a file left behind keeps the
+                // sidecar or history that says whose it is. And the portraits go only once the
+                // rest is gone: a character with a file left keeps its row, offered again.
+                var rest = true;
                 foreach (var group in groups)
                 {
-                    // The owner goes last, and only after all it names: a file left behind keeps
-                    // the sidecar or history that says whose it is, so it is found again.
+                    if (group.Primary && !rest)
+                    {
+                        _log?.Write($"clean-up: kept {group.Owner ?? group.Files[0]}, so {guid} is offered again for what is left");
+                        continue;
+                    }
                     var all = group.Files.Select(Delete).ToList().All(ok => ok);
-                    if (group.Owner is not { } owner) continue;
-                    if (all) Delete(owner);
-                    else _log?.Write($"clean-up: kept {owner}, which names a file that could not be deleted");
+                    if (group.Owner is { } owner)
+                    {
+                        if (all) all = Delete(owner);
+                        else _log?.Write($"clean-up: kept {owner}, which names a file that could not be deleted");
+                    }
+                    if (!group.Primary) rest &= all;
                 }
             }
             RefreshAfterEnhancement(folder, generation, null);
