@@ -32,10 +32,20 @@ public static class Armory
 
     public static readonly TimeSpan CheckEvery = TimeSpan.FromHours(1);
 
-    /// <summary>The settings' bounds and default for "remake an enhanced picture after an armory update at most every N days".</summary>
-    public const int MinRemakeDays = 1;
-    public const int MaxRemakeDays = 90;
-    public const int DefaultRemakeDays = 7;
+    /// <summary>
+    /// The settings' bounds and default for "remake an enhanced picture after an armory update
+    /// at most every N hours or days", kept in hours: an hour to 90 days, a week by default.
+    /// </summary>
+    public const int MinRemakeHours = 1;
+    public const int MaxRemakeHours = 90 * 24;
+    public const int DefaultRemakeHours = 7 * 24;
+
+    /// <summary>The hold as the player chose it: "12 hours", "1 day", "7 days".</summary>
+    public static string RemakeText(int hours, bool inDays)
+    {
+        var n = inDays ? hours / 24 : hours;
+        return $"{n} {(inDays ? "day" : "hour")}{(n == 1 ? "" : "s")}";
+    }
 
     /// <summary>The daily limit on automatic armory pictures: its default and its ceiling.</summary>
     public const int DefaultDailyMax = 5;
@@ -76,8 +86,8 @@ public static class Armory
     }
 
     /// <summary>
-    /// The old rule, now the contract's case 5 (<see cref="PortraitJudge"/>, when it cannot
-    /// tell whether the character changed): the render when it is newer by the
+    /// The old rule, now the contract's cases 4 and 5 (<see cref="PortraitJudge"/>: a character
+    /// that changed since the capture, or one it cannot tell about): the render when it is newer by the
     /// estimate - it shows the character as of its date minus <see cref="RenderDelay"/> - and
     /// the capture when its epoch is at least that. A capture that does not say when it was
     /// taken (an older converter's) is older than any render. An estimate: a capture taken
@@ -221,14 +231,14 @@ public static class Armory
 
     /// <summary>
     /// When the character's automatic armory enhancements may run again: the last armory
-    /// attempt (launched, whatever came of it, confirmed or not) plus the setting's days. Null
+    /// attempt (launched, whatever came of it, confirmed or not) plus the setting's hours. Null
     /// when nothing holds it.
     /// </summary>
-    public static DateTime? HeldUntil(AttemptHistory history, int days, DateTime now)
+    public static DateTime? HeldUntil(AttemptHistory history, int hours, DateTime now)
     {
         var last = history.Attempts.Where(a => a.Source == Attempt.FromArmory).Select(a => (DateTime?)a.Started).Max();
         if (last is not { } anchor) return null;
-        var until = anchor.AddDays(Math.Clamp(days, MinRemakeDays, MaxRemakeDays));
+        var until = anchor.AddHours(Math.Clamp(hours, MinRemakeHours, MaxRemakeHours));
         return now < until ? until : null;
     }
 }
@@ -299,4 +309,33 @@ public static class ArmoryPlanner
         if (now < played + Armory.WindowStart || now > played + Armory.WindowEnd) return false;
         return lastChecked is not { } last || now - last >= Armory.CheckEvery;
     }
+}
+
+/// <summary>
+/// "Check the armory now" (Settings): while <see cref="Running"/>, how far it got; then what it
+/// found, for the line under the button (<see cref="PassText.ArmorySweepText"/>).
+/// </summary>
+public sealed record ArmorySweep
+{
+    /// <summary>Pressed; the worker has not taken it yet.</summary>
+    public static readonly ArmorySweep Starting = new() { Running = true };
+
+    public bool Running { get; init; }
+    /// <summary>Asking the player's own Battle.net API client first.</summary>
+    public bool Api { get; init; }
+    public int Total { get; init; }
+    public int Done { get; init; }
+    public string? Current { get; init; }
+    /// <summary>When it ended, in this PC's time; null while it runs.</summary>
+    public DateTime? Finished { get; init; }
+    /// <summary>Characters the armory drew differently: a new picture was written.</summary>
+    public IReadOnlyList<string> New { get; init; } = [];
+    public int Unchanged { get; init; }
+    /// <summary>Not asked: the remake setting holds them, until when.</summary>
+    public IReadOnlyList<(string Name, DateTime Until)> Held { get; init; } = [];
+    /// <summary>The armory has no picture of them (yet).</summary>
+    public IReadOnlyList<string> NoRender { get; init; } = [];
+    public IReadOnlyList<string> Failed { get; init; } = [];
+    /// <summary>Why it ended before everyone; null when it went through.</summary>
+    public string? Stopped { get; init; }
 }

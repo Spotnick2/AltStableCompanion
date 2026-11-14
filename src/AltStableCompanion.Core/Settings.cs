@@ -100,15 +100,19 @@ public sealed record Settings
     public bool ArmorySd { get; init; }
 
     /// <summary>
-    /// "Remake an enhanced picture after an armory update at most every N days": a render
-    /// updates whenever the character is played, a picture costs the player's usage. No 0 -
-    /// a player who wants no automatic spending turns enhancement off.
+    /// "Remake an enhanced picture after an armory update at most every N hours or days", in
+    /// hours: a render updates whenever the character is played, a picture costs the player's
+    /// usage. No 0 - a player who wants no automatic spending turns enhancement off. A file from
+    /// 1.2.3 or older says <c>ArmoryRemakeDays</c> instead: read as that many days.
     /// </summary>
-    public int ArmoryRemakeDays
+    public int ArmoryRemakeHours
     {
         get;
-        init => field = Math.Clamp(value, Core.Armory.MinRemakeDays, Core.Armory.MaxRemakeDays);
-    } = Core.Armory.DefaultRemakeDays;
+        init => field = Math.Clamp(value, Core.Armory.MinRemakeHours, Core.Armory.MaxRemakeHours);
+    } = Core.Armory.DefaultRemakeHours;
+
+    /// <summary>The unit the player chose for <see cref="ArmoryRemakeHours"/>: days, else hours. Only how it is shown.</summary>
+    public bool ArmoryRemakeInDays { get; init; } = true;
 
     /// <summary>
     /// With enhancement on: an armory picture is enhanced on its own (within the days above and
@@ -175,7 +179,8 @@ public sealed record Settings
         && CheckUpdatesOnOpen == other.CheckUpdatesOnOpen
         && Armory == other.Armory
         && ArmorySd == other.ArmorySd
-        && ArmoryRemakeDays == other.ArmoryRemakeDays
+        && ArmoryRemakeHours == other.ArmoryRemakeHours
+        && ArmoryRemakeInDays == other.ArmoryRemakeInDays
         && ArmoryEnhanceAuto == other.ArmoryEnhanceAuto
         && ArmoryDailyLimit == other.ArmoryDailyLimit
         && ArmoryDailyMax == other.ArmoryDailyMax
@@ -184,7 +189,7 @@ public sealed record Settings
 
     public override int GetHashCode() =>
         HashCode.Combine(HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, Enhance, RestartNoticeInstalls.Count),
-            Armory, ArmorySd, ArmoryRemakeDays, ArmoryEnhanceAuto, ArmoryDailyLimit, ArmoryDailyMax, BlizzardRemoved);
+            Armory, ArmorySd, HashCode.Combine(ArmoryRemakeHours, ArmoryRemakeInDays), ArmoryEnhanceAuto, ArmoryDailyLimit, ArmoryDailyMax, BlizzardRemoved);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -193,6 +198,14 @@ public sealed record Settings
     {
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty(property, out _);
+    }
+
+    // 1.2.3 and older kept the remake hold in whole days, under this name.
+    private static int? LegacyRemakeDays(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("ArmoryRemakeDays", out var v)
+            && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var days) ? days : null;
     }
 
     public static string DefaultDir =>
@@ -223,6 +236,15 @@ public sealed record Settings
                 && (settings.WowFlavorDir is not null || settings.RestartNoticeInstalls.Count > 0))
             {
                 settings = settings with { Started = true };
+            }
+            // A file from before hours: its days, still read in days (clamped as any value is).
+            if (!Has(text, nameof(ArmoryRemakeHours)) && LegacyRemakeDays(text) is { } days)
+            {
+                settings = settings with
+                {
+                    ArmoryRemakeHours = (int)Math.Clamp(days * 24L, Core.Armory.MinRemakeHours, Core.Armory.MaxRemakeHours),
+                    ArmoryRemakeInDays = true,
+                };
             }
             return settings;
         }

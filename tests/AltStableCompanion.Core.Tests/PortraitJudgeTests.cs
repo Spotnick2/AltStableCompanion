@@ -41,41 +41,55 @@ public class PortraitJudgeTests
     }
 
     [Theory]
-    [InlineData(-1, true)]     // changed before the time the render shows: it shows the change
-    [InlineData(+1, false)]    // changed after: the render does not show it yet, the capture stays
-    public void Other_gear_takes_the_render_once_it_shows_the_change(int side, bool render)
+    [InlineData(-1)]    // changed before the time the render shows: it shows the change
+    [InlineData(+1)]    // changed after: newer than the capture all the same, closer to what is worn
+    public void Other_gear_takes_a_render_newer_than_the_capture_whenever_the_change(int side)
     {
         var gearAt = AsOf + side * 60;
-        Assert.Equal(render, RenderWins(Judge(Roster(gear: "1:100;3:0;5:301;15:400;16:500", gearAt: gearAt, updated: gearAt))));
+        Assert.True(RenderWins(Judge(Roster(gear: "1:100;3:0;5:301;15:400;16:500", gearAt: gearAt, updated: gearAt))));
         // Taken off: an empty slot is a change too, and so is a hidden helm taken off.
-        Assert.Equal(render, RenderWins(Judge(Roster(gear: "1:100;3:0;5:0;15:400;16:500", gearAt: gearAt, updated: gearAt))));
+        Assert.True(RenderWins(Judge(Roster(gear: "1:100;3:0;5:0;15:400;16:500", gearAt: gearAt, updated: gearAt))));
         // h on one side, 0 on the other is an item taken off, not one shown or hidden: gearAt, not the later read.
-        Assert.Equal(render, RenderWins(Judge(Roster(gear: "1:0;3:0;5:300;15:400;16:500", gearAt: gearAt, gearReadAt: AsOf + 3600, updated: gearAt),
+        Assert.True(RenderWins(Judge(Roster(gear: "1:0;3:0;5:300;15:400;16:500", gearAt: gearAt, gearReadAt: AsOf + 3600, updated: gearAt),
             look: "1:h;3:0;5:300")));
     }
 
+    [Fact]
+    public void A_character_still_being_geared_keeps_the_newer_render_and_a_render_older_than_the_capture_never_wins()
+    {
+        // The owner's Kaleidria, 14 November: captured a week before, nearly every slot changed
+        // since, the last change after the time the render shows. The render, not the capture.
+        Assert.True(RenderWins(Judge(Roster(gear: "1:100;3:0;5:301;15:400;16:501", gearAt: AsOf + 7200, updated: AsOf + 9000))));
+        Assert.True(RenderWins(Judge(Roster(gear: "1:101;3:0;5:300;15:h;16:500", gearAt: AsOf + 60, gearReadAt: AsOf + 600, updated: AsOf + 600,
+            lookAt: AsOf + 60))));
+        // Changed, but the render shows the character from before the capture: the capture.
+        var older = new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A,
+            LastModified = (DateTimeOffset.FromUnixTimeSeconds(E - 60) + Armory.RenderDelay).ToString("R"),
+        };
+        Assert.False(Judge(Roster(gear: "1:100;3:0;5:301;15:400;16:500", gearAt: E + 60, updated: E + 60)).RenderWins(A, E, older));
+    }
+
     [Theory]
-    [InlineData(-1, true)]
-    [InlineData(+1, false)]
+    [InlineData(+1, true)]     // after the capture: a change
+    [InlineData(-1, false)]    // at or before it: the capture read it itself
     public void Only_a_helm_shown_or_hidden_dates_from_the_last_gear_read_not_from_gear_at(int side, bool render)
     {
         // gearAt is old (the items did not change); the read of the session the helm was hidden in decides.
-        var read = AsOf + side * 60;
+        var read = E + side * 60;
         Assert.Equal(render, RenderWins(Judge(Roster(gear: "1:h;3:0;5:300;15:400;16:500", gearAt: E - 100, gearReadAt: read, updated: read + 600))));
-        // No gearReadAt: lastUpdate, which may wait a session too many but is never early.
+        // No gearReadAt: lastUpdate.
         Assert.Equal(render, RenderWins(Judge(Roster(gear: "1:100;3:0;5:300;15:h;16:500", gearAt: E - 100, updated: read), look: "1:100;15:400")));
         Assert.Equal(render, RenderWins(Judge(Roster(gear: "1:100;3:0;5:300;15:400;16:500", gearAt: E - 100, updated: read), look: "1:h;15:400")));
     }
 
     [Theory]
-    [InlineData(-1, true)]
-    [InlineData(+1, false)]
+    [InlineData(+1, true)]
+    [InlineData(-1, false)]    // before the capture: the capture shows it
     public void An_appearance_from_the_barber_after_the_capture_is_a_change_dated_by_look_at(int side, bool render)
     {
-        var lookAt = AsOf + side * 60;
-        Assert.Equal(render, RenderWins(Judge(Roster(lookAt: lookAt))));
-        // Before the capture: the capture shows it.
-        Assert.False(RenderWins(Judge(Roster(lookAt: E - 60))));
+        Assert.Equal(render, RenderWins(Judge(Roster(lookAt: E + side * 60))));
     }
 
     [Fact]
@@ -99,16 +113,6 @@ public class PortraitJudgeTests
         // A change after it still counts, beside a stale one.
         Assert.True(RenderWins(Judge(Roster(gear: "1:101;3:0;5:301;15:400;16:500", gearAt: AsOf - 60, gearReadAt: E - 7200, updated: AsOf - 60),
             look: "1:100;5:300")));
-    }
-
-    [Fact]
-    public void Both_changed_waits_for_the_later()
-    {
-        Assert.False(RenderWins(Judge(Roster(gear: "1:101;3:0;5:300;15:400;16:500", gearAt: AsOf - 60, lookAt: AsOf + 60))));
-        Assert.False(RenderWins(Judge(Roster(gear: "1:101;3:0;5:300;15:400;16:500", gearAt: AsOf + 60, lookAt: AsOf - 60))));
-        Assert.True(RenderWins(Judge(Roster(gear: "1:101;3:0;5:300;15:400;16:500", gearAt: AsOf - 60, lookAt: AsOf - 30))));
-        // Two slots, two times: the head's item (gearAt, before) and the cloak hidden (the read, after). The later.
-        Assert.False(RenderWins(Judge(Roster(gear: "1:101;3:0;5:300;15:h;16:500", gearAt: AsOf - 60, gearReadAt: AsOf + 60, updated: AsOf + 600))));
     }
 
     [Fact]

@@ -110,14 +110,23 @@ public sealed partial class Controller
         WakeArmory();
     }
 
-    /// <summary>"Check the armory now": every eligible character once more, at once.</summary>
+    /// <summary>
+    /// "Check the armory now": every eligible character once more, at once, its progress and
+    /// then what it found published as <see cref="Snapshot.ArmorySweep"/>. The next look takes
+    /// it, not one already under way: that one would leave the characters it had passed
+    /// unasked. A press while a check runs asks for another after it (the window's button is
+    /// off meanwhile; a press is never lost).
+    /// </summary>
     public void CheckArmoryNow()
     {
+        if (_armoryClient is null) return;   // no worker to take it
         lock (_gate)
         {
-            foreach (var s in _armory.Values) { s.Checked = false; s.ApiChecked = false; }
+            _sweepAsked = true;
+            if (_current.ArmorySweep is not { Running: true }) _current = _current with { ArmorySweep = ArmorySweep.Starting };
         }
         _log?.Write("armory: a check of every character asked for");
+        Changed?.Invoke();
         WakeArmory();
     }
 
@@ -174,16 +183,19 @@ public sealed partial class Controller
         WakeArmory();
     }
 
-    public void SetArmoryRemakeDays(int days)
+    /// <summary>The remake hold: <paramref name="amount"/> days or hours, as the player chose to read it.</summary>
+    public void SetArmoryRemake(int amount, bool inDays)
     {
-        days = Math.Clamp(days, Armory.MinRemakeDays, Armory.MaxRemakeDays);
+        var hours = (int)Math.Clamp(inDays ? amount * 24L : amount, Armory.MinRemakeHours, Armory.MaxRemakeHours);
+        // In days, whole days: what the box shows is what holds.
+        if (inDays) hours = Math.Max(24, hours / 24 * 24);
         lock (_gate)
         {
-            if (_settings.ArmoryRemakeDays == days) return;
-            _current = _current with { ArmoryRemakeDays = days };
+            if (_settings.ArmoryRemakeHours == hours && _settings.ArmoryRemakeInDays == inDays) return;
+            _current = _current with { ArmoryRemakeHours = hours, ArmoryRemakeInDays = inDays };
             _batch = null;
         }
-        Save(s => s with { ArmoryRemakeDays = days });
+        Save(s => s with { ArmoryRemakeHours = hours, ArmoryRemakeInDays = inDays });
         WakeArmory();
         WakeEnhancer();
     }
@@ -225,8 +237,31 @@ public sealed partial class Controller
 
     private DateTimeOffset ArmoryNow() => new(_clock());
 
-    // One look at everyone: who is due is asked, one at a time.
+    // One look at everyone. The look that takes "Check the armory now" asks everyone, says
+    // how far it got, and ends - however it ends - with what it found.
     private async Task ArmoryCycleAsync(CancellationToken stop)
+    {
+        SweepTally? sweep = null;
+        lock (_gate)
+        {
+            if (_sweepAsked && !_stopping)
+            {
+                _sweepAsked = false;
+                sweep = new SweepTally();
+            }
+        }
+        try
+        {
+            await ArmoryLookAsync(stop, sweep);
+        }
+        finally
+        {
+            if (sweep is not null) EndSweep(sweep);
+        }
+    }
+
+    // Who is due is asked, one at a time.
+    private async Task ArmoryLookAsync(CancellationToken stop, SweepTally? sweep)
     {
         Settings settings;
         WowInstall? install;
@@ -244,18 +279,26 @@ public sealed partial class Controller
                 _armory.Clear();
                 _armoryNames = new(StringComparer.Ordinal);
             }
+            // Asked for: everyone once more, the API too.
+            if (sweep is not null)
+            {
+                foreach (var s in _armory.Values) { s.Checked = false; s.ApiChecked = false; }
+            }
             if (settings.Armory != true || install is null || _current.Shell.Paused) return;
         }
         var region = Armory.RegionOf(install);
         if (region != Armory.Region)
         {
-            ArmoryRefuse(region is null ? "the game's region is not in Config.wtf" : $"armory renders are not available in your region ({region}) yet");
+            var why = region is null ? "the game's region is not in Config.wtf" : $"armory renders are not available in your region ({region}) yet";
+            ArmoryRefuse(why);
+            sweep?.Stop(why);
             return;
         }
         var (everyone, refused) = ArmoryRoster(install);
         if (refused is not null)
         {
             ArmoryRefuse(refused + ": not knowing who is hidden is not permission");
+            sweep?.Stop(refused);
             return;
         }
         lock (_gate)
@@ -266,6 +309,11 @@ public sealed partial class Controller
         }
         // The player's own API client first: a level or a login it knows decides who the CDN
         // is asked about, and when.
+        if (sweep is not null)
+        {
+            lock (_gate) sweep.Api = _blizzardClient is not null && !_blizzardRefused;
+            ReportSweep(sweep);
+        }
         if (!await ApiSweepAsync(install, generation, everyone, stop)) return;
         var characters = Drawn(Merged(everyone));
         lock (_gate) _armoryNames = characters.ToDictionary(c => c.Guid, c => c.Name, StringComparer.Ordinal);
@@ -273,8 +321,12 @@ public sealed partial class Controller
         var folder = new CutoutFolder(install.CutoutAddonDir);
         IReadOnlyDictionary<string, (string Base, CutoutMeta Meta)>? renders = null;
         var changed = false;
-        foreach (var c in characters)
+        if (sweep is not null) { sweep.Api = false; sweep.Total = characters.Count; }
+        int i;
+        for (i = 0; i < characters.Count; i++)
         {
+            var c = characters[i];
+            if (sweep is not null) { sweep.Done = i; sweep.Current = c.Name; ReportSweep(sweep); }
             var now = ArmoryNow();
             ArmoryState state;
             bool forced;
@@ -287,11 +339,12 @@ public sealed partial class Controller
                 forced = state.Forced;
             }
             // The enhancement hold: with enhancement on, a character whose last armory picture is
-            // under N days old is not looked at - the render would only wait for the enhancer.
-            // Unless the player pressed "Check now" on its row.
-            if (settings.Enhance && !forced && HeldUntil(folder, c.Guid, settings.ArmoryRemakeDays) is { } until)
+            // under the setting's hours old is not looked at - the render would only wait for the
+            // enhancer. Unless the player pressed "Check now" on its row.
+            if (settings.Enhance && !forced && HeldUntil(folder, c.Guid, settings.ArmoryRemakeHours) is { } until)
             {
                 changed |= Hold(state, until);
+                sweep?.Held.Add((c.Name, until));
                 continue;
             }
             if (!ArmoryPlanner.Due(c, state.LastChecked, state.Checked, state.Held, now)) continue;
@@ -301,6 +354,7 @@ public sealed partial class Controller
             if (refusedNow is not null)
             {
                 ArmoryRefuse(refusedNow + ": not knowing who is hidden is not permission");
+                sweep?.Stop(refusedNow);
                 break;
             }
             if (Drawn(Merged(fresh)).All(x => x.Guid != c.Guid)) continue;
@@ -330,23 +384,31 @@ public sealed partial class Controller
             {
                 case ArmoryStatus.NotModified:
                     changed |= Note(state, null);
+                    if (sweep is not null) sweep.Unchanged++;
                     break;
                 case ArmoryStatus.NoRender:
                     changed |= Note(state, "no armory render yet");
+                    sweep?.NoRender.Add(c.Name);
                     break;
                 case ArmoryStatus.Busy:
-                    lock (_gate) _armoryBusyUntil = now + (fetch.RetryAfter ?? ArmoryClient.DefaultBusy);
-                    _log?.Write($"armory: {fetch.Problem}; waiting {(fetch.RetryAfter ?? ArmoryClient.DefaultBusy).TotalMinutes:0} minutes");
+                    var wait = fetch.RetryAfter ?? ArmoryClient.DefaultBusy;
+                    lock (_gate) _armoryBusyUntil = now + wait;
+                    _log?.Write($"armory: {fetch.Problem}; waiting {wait.TotalMinutes:0} minutes");
                     changed |= Note(state, "the armory asked to wait");
+                    sweep?.Stop($"the armory asked to wait until {(now + wait).ToLocalTime():HH:mm}");
                     break;
                 case ArmoryStatus.Failed:
                     _log?.Write($"armory: {c.Name}: {fetch.Problem}");
                     changed |= Note(state, "armory: " + fetch.Problem);
+                    sweep?.Failed.Add(c.Name);
                     break;
                 case ArmoryStatus.Ok:
-                    var note = PublishArmory(install, generation, c, url, fetch);
+                    var (note, drawn) = PublishArmory(install, generation, c, url, fetch);
                     changed |= Note(state, note);
                     renders = null;
+                    if (note is not null) sweep?.Failed.Add(c.Name);
+                    else if (drawn) sweep?.New.Add(c.Name);
+                    else if (sweep is not null) sweep.Unchanged++;
                     break;
             }
             // Asked for by the player: the render now on disk - new, or the one a 304 kept - may
@@ -363,7 +425,61 @@ public sealed partial class Controller
             }
             await Task.Delay(ArmoryGap, stop);
         }
+        if (sweep is not null && i == characters.Count) { sweep.Done = i; sweep.Completed = true; }
         if (changed) RefreshArmoryRows();
+    }
+
+    /// <summary>What "Check the armory now" has found so far. Only the worker writes it.</summary>
+    private sealed class SweepTally
+    {
+        public bool Api;
+        public int Total, Done, Unchanged;
+        public string? Current, Stopped;
+        public bool Completed;
+        public readonly List<string> New = [], NoRender = [], Failed = [];
+        public readonly List<(string Name, DateTime Until)> Held = [];
+
+        public void Stop(string why) => Stopped ??= why;
+
+        public ArmorySweep ToRecord(DateTime? finished) => new()
+        {
+            Running = finished is null, Api = Api, Total = Total, Done = Done, Current = finished is null ? Current : null,
+            Finished = finished, New = [.. New], Unchanged = Unchanged, Held = [.. Held], NoRender = [.. NoRender], Failed = [.. Failed],
+            Stopped = Stopped,
+        };
+    }
+
+    private bool _sweepAsked;   // under _gate: "Check the armory now", for the next look to take
+
+    private void ReportSweep(SweepTally sweep)
+    {
+        var record = sweep.ToRecord(null);
+        lock (_gate) _current = _current with { ArmorySweep = record };
+        Changed?.Invoke();
+    }
+
+    private void EndSweep(SweepTally sweep)
+    {
+        if (!sweep.Completed) sweep.Stop(SweepStopReason() ?? "it stopped on an error; the log has it");
+        var record = sweep.ToRecord(_clock());
+        lock (_gate) _current = _current with { ArmorySweep = record };
+        _log?.Write("armory: the check: " + PassText.ArmorySweepText(record));
+        Changed?.Invoke();
+    }
+
+    // Why a look ended before everyone, as far as the controller's state tells; null when it does not.
+    private string? SweepStopReason()
+    {
+        lock (_gate)
+        {
+            if (_stopping) return "the app is closing";
+            if (_settings.Armory != true) return "the armory is turned off";
+            if (_current.Shell.Install is null) return "no game folder is set";
+            if (_current.Shell.Paused) return "the app is paused";
+            if (_armoryGeneration != _generation) return "the game folder changed";
+            if (ArmoryNow() < _armoryBusyUntil) return $"Blizzard asked to wait until {_armoryBusyUntil.ToLocalTime():HH:mm}";
+            return null;
+        }
     }
 
     // Every character not hidden, at any level - the API is asked about them all - or nobody and why.
@@ -664,11 +780,11 @@ public sealed partial class Controller
     }
 
     /// <summary>When the character's armory updates may run again, or null when nothing holds them. A history that cannot be read holds them.</summary>
-    private DateTime? HeldUntil(CutoutFolder folder, string guid, int days)
+    private DateTime? HeldUntil(CutoutFolder folder, string guid, int hours)
     {
         try
         {
-            return Armory.HeldUntil(AttemptHistory.Load(folder.EnhancedDir, guid), days, _clock());
+            return Armory.HeldUntil(AttemptHistory.Load(folder.EnhancedDir, guid), hours, _clock());
         }
         catch (Exception ex) when (ex is AttemptHistoryException or ArgumentException)
         {
@@ -680,9 +796,9 @@ public sealed partial class Controller
     /// A render that came back: decoded and cut out here, outside the gates; written under them,
     /// the install and the setting checked again. A render with the same pixels as the file on
     /// disk keeps the file - and the enhanced picture made from it - and takes the new date.
-    /// Returns the row's note, null when it went well.
+    /// Returns the row's note, null when it went well, and whether a new picture was written.
     /// </summary>
-    private string? PublishArmory(WowInstall install, int generation, ArmoryCharacter c, string url, ArmoryFetch fetch)
+    private (string? Note, bool Drawn) PublishArmory(WowInstall install, int generation, ArmoryCharacter c, string url, ArmoryFetch fetch)
     {
         var now = DateTimeOffset.UtcNow;
         long? skew = fetch.Date is { } date && Math.Abs((date - now).TotalSeconds) > Armory.SkewTolerance
@@ -710,18 +826,19 @@ public sealed partial class Controller
         catch (Exception ex) when (ex is PngFormatException or ThumbnailException or ArgumentException)
         {
             _log?.Write($"armory: {c.Name}: the render could not be read: {ex.Message}");
-            return "the armory render could not be read";
+            return ("the armory render could not be read", false);
         }
 
+        var drawn = false;
         lock (_passGate)
         {
             lock (_gate)
             {
-                if (_stopping || generation != _generation || _settings.Armory != true) return null;
+                if (_stopping || generation != _generation || _settings.Armory != true) return (null, false);
             }
             // Hidden since the look, or an account that can no longer be read: not written.
             var fresh = ArmoryRoster(install);
-            if (fresh.Refused is not null || Drawn(Merged(fresh.Characters)).All(x => x.Guid != c.Guid)) return null;
+            if (fresh.Refused is not null || Drawn(Merged(fresh.Characters)).All(x => x.Guid != c.Guid)) return (null, false);
             var folder = new CutoutFolder(install.CutoutAddonDir);
             try
             {
@@ -743,20 +860,21 @@ public sealed partial class Controller
                 else
                 {
                     folder.WriteArmory(fileBase, tga, meta);
+                    drawn = true;
                     _log?.Write($"armory: wrote Armory\\{fileBase}.tga for {c.Name} (rendered {meta.LastModified})");
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TgaFormatException)
             {
                 _log?.Write($"armory: {c.Name}: the render could not be written: {ex.Message}");
-                return "the armory render could not be written";
+                return ("the armory render could not be written", false);
             }
             RefreshAfterEnhancement(folder, generation, null);
             lock (_gate) _current = _current with { RestartNotice = RestartNoticeDue(install) };
         }
         Changed?.Invoke();
         WakeEnhancer();
-        return null;
+        return (null, drawn);
     }
 
     /// <summary>The rows again, with what the armory said of each character: after a look, or a setting.</summary>

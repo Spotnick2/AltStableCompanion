@@ -234,7 +234,7 @@ public class ArmoryEnhanceTests
         c.SetEnhance(true, 10, EnhanceStyles.WowLike);
         ArmoryWorkerTests.Until(() => folder.Inventory(PortraitJudge.Unknown).SingleOrDefault()?.Enhanced is not null, "the picture");
         Assert.Equal(Attempt.FromArmory, Last(folder).Source);
-        Assert.NotNull(Armory.HeldUntil(AttemptHistory.Load(folder.EnhancedDir, A), 7, DateTime.Now));
+        Assert.NotNull(Armory.HeldUntil(AttemptHistory.Load(folder.EnhancedDir, A), 7 * 24, DateTime.Now));
     }
 
     [Fact]

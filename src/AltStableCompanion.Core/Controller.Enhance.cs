@@ -318,7 +318,7 @@ public sealed partial class Controller
                 // The armory hold, at the launch too: a render's picture is made at most every N
                 // days unless the player asked for this one - the retry after a cancel included.
                 var confirmed = Allowed(signature) || AskedFor(c.Guid, now);
-                if (now.Armory && !confirmed && (Armory.HeldUntil(history, settings.ArmoryRemakeDays, _clock()) is not null
+                if (now.Armory && !confirmed && (Armory.HeldUntil(history, settings.ArmoryRemakeHours, _clock()) is not null
                     || !settings.ArmoryEnhanceAuto
                     || (settings.ArmoryDailyLimit && Armory.LaunchedToday(folder.EnhancedDir, _clock()) >= settings.ArmoryDailyMax)))
                 {
@@ -490,7 +490,7 @@ public sealed partial class Controller
             if (p.Armory && !allowed.Contains(signature) && !AskedFor(c.Guid, p))
             {
                 // A render's picture at most every N days (#63): this one waits, unasked, until then.
-                if (Armory.HeldUntil(history, settings.ArmoryRemakeDays, _clock()) is not null) continue;
+                if (Armory.HeldUntil(history, settings.ArmoryRemakeHours, _clock()) is not null) continue;
                 // Not on its own: offered, as a picture of other settings is.
                 if (!settings.ArmoryEnhanceAuto)
                 {

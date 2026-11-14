@@ -24,7 +24,7 @@ public sealed partial class Controller
                 {
                     null => "not asked yet",
                     false => "off",
-                    true => $"on ({(_settings.ArmorySd ? "SD" : "HD")}; an armory picture enhanced at most every {_settings.ArmoryRemakeDays} days)",
+                    true => $"on ({(_settings.ArmorySd ? "SD" : "HD")}; an armory picture enhanced at most every {Armory.RemakeText(_settings.ArmoryRemakeHours, _settings.ArmoryRemakeInDays)})",
                 }
                 // Where the player's own API client stands, never the client itself.
                 + _current.BlizzardClient switch

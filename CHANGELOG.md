@@ -6,6 +6,26 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- "Check the armory now" says what it is doing: "Checking 3 of 8: Drucida Komakino...", then
+  what it found - new pictures, unchanged ones, characters held by the remake setting and
+  until when, and why it stopped if it did. The button is off while it runs.
+
+### Changed
+
+- The remake setting takes hours or days ("at most every 12 hours"). A setting saved in days
+  stays in days.
+
+### Fixed
+
+- A character whose gear changed since their capture gets their armory picture as soon as the
+  armory has drawn them since the capture, not only once it shows the very last change. A
+  character still being geared up changed again before each new armory picture, so they kept
+  a capture of last week, and an armory picture that had taken over went back to the capture
+  at the next change (an enhanced picture spent for nothing). A character that has not changed
+  still keeps their capture.
+
 ## [1.2.3]
 
 Enhanced pictures that 1.2.0 lost come back, rebuilt from the copies the app kept, with no new

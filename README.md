@@ -77,7 +77,8 @@ change your answer.
 - **Which picture shows.** A capture is sharper than the armory's picture and may have an
   enhanced picture, so it stays the portrait for as long as it shows the character as they
   are. Once the character changes gear, or their look at the barber, the armory picture
-  takes over as soon as it shows the change (its date minus 7 hours). A capture always shows
+  takes over as soon as it is newer than the capture (its date minus 7 hours), even if it
+  does not show the latest change yet: the next one will. A capture always shows
   at once: capture with `/alts portrait` whenever you want the new look now. A capture made
   before AltStable recorded the gear (or one whose record is gone) falls back to the date
   alone.

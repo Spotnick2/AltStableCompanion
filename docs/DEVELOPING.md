@@ -20,8 +20,9 @@ With the player's yes, it also takes a portrait from the Forever armory's render
 character (#63): a public file on Blizzard's CDN, named after the GUID's player number,
 fetched conditionally and kept in `Cutouts\Armory\` beside the capture's cutout. The capture
 stays the portrait until the roster says the character changed since it (gear against the
-capture record's `look`, or `lookAt`), and the render shows that change: `PortraitJudge.cs`
-(contract section 4, AltStable#310). The schedule and the measurements it rests on are in
+capture record's `look`, or `lookAt`), and the render is newer than the capture:
+`PortraitJudge.cs` (contract section 4, AltStable#310, amended 2026-11-14 - before, the render
+had to show the latest change). The schedule and the measurements it rests on are in
 `Armory.cs`. A player who saves their own Battle.net API client also has
 the profile API asked about every character not hidden, every 6 hours (`BlizzardApi.cs`):
 its level and last login are merged in, never lowering what the roster says.

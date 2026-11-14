@@ -236,12 +236,18 @@
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="28,0,0,0">
               <TextBlock Text="Remake an enhanced picture after an armory update at most every" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="300" />
-              <NumericUpDown Value="{Binding ArmoryRemakeDays}" Minimum="1" Maximum="90" Increment="1" FormatString="0" Width="110"
+              <NumericUpDown Value="{Binding ArmoryRemakeAmount}" Minimum="1" Maximum="{Binding ArmoryRemakeMax}" Increment="1" FormatString="0" Width="110"
                              ToolTip.Tip="Each enhanced picture uses Codex usage; the armory draws a character again every time you play it" />
-              <TextBlock Text="days" VerticalAlignment="Center" />
+              <ComboBox SelectedIndex="{Binding ArmoryRemakeUnit}" VerticalAlignment="Center" MinWidth="90">
+                <ComboBoxItem Content="hours" />
+                <ComboBoxItem Content="days" />
+              </ComboBox>
             </StackPanel>
             <Button Content="Check the armory now" Command="{Binding CheckArmory}" Margin="28,0,0,0" HorizontalAlignment="Left"
-                    ToolTip.Tip="Ask for every character's picture once more, now" />
+                    ToolTip.Tip="Ask for every character's picture once more, now; characters held by the remake setting are not asked" />
+            <!-- Its progress while it runs, then what it found (PassText.ArmorySweepText). -->
+            <TextBlock Margin="28,0,0,0" Text="{Binding ArmorySweepText}" TextWrapping="Wrap"
+                       IsVisible="{Binding ArmorySweepText, Converter={x:Static ObjectConverters.IsNotNull}}" />
             <TextBlock Classes="dim" Margin="28,0,0,0" Text="{Binding ArmoryExplanation}" TextWrapping="Wrap" />
 
             <!-- The optional API client (#63, M3): the player's own, typed once and never shown
