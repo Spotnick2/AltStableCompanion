@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.2.4]
+
+A character you are still gearing up gets their armory picture instead of last week's capture,
+"Check the armory now" says what it is doing, and the remake setting takes hours.
+
 ### Added
 
 - "Check the armory now" says what it is doing: "Checking 3 of 8: Drucida Komakino...", then
