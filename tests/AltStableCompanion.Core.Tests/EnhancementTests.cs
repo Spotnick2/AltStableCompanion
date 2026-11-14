@@ -184,9 +184,10 @@ public class EligibilityTests
             (c.Guid, c.Name, c.Class, c.Race, c.Gender, c.Level, c.Updated));
         Assert.Equal(["Player-1-CCCC"], roster.Hidden);
 
-        // The shared helper's file has a decoy roster: its one character, with nothing known.
+        // The shared helper's file has a decoy roster: each captured character by name (#77),
+        // and its own one character, with nothing else known.
         var decoy = SavedVariablesReader.ParseRoster(TestData.SavedVariables([TestData.Record("A", "Player-1-AAAA", 1, new DateTime(2026, 9, 29))]), "x");
-        Assert.Equal(("Player-1-0001", "Some Alt", 0), (decoy.Characters.Single().Guid, decoy.Characters.Single().Name, decoy.Characters.Single().Level));
+        Assert.Equal([("Player-1-AAAA", "A", 0), ("Player-1-0001", "Some Alt", 0)], decoy.Characters.Select(c => (c.Guid, c.Name, c.Level)));
         Assert.Empty(decoy.Hidden);
         // No roster tables at all, or one that stops mid-table: captures are still read, the roster is empty.
         var store2 = "AltStablePortraits = {\n[\"version\"] = 1,\n[\"renders\"] = {\n" + TestData.Record("A", "Player-1-AAAA", 1, new DateTime(2026, 9, 29)) + ",\n},\n}\n";
