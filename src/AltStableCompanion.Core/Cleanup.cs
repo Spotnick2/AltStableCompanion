@@ -77,6 +77,41 @@ public static class Leftovers
     }
 
     /// <summary>
+    /// Every GUID the companion still keeps a file for: a capture sidecar, an armory sidecar,
+    /// an enhanced sidecar that names it, an attempt history. One of these left by a clean-up
+    /// cut short - the portrait went, its sidecar could not - keeps the character offered for
+    /// another try, portrait or not (Codex on #78). Unreadable folders own nothing.
+    /// </summary>
+    public static IReadOnlySet<string> OwnedGuids(CutoutFolder folder)
+    {
+        var owned = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var (dir, read) in new (string, Func<string, CutoutMeta?>)[]
+                     { (folder.CutoutsDir, folder.ReadMeta), (folder.ArmoryDir, folder.ReadArmoryMeta), (folder.EnhancedDir, folder.ReadEnhancedMeta) })
+            {
+                if (!Directory.Exists(dir)) continue;
+                foreach (var json in Directory.EnumerateFiles(dir, "*.json"))
+                {
+                    var fileBase = Path.GetFileNameWithoutExtension(json);
+                    if (fileBase.EndsWith(".attempts", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var guid = fileBase[..^".attempts".Length];
+                        if (ManifestWriter.IsSafeKey(guid)) owned.Add(guid);
+                        continue;
+                    }
+                    if (read(fileBase)?.Guid is { } g && ManifestWriter.IsSafeKey(g)) owned.Add(g);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // What could be listed is kept; a folder that could not be is nobody's this time.
+        }
+        return owned;
+    }
+
+    /// <summary>
     /// The files the companion keeps for one character, for "Clean up the character list", in
     /// the order to delete them - each group's owner last, and the portraits after the rest:
     /// <list type="bullet">
