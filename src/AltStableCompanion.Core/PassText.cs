@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace AltStableCompanion.Core;
 
 /// <summary>
@@ -155,17 +157,51 @@ public static class PassText
     };
 
     /// <summary>The words under the armory setting: what is asked, of whom, when, and what wins.</summary>
-    public static string ArmoryExplanation(int days, bool auto = true, bool limit = true, int max = Armory.DefaultDailyMax) =>
+    public static string ArmoryExplanation(int hours, bool inDays = true, bool auto = true, bool limit = true, int max = Armory.DefaultDailyMax) =>
         "When on, the app asks Blizzard's picture server (render.worldofwarcraft.com) for the armory's picture of each "
         + "character of level 10 or more that is not hidden: once when it starts, then every hour from 6 to 24 hours after "
         + "you played that character, since the armory draws it again about 7 hours after you log off. One request at a time; "
         + "the address names the character by the number in its GUID, and nothing else is sent. A capture stays the portrait "
-        + "until the character changes gear or look; the armory picture takes over once it shows the change. US region only, for now. "
+        + "until the character changes gear or look; the armory picture newer than the capture then takes over. US region only, for now. "
         + "With enhanced portraits on, a new armory picture is "
         + (auto ? "enhanced on its own" : "offered under the enhancement settings, and enhanced when you ask")
-        + $" - at most once every {days} day{(days == 1 ? "" : "s")} per character, and the armory is not asked about that character meanwhile"
+        + $" - at most once every {Armory.RemakeText(hours, inDays)} per character, and the armory is not asked about that character meanwhile"
         + (auto && limit ? $"; and at most {max} automatic armory picture{(max == 1 ? "" : "s")} in any 24 hours" : "")
         + ". A picture drawn again that looks the same keeps the enhanced picture made from it. A capture is always enhanced at once.";
+
+    /// <summary>
+    /// The line under "Check the armory now": how far it got while it runs, then what it found -
+    /// "01:49: 1 new picture (Drucida Komakino), 6 unchanged, 1 held until 08:21 (Kaleidria Kashmere)".
+    /// </summary>
+    public static string ArmorySweepText(ArmorySweep s)
+    {
+        if (s.Running)
+        {
+            if (s.Api) return "Asking the Battle.net API about your characters first...";
+            if (s.Total == 0) return "Checking the armory...";
+            return $"Checking {Math.Min(s.Done + 1, s.Total)} of {s.Total}: {s.Current}...";
+        }
+        var parts = new List<string>();
+        if (s.New.Count > 0) parts.Add($"{Count(s.New.Count, "new picture")} ({string.Join(", ", s.New)})");
+        if (s.Unchanged > 0) parts.Add($"{s.Unchanged} unchanged");
+        // Grouped by when the hold ends: "1 held until 08:21 (Kaleidria Kashmere)".
+        foreach (var g in s.Held.GroupBy(h => h.Until.ToString("HH:mm", CultureInfo.InvariantCulture) + (h.Until.Date == s.Finished?.Date ? "" : h.Until.ToString(" ddd", CultureInfo.InvariantCulture))))
+        {
+            parts.Add($"{g.Count()} held by the remake setting until {g.Key} ({string.Join(", ", g.Select(h => h.Name))})");
+        }
+        if (s.NoRender.Count > 0) parts.Add($"{s.NoRender.Count} not drawn by the armory yet ({string.Join(", ", s.NoRender)})");
+        if (s.Failed.Count > 0) parts.Add($"{s.Failed.Count} could not be checked ({string.Join(", ", s.Failed)}; the log says why)");
+        var when = s.Finished is { } f ? f.ToString("HH:mm", CultureInfo.InvariantCulture) + ": " : "";
+        var found = parts.Count > 0 ? string.Join(", ", parts)
+            : s.Total == 0 && s.Stopped is null ? "no character of level 10 or more to check" : null;
+        if (s.Stopped is { } why)
+        {
+            return when + (found is null ? $"not checked: {why}." : $"{found}; then stopped: {why}.");
+        }
+        return when + found + ".";
+    }
+
+    private static string Count(int n, string what) => $"{n} {what}{(n == 1 ? "" : "s")}";
 
     /// <summary>
     /// The words beside the enhancement setting: what it does, what leaves the PC, when it

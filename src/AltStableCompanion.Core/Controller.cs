@@ -31,12 +31,16 @@ public sealed record Snapshot(
     /// <summary>Portraits from the armory: null until the player has answered (#63).</summary>
     bool? Armory = null,
     bool ArmorySd = false,
-    int ArmoryRemakeDays = Core.Armory.DefaultRemakeDays,
+    /// <summary>The remake hold in hours, and whether the player reads it in days.</summary>
+    int ArmoryRemakeHours = Core.Armory.DefaultRemakeHours,
+    bool ArmoryRemakeInDays = true,
     bool ArmoryEnhanceAuto = true,
     bool ArmoryDailyLimit = true,
     int ArmoryDailyMax = Core.Armory.DefaultDailyMax,
     /// <summary>The player's own Battle.net API client (#63, M3): never the id or the secret, only where it stands.</summary>
-    BlizzardClientState BlizzardClient = BlizzardClientState.None);
+    BlizzardClientState BlizzardClient = BlizzardClientState.None,
+    /// <summary>"Check the armory now": its progress while it runs, then what it found. Null before the first press this run.</summary>
+    ArmorySweep? ArmorySweep = null);
 
 public enum BlizzardClientState
 {
@@ -153,7 +157,8 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                 CheckUpdatesOnOpen = _settings.CheckUpdatesOnOpen,
                 Armory = _settings.Armory,
                 ArmorySd = _settings.ArmorySd,
-                ArmoryRemakeDays = _settings.ArmoryRemakeDays,
+                ArmoryRemakeHours = _settings.ArmoryRemakeHours,
+                ArmoryRemakeInDays = _settings.ArmoryRemakeInDays,
                 ArmoryEnhanceAuto = _settings.ArmoryEnhanceAuto,
                 ArmoryDailyLimit = _settings.ArmoryDailyLimit,
                 ArmoryDailyMax = _settings.ArmoryDailyMax,

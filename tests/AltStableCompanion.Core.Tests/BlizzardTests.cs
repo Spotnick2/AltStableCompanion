@@ -290,7 +290,7 @@ public class ArmoryApiWorkerTests
         using var c = Started(t, cdn, clock: () => DateTime.Now + shift);
         Until(() => Renders(cdn) == 1, "the look at the start");
         shift = Armory.CheckEvery + TimeSpan.FromMinutes(1);
-        c.SetArmoryRemakeDays(8);                                     // wakes the worker, as its minute's tick would
+        c.SetArmoryRemake(8, inDays: true);                                     // wakes the worker, as its minute's tick would
         Until(() => Renders(cdn) == 2, "the hourly look, from the API's login");
         Assert.Equal(1, Profiles(cdn));                               // the API itself: every 6 hours
     }
@@ -361,7 +361,7 @@ public class ArmoryApiWorkerTests
         using var c = Started(t, cdn);
         Until(() => c.Current.BlizzardClient == BlizzardClientState.Refused, "the refusal");
         Until(() => Renders(cdn) == 2, "both characters asked of the CDN");
-        c.SetArmoryRemakeDays(8);                                     // another look: the API stays off
+        c.SetArmoryRemake(8, inDays: true);                                     // another look: the API stays off
         Thread.Sleep(1500);
         Assert.Equal(1, FakeBattleNet.Count(cdn, BlizzardApi.TokenHost));
         Assert.Equal(0, Profiles(cdn));
@@ -387,12 +387,12 @@ public class ArmoryApiWorkerTests
         };
         using var c = Started(t, cdn, clock: () => DateTime.Now + shift);
         Until(() => Profiles(cdn) == 1, "the API asked");
-        c.SetArmoryRemakeDays(8);
+        c.SetArmoryRemake(8, inDays: true);
         Thread.Sleep(1500);
         Assert.Equal(0, Renders(cdn));                                // everyone waits
         busy = false;
         shift = ArmoryClient.DefaultBusy + TimeSpan.FromMinutes(1);
-        c.SetArmoryRemakeDays(9);
+        c.SetArmoryRemake(9, inDays: true);
         Until(() => Renders(cdn) == 1, "the CDN after the wait");
         Assert.Equal(2, Profiles(cdn));                               // and the busy one asked again
     }
@@ -645,11 +645,11 @@ public class ArmoryApiWorkerTests
         busy = true;
         Assert.StartsWith("Battle.net could not be asked", await c.TestBlizzardClientAsync());
         shift = Armory.CheckEvery + TimeSpan.FromMinutes(1);
-        c.SetArmoryRemakeDays(8);                                     // wakes the worker: the hour is due, the wait is not over
+        c.SetArmoryRemake(8, inDays: true);                                     // wakes the worker: the hour is due, the wait is not over
         Thread.Sleep(1500);
         Assert.Equal(1, Renders(cdn));
         shift = TimeSpan.FromHours(2) + TimeSpan.FromMinutes(1);
-        c.SetArmoryRemakeDays(9);
+        c.SetArmoryRemake(9, inDays: true);
         Until(() => Renders(cdn) == 2, "the CDN once the wait is over");
     }
 

@@ -179,12 +179,61 @@ public class ArmoryRuleTests
         var dir = Path.Combine(t.Root, "enhanced");
         var t0 = new DateTime(2026, 11, 1, 12, 0, 0);
         // A legacy history (no source) is all captures: no hold.
-        Assert.Null(Armory.HeldUntil(History(dir, "Player-1-0000AAAA", (null, t0)), 7, t0.AddHours(1)));
+        Assert.Null(Armory.HeldUntil(History(dir, "Player-1-0000AAAA", (null, t0)), 7 * 24, t0.AddHours(1)));
         // An armory attempt, then a capture's: the capture lifts nothing.
         var h = History(dir, "Player-1-0000BBBB", (Attempt.FromArmory, t0), (Attempt.FromCapture, t0.AddDays(1)));
-        Assert.Equal(t0.AddDays(7), Armory.HeldUntil(h, 7, t0.AddDays(2)));
-        Assert.Null(Armory.HeldUntil(h, 7, t0.AddDays(7)));
-        Assert.Equal(t0.AddDays(1), Armory.HeldUntil(h, 0, t0.AddHours(1)));   // no 0: at least a day
+        Assert.Equal(t0.AddDays(7), Armory.HeldUntil(h, 7 * 24, t0.AddDays(2)));
+        Assert.Null(Armory.HeldUntil(h, 7 * 24, t0.AddDays(7)));
+        // In hours: twelve of them.
+        Assert.Equal(t0.AddHours(12), Armory.HeldUntil(h, 12, t0.AddHours(1)));
+        Assert.Null(Armory.HeldUntil(h, 12, t0.AddHours(12)));
+        Assert.Equal(t0.AddHours(1), Armory.HeldUntil(h, 0, t0.AddMinutes(30)));   // no 0: at least an hour
+    }
+
+    [Fact]
+    public void The_remake_hold_is_kept_in_hours_and_a_file_in_days_reads_as_days()
+    {
+        using var t = new TempInstall();
+        var dir = Path.Combine(t.Root, "data");
+        Directory.CreateDirectory(dir);
+        // 1.2.3's file: the owner's own, a day.
+        File.WriteAllText(Path.Combine(dir, "settings.json"), "{ \"Started\": true, \"Armory\": true, \"ArmoryRemakeDays\": 1 }");
+        var s = Settings.Load(dir);
+        Assert.Equal((24, true), (s.ArmoryRemakeHours, s.ArmoryRemakeInDays));
+        Assert.Equal("1 day", Armory.RemakeText(s.ArmoryRemakeHours, s.ArmoryRemakeInDays));
+        // Out of range, clamped as any value is.
+        File.WriteAllText(Path.Combine(dir, "settings.json"), "{ \"Started\": true, \"ArmoryRemakeDays\": 500 }");
+        Assert.Equal(Armory.MaxRemakeHours, Settings.Load(dir).ArmoryRemakeHours);
+        // Saved again: in hours, and the old name is gone - this version's file says what it holds.
+        var hours = s with { ArmoryRemakeHours = 12, ArmoryRemakeInDays = false };
+        hours.Save(dir);
+        var text = File.ReadAllText(Path.Combine(dir, "settings.json"));
+        Assert.DoesNotContain("ArmoryRemakeDays", text);
+        Assert.Equal(hours, Settings.Load(dir));
+        Assert.Equal("12 hours", Armory.RemakeText(12, false));
+        // A file that says both: the hours.
+        File.WriteAllText(Path.Combine(dir, "settings.json"), "{ \"ArmoryRemakeDays\": 3, \"ArmoryRemakeHours\": 5, \"ArmoryRemakeInDays\": false }");
+        Assert.Equal((5, false), (Settings.Load(dir).ArmoryRemakeHours, Settings.Load(dir).ArmoryRemakeInDays));
+    }
+
+    [Fact]
+    public void The_check_s_line_says_what_it_found_and_why_it_stopped()
+    {
+        var at = new DateTime(2026, 11, 14, 1, 49, 0);
+        var s = new ArmorySweep
+        {
+            Finished = at, Total = 8, Done = 8, New = ["Drucida Komakino"], Unchanged = 5,
+            Held = [("Kaleidria Kashmere", at.Date.AddHours(8).AddMinutes(21)), ("Kalizo Mistwalker", at.Date.AddDays(1).AddHours(9))],
+            NoRender = ["Morphisto Ruskador"],
+        };
+        Assert.Equal("01:49: 1 new picture (Drucida Komakino), 5 unchanged, 1 held by the remake setting until 08:21 (Kaleidria Kashmere), "
+            + "1 held by the remake setting until 09:00 Sun (Kalizo Mistwalker), 1 not drawn by the armory yet (Morphisto Ruskador).", PassText.ArmorySweepText(s));
+        Assert.Equal("01:49: 2 could not be checked (A, B; the log says why); then stopped: the app is paused.",
+            PassText.ArmorySweepText(new ArmorySweep { Finished = at, Total = 3, Failed = ["A", "B"], Stopped = "the app is paused" }));
+        Assert.Equal("01:49: not checked: the armory is turned off.", PassText.ArmorySweepText(new ArmorySweep { Finished = at, Stopped = "the armory is turned off" }));
+        Assert.Equal("01:49: no character of level 10 or more to check.", PassText.ArmorySweepText(new ArmorySweep { Finished = at }));
+        Assert.Equal("Asking the Battle.net API about your characters first...", PassText.ArmorySweepText(ArmorySweep.Starting with { Api = true }));
+        Assert.Equal("Checking 3 of 8: Kalizo Mistwalker...", PassText.ArmorySweepText(new ArmorySweep { Running = true, Total = 8, Done = 2, Current = "Kalizo Mistwalker" }));
     }
 
     [Fact]
@@ -197,12 +246,13 @@ public class ArmoryRuleTests
         var s = Settings.Load(dir);
         Assert.Null(s.Armory);
         Assert.False(s.ArmorySd);
-        Assert.Equal(7, s.ArmoryRemakeDays);
-        var answered = s with { Armory = false, ArmoryRemakeDays = 500 };
-        Assert.Equal(90, answered.ArmoryRemakeDays);
+        Assert.Equal((7 * 24, true), (s.ArmoryRemakeHours, s.ArmoryRemakeInDays));
+        var answered = s with { Armory = false, ArmoryRemakeHours = 50_000 };
+        Assert.Equal(90 * 24, answered.ArmoryRemakeHours);
         answered.Save(dir);
         Assert.Equal(answered, Settings.Load(dir));
-        Assert.NotEqual(s, answered with { ArmoryRemakeDays = 7 });           // false is an answer
+        Assert.NotEqual(s, answered with { ArmoryRemakeHours = 7 * 24 });     // false is an answer
+        Assert.NotEqual(s, s with { ArmoryRemakeInDays = false });
         Assert.NotEqual(s with { Armory = true }, s with { Armory = true, ArmorySd = true });
     }
 }
@@ -620,7 +670,7 @@ public class ArmoryWorkerTests
     internal static Controller Started(TempInstall t, FakeCdn cdn, bool? armory = true, bool enhance = false, EnhanceHooks? hooks = null, int days = 7,
         Func<DateTime>? clock = null, bool paused = false)
     {
-        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Armory = armory, Enhance = enhance, ArmoryRemakeDays = days, Paused = paused }.Save(Data(t));
+        new Settings { Started = true, WowFlavorDir = t.Install.FlavorDir, Armory = armory, Enhance = enhance, ArmoryRemakeHours = days * 24, Paused = paused }.Save(Data(t));
         var c = new Controller(new StartupOptions(DataDir: Data(t)), () => throw new InvalidOperationException("detection was used"),
             enhance: hooks, armoryHttp: () => cdn, clock: clock);
         c.Start();
@@ -723,6 +773,65 @@ public class ArmoryWorkerTests
     private const string B = "Player-6796-00381101";
     private static long DaysAgo(int days) => DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeSeconds();
 
+    [Fact]
+    public void Check_the_armory_now_says_how_far_it_got_and_then_what_it_found()
+    {
+        using var t = new TempInstall();
+        Roster(t, also: (B, "Drucida Komakino", false));
+        var cdn = new FakeCdn
+        {
+            Respond = r => r.RequestUri!.ToString() == AUrl ? FakeCdn.Png(FakeCdn.RenderPng(150), "\"v1\"", Made) : new HttpResponseMessage(HttpStatusCode.Forbidden),
+        };
+        using var c = Started(t, cdn);
+        Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == B && r.ArmoryNote == "no armory render yet") == true
+            && c.Current.Shell.Report.Portraits.Any(r => r.Guid == A && r.FromArmory), "the first look");
+        Assert.Null(c.Current.ArmorySweep);                          // the look at the start says nothing: not asked for
+
+        var seen = new List<string>();
+        c.Changed += () => { if (c.Current.ArmorySweep is { } s) lock (seen) seen.Add(PassText.ArmorySweepText(s)); };
+        // Drucida drawn for the first time; Karuzo the same as before.
+        cdn.Respond = r => r.RequestUri!.ToString() == AUrl
+            ? new HttpResponseMessage(HttpStatusCode.NotModified)
+            : FakeCdn.Png(FakeCdn.RenderPng(60), "\"d1\"", Made);
+        c.CheckArmoryNow();
+        Assert.True(c.Current.ArmorySweep!.Running);                  // said at once, before the worker takes it
+        Assert.Equal("Checking the armory...", PassText.ArmorySweepText(c.Current.ArmorySweep));
+        Until(() => c.Current.ArmorySweep is { Running: false }, "the end of the check");
+        var done = c.Current.ArmorySweep!;
+        Assert.Equal(["Drucida Komakino"], done.New);
+        Assert.Equal((1, 2, 2, null), (done.Unchanged, done.Total, done.Done, done.Stopped));
+        Assert.Matches(@"^\d\d:\d\d: 1 new picture \(Drucida Komakino\), 1 unchanged\.$", PassText.ArmorySweepText(done));
+        lock (seen)
+        {
+            Assert.Contains("Checking 1 of 2: Drucida Komakino...", seen);
+            Assert.Contains("Checking 2 of 2: Karuzo Macphisto...", seen);
+        }
+        Assert.Contains("armory: the check: ", File.ReadAllText(c.LogPath));
+
+        // Paused: it says so, rather than nothing.
+        c.SetPaused(true);
+        c.CheckArmoryNow();
+        Until(() => c.Current.ArmorySweep is { Running: false, Stopped: not null }, "the paused check's end");
+        Assert.EndsWith("not checked: the app is paused.", PassText.ArmorySweepText(c.Current.ArmorySweep!));
+    }
+
+    [Fact]
+    public void The_remake_hold_is_set_in_hours_or_whole_days()
+    {
+        using var t = new TempInstall();
+        Roster(t);
+        using var c = Started(t, new FakeCdn());
+        c.SetArmoryRemake(30, inDays: false);
+        Assert.Equal((30, false), (c.Current.ArmoryRemakeHours, c.Current.ArmoryRemakeInDays));
+        Assert.Equal((30, false), (Settings.Load(Data(t)).ArmoryRemakeHours, Settings.Load(Data(t)).ArmoryRemakeInDays));
+        c.SetArmoryRemake(2, inDays: true);
+        Assert.Equal((48, true), (Settings.Load(Data(t)).ArmoryRemakeHours, Settings.Load(Data(t)).ArmoryRemakeInDays));
+        c.SetArmoryRemake(0, inDays: true);                           // no 0: a whole day, never "0 days"
+        Assert.Equal((24, true), (c.Current.ArmoryRemakeHours, c.Current.ArmoryRemakeInDays));
+        c.SetArmoryRemake(5000, inDays: false);                       // past 90 days: 90 days
+        Assert.Equal(Armory.MaxRemakeHours, c.Current.ArmoryRemakeHours);
+    }
+
     [Theory]
     [InlineData(true)]       // the second character hidden while the first was asked
     [InlineData(false)]      // the account no longer readable
@@ -782,7 +891,7 @@ public class ArmoryWorkerTests
         Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.ArmoryNote == "the armory asked to wait") == true, "the wait");
         cdn.Respond = _ => FakeCdn.Png(FakeCdn.RenderPng(150), "\"v1\"", Made);
         shift = ArmoryClient.DefaultBusy + TimeSpan.FromMinutes(1);
-        c.SetArmoryRemakeDays(8);                                     // wakes the worker, as its minute's tick would
+        c.SetArmoryRemake(8, inDays: true);                                     // wakes the worker, as its minute's tick would
         var folder = new CutoutFolder(t.Install.CutoutAddonDir);
         Until(() => folder.ArmoryRenders().ContainsKey(A), "the render after the wait");
         Assert.Equal(2, cdn.Count);

@@ -97,7 +97,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private bool _checkUpdatesOnOpen;
     private bool? _armory;
     private bool _armorySd;
-    private int _armoryDays = Core.Armory.DefaultRemakeDays;
+    private int _armoryHours = Core.Armory.DefaultRemakeHours;
+    private bool _armoryInDays = true;
+    private string? _armorySweepText;
     private bool _armoryAsk;
     private bool _armoryAuto = true;
     private bool _armoryLimit = true;
@@ -243,19 +245,52 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         set { if (value && Set(ref _armorySd, true)) { Raise(nameof(ArmoryHd)); _controller.SetArmorySd(true); } }
     }
 
-    /// <summary>The spinner's value: whole days, 1 to 90; anything else is put back.</summary>
-    public decimal? ArmoryRemakeDays
+    /// <summary>The spinner's value, in the unit beside it: 1 to 90 days, or 1 to 2160 hours; anything else is put back.</summary>
+    public decimal? ArmoryRemakeAmount
     {
-        get => _armoryDays;
+        get => _armoryInDays ? _armoryHours / 24 : _armoryHours;
         set
         {
-            var days = (int)Math.Clamp(Math.Round(value ?? _armoryDays), Core.Armory.MinRemakeDays, Core.Armory.MaxRemakeDays);
-            if (Set(ref _armoryDays, days, nameof(ArmoryRemakeDays))) { Raise(nameof(ArmoryExplanation)); _controller.SetArmoryRemakeDays(days); }
-            else if (value != days) Raise(nameof(ArmoryRemakeDays));
+            var amount = (int)Math.Clamp(Math.Round(value ?? (decimal)ArmoryRemakeAmount!), 1, ArmoryRemakeMax);
+            SetRemake(amount, _armoryInDays);
+            if (value != amount) Raise(nameof(ArmoryRemakeAmount));
         }
     }
 
-    public string ArmoryExplanation => PassText.ArmoryExplanation(_armoryDays, _armoryAuto, _armoryLimit, _armoryMax);
+    /// <summary>The unit list's choice: 0 hours, 1 days. The number stays; what it counts changes.</summary>
+    public int ArmoryRemakeUnit
+    {
+        get => _armoryInDays ? 1 : 0;
+        set
+        {
+            if (value is not (0 or 1) || (value == 1) == _armoryInDays) return;
+            var amount = (int)ArmoryRemakeAmount!;
+            SetRemake(Math.Min(amount, value == 1 ? Core.Armory.MaxRemakeHours / 24 : Core.Armory.MaxRemakeHours), value == 1);
+        }
+    }
+
+    public int ArmoryRemakeMax => _armoryInDays ? Core.Armory.MaxRemakeHours / 24 : Core.Armory.MaxRemakeHours;
+
+    private void SetRemake(int amount, bool inDays)
+    {
+        var hours = inDays ? amount * 24 : amount;
+        if (Set(ref _armoryHours, hours, nameof(ArmoryRemakeAmount)) | Set(ref _armoryInDays, inDays, nameof(ArmoryRemakeUnit)))
+        {
+            Raise(nameof(ArmoryRemakeAmount));
+            Raise(nameof(ArmoryRemakeMax));
+            Raise(nameof(ArmoryExplanation));
+            _controller.SetArmoryRemake(amount, inDays);
+        }
+    }
+
+    public string ArmoryExplanation => PassText.ArmoryExplanation(_armoryHours, _armoryInDays, _armoryAuto, _armoryLimit, _armoryMax);
+
+    /// <summary>The line under "Check the armory now": its progress, then what it found; null before the first press.</summary>
+    public string? ArmorySweepText
+    {
+        get => _armorySweepText;
+        private set => Set(ref _armorySweepText, value);
+    }
 
     /// <summary>With enhancement on: a new armory picture is enhanced on its own, or offered.</summary>
     public bool ArmoryEnhanceAuto
@@ -853,7 +888,13 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         // "Start watching" waits for its answer, conversion of an updated install does not.
         if (Set(ref _armory, now.Armory, nameof(Armory))) Raise(nameof(ArmoryOn));
         if (Set(ref _armorySd, now.ArmorySd, nameof(ArmorySd))) Raise(nameof(ArmoryHd));
-        if (Set(ref _armoryDays, now.ArmoryRemakeDays, nameof(ArmoryRemakeDays))) Raise(nameof(ArmoryExplanation));
+        if (Set(ref _armoryHours, now.ArmoryRemakeHours, nameof(ArmoryRemakeAmount)) | Set(ref _armoryInDays, now.ArmoryRemakeInDays, nameof(ArmoryRemakeUnit)))
+        {
+            Raise(nameof(ArmoryRemakeAmount));
+            Raise(nameof(ArmoryRemakeMax));
+            Raise(nameof(ArmoryExplanation));
+        }
+        ArmorySweepText = now.ArmorySweep is { } sweep ? PassText.ArmorySweepText(sweep) : null;
         if (Set(ref _armoryAuto, now.ArmoryEnhanceAuto, nameof(ArmoryEnhanceAuto))
             | Set(ref _armoryLimit, now.ArmoryDailyLimit, nameof(ArmoryDailyLimit))
             | Set(ref _armoryMax, now.ArmoryDailyMax, nameof(ArmoryDailyMax)))
@@ -862,7 +903,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         }
         ArmoryAsk = now.Armory is null && shell.Install is not null && !shell.Stopping;
         StartWatching.Enabled = now.Armory is not null;
-        CheckArmory.Enabled = now.Armory == true && shell.Install is not null && !shell.Stopping;
+        CheckArmory.Enabled = now.Armory == true && shell.Install is not null && !shell.Stopping && now.ArmorySweep is not { Running: true };
         if (Set(ref _blizzard, now.BlizzardClient, nameof(BlizzardSaved)))
         {
             Raise(nameof(BlizzardEntering));

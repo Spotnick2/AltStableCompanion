@@ -14,9 +14,10 @@ the memories of the AltStable addon's sessions, so the rules that matter are rep
 - The armory (#63), in short:
   - Renders come from Blizzard's render CDN by GUID (US only, level 10+, the player's yes
     asked once). The schedule and measurements are in `Armory.cs`.
-  - A capture stays the portrait until the character changes, and a render takes over once
-    it shows the change (`PortraitJudge.cs`, the contract's section 4 as amended by
-    AltStable#310). The manifest writes `armory = true` for a character the armory has drawn
+  - A capture stays the portrait until the character changes, and a render newer than the
+    capture then takes over (`PortraitJudge.cs`, the contract's section 4 as amended by
+    AltStable#310; "newer than the capture", not "shows the latest change", since
+    2026-11-14). The manifest writes `armory = true` for a character the armory has drawn
     (AltStable#301), which needs AltStable 1.2.0 or later.
   - The player's own Battle.net API client is optional (`BlizzardApi.cs`, kept with DPAPI).
   - The decisions and live measurements are in this project's memory, not in the issue.

@@ -14,10 +14,14 @@ namespace AltStableCompanion.Core;
 /// of the character's most recently updated roster record, slot by slot (a slot one side lacks
 /// is not a change). Appearance: <c>lookAt</c> later than the capture's <c>epoch</c>.</item>
 /// <item>Not changed: the capture.</item>
-/// <item>Changed: the render once it shows the change - its <c>Last-Modified</c> minus 7 hours
-/// is at least the change's time, the latest of those that apply: <c>gearAt</c> for an item
-/// that differs, <c>gearReadAt</c> (else <c>lastUpdate</c>) when only a helm's or cloak's
-/// visibility differs, <c>lookAt</c> for the appearance. Until then the capture.</item>
+/// <item>Changed: the render once it is newer than the capture - its <c>Last-Modified</c> minus
+/// 7 hours is after the capture's <c>epoch</c> (<see cref="Armory.RenderWins"/>). Not once it
+/// shows the latest change: a character still being geared up changes again before each new
+/// render lands, so its capture of last week stayed while a newer render was already closer
+/// to it, and a render that had won went back to the capture at the next change (the
+/// owner's Kaleidria and Drucida, 14 November). A change is one dated after the capture: a
+/// differing item's <c>gearAt</c>, a helm's or cloak's visibility's <c>gearReadAt</c> (else
+/// <c>lastUpdate</c>), the appearance's <c>lookAt</c>.</item>
 /// <item>Cannot tell (no <c>look</c> on the capture's record, no gear in the roster, no time for
 /// the change, an account file that could not be read): the old estimate,
 /// <see cref="Armory.RenderWins"/>.</item>
@@ -98,39 +102,35 @@ public sealed partial class PortraitJudge
     /// <summary>Whether the render, not the capture of <paramref name="captureEpoch"/>, is the character's portrait.</summary>
     public bool RenderWins(string guid, long? captureEpoch, CutoutMeta render)
     {
-        if (Armory.AsOf(render) is not { } asOf) return false;
+        if (Armory.AsOf(render) is null) return false;
         if (captureEpoch is not { } epoch) return true;
-        var (known, changedAt) = Changed(guid, epoch);
-        if (!known) return Armory.RenderWins(epoch, render);
-        return changedAt is { } at && asOf >= at;
+        // Case 4 and case 5 ask the same of the render, newer than the capture; only a
+        // character known unchanged since the capture keeps it whatever the render.
+        return ChangedSince(guid, epoch) != false && Armory.RenderWins(epoch, render);
     }
 
-    // Known: whether the character changed since the capture, and if so when. Not known: case 5.
-    private (bool Known, DateTimeOffset? ChangedAt) Changed(string guid, long epoch)
+    // Whether the character changed since the capture; null when it cannot be told (case 5).
+    private bool? ChangedSince(string guid, long epoch)
     {
         if (!_looks.TryGetValue((guid, epoch), out var look) || !_roster.TryGetValue(guid, out var c) || c.Gear is not { } gear)
         {
-            return (false, null);
+            return null;
         }
         var captured = Parse(look);
         var worn = Parse(gear);
-        long when = 0;
+        var changed = false;
         foreach (var (slot, _) in Slots)
         {
             if (!captured.TryGetValue(slot, out var then) || !worn.TryGetValue(slot, out var now) || then == now) continue;
             // An item on both sides, hidden on one: the same item, shown or not.
             var shownOnly = (then == Hidden && now != Empty) || (now == Hidden && then != Empty);
             var at = shownOnly ? First(c.GearReadAt, c.Updated) : First(c.GearAt, c.Updated);
-            if (at == 0) return (false, null);
+            if (at == 0) return null;
             // Seen at or before the capture: the roster's record is older than the capture,
-            // which read what was worn itself. Not a change since it. So a render can only
-            // win with a change after the capture, and a render from before it never does.
-            if (at <= epoch) continue;
-            when = Math.Max(when, at);
+            // which read what was worn itself. Not a change since it.
+            if (at > epoch) changed = true;
         }
-        var lookAt = ArmoryEligibility.Seconds(c.LookAt);
-        if (lookAt > epoch) when = Math.Max(when, lookAt);
-        return (true, when == 0 ? null : DateTimeOffset.FromUnixTimeSeconds(when));
+        return changed || ArmoryEligibility.Seconds(c.LookAt) > epoch;
     }
 
     private static long First(long time, long otherwise) =>
