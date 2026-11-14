@@ -356,7 +356,7 @@ public static class PassText
     /// a portrait, and a file two characters share is one portrait, not two.
     /// </summary>
     public static string Count(IReadOnlyList<PortraitRow> rows) =>
-        rows.Where(r => r.Ready).Select(r => r.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count()
+        rows.Where(r => r.Ready && !r.Gone).Select(r => r.FileName).Distinct(StringComparer.OrdinalIgnoreCase).Count()
             .ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
@@ -369,6 +369,39 @@ public static class PassText
         1 => "1 character needs attention",
         var n => $"{n} characters need attention",
     };
+
+    /// <summary>The line of a row AltStable no longer has (#77); the full detail is its tooltip.</summary>
+    public const string GoneRow = "AltStable no longer has this character";
+
+    /// <summary>"2 characters AltStable no longer has", beside the count; null when there are none.</summary>
+    public static string? GoneLine(IReadOnlyList<PortraitRow> rows) => rows.Count(r => r.Gone) switch
+    {
+        0 => null,
+        1 => "1 character AltStable no longer has",
+        var n => $"{n} characters AltStable no longer has",
+    };
+
+    /// <summary>
+    /// What "Clean up the character list" asks about, one line per character: the name, the
+    /// GUID (a beta character often shares its name with a live one), and when it was last
+    /// captured or its picture written.
+    /// </summary>
+    public static IReadOnlyList<string> CleanUpLines(IReadOnlyList<PortraitRow> rows) =>
+        [.. rows.Where(r => r.Gone && r.Guid is not null)
+            .Select(r => r.Name + " · " + r.Guid + ((r.LatestCapture ?? r.FileModified) is { } t
+                ? (r.LatestCapture is null ? " · picture of " : " · captured ") + t.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                : ""))];
+
+    /// <summary>What the clean-up did, in a sentence.</summary>
+    public static string CleanUpResult(int characters, int deleted, int kept, IReadOnlyList<string> failed)
+    {
+        var said = characters == 0 && kept == 0 ? "Nothing to clean up: their files were already gone."
+            : characters == 0 ? "Nothing deleted."
+            : $"Deleted {deleted} file{(deleted == 1 ? "" : "s")} of {characters} character{(characters == 1 ? "" : "s")}.";
+        if (kept > 0) said += $" {kept} {(kept == 1 ? "is" : "are")} in AltStable again, so {(kept == 1 ? "it was" : "they were")} kept.";
+        if (failed.Count > 0) said += $" {failed.Count} could not be deleted ({string.Join(", ", failed)}); the log says why.";
+        return said;
+    }
 
     public static string RowState(PortraitRow row) => row.Enhancing ? "Enhancing" : row.Ready ? "Ready" : "No portrait";
 
@@ -394,6 +427,7 @@ public static class PassText
     /// </summary>
     public static string? RowSummary(PortraitRow row, DateTime today)
     {
+        if (row.Gone) return GoneRow;
         if (row.NeedsAttention || row.Outcome == CaptureOutcome.Writing || row.ShowGuid) return null;
         var when = row.FromArmory && row.FileModified is { } fetched ? "Armory picture, " + When(fetched, today)
             : row.Outcome == CaptureOutcome.Converted && row.LatestCapture is { } captured ? "Captured " + When(captured, today)

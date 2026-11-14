@@ -40,7 +40,9 @@ public sealed record Snapshot(
     /// <summary>The player's own Battle.net API client (#63, M3): never the id or the secret, only where it stands.</summary>
     BlizzardClientState BlizzardClient = BlizzardClientState.None,
     /// <summary>"Check the armory now": its progress while it runs, then what it found. Null before the first press this run.</summary>
-    ArmorySweep? ArmorySweep = null);
+    ArmorySweep? ArmorySweep = null,
+    /// <summary>Characters AltStable no longer has are left out of the list (#77).</summary>
+    bool HideGone = false);
 
 public enum BlizzardClientState
 {
@@ -159,6 +161,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
                 ArmorySd = _settings.ArmorySd,
                 ArmoryRemakeHours = _settings.ArmoryRemakeHours,
                 ArmoryRemakeInDays = _settings.ArmoryRemakeInDays,
+                HideGone = _settings.HideGoneCharacters,
                 ArmoryEnhanceAuto = _settings.ArmoryEnhanceAuto,
                 ArmoryDailyLimit = _settings.ArmoryDailyLimit,
                 ArmoryDailyMax = _settings.ArmoryDailyMax,

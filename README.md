@@ -193,7 +193,8 @@ No network access, except the three things you ask for: portraits from the armor
 enhanced portraits, which you switch on, and the update check.
 
 It touches only:
-- the screenshots it matched to a capture;
+- the screenshots it matched to a capture, and, when you clean up the character list and
+  say yes, those of the characters you clean up;
 - the `AltStableCutouts` addon folder;
 - its own settings and log in `%APPDATA%\AltStableCompanion`, and there, in `originals`, each
   enhanced portrait as Codex made it, full size (about 2 MB each), and your Blizzard API
@@ -204,6 +205,14 @@ It touches only:
 It also has a one-time side effect of .NET, not of the app: a single-file app unpacks
 the native libraries it carries into `%TEMP%\.net\AltStableCompanion` the first time it
 starts.
+
+**Characters AltStable no longer has.** The list follows AltStable's: a character it no
+longer has (forgotten, deleted, or left over from a beta) is marked as such and not counted,
+and the list offers **Clean up the character list**. It names them and asks before deleting
+their files: their portraits, armory and enhanced pictures, the screenshots of their
+captures and the copies kept for them. Their capture records in AltStable's saved file stay
+(the companion never writes it), and are not listed again. Settings can leave such
+characters out of the list without deleting anything.
 
 Closing the window leaves the app running in the tray; **Quit** is in the tray icon's
 menu.

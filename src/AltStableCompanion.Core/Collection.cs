@@ -70,7 +70,9 @@ public sealed record PortraitRow(
     /// <summary>What the armory last said of this character, in a few words ("no render yet"), or null.</summary>
     string? ArmoryNote = null,
     /// <summary>The enhancement hold keeps the armory from this character until then (local time): the row says when, and offers "Check now".</summary>
-    DateTime? ArmoryHeldUntil = null)
+    DateTime? ArmoryHeldUntil = null,
+    /// <summary>AltStable no longer has this character (#77): offered to "Clean up the character list".</summary>
+    bool Gone = false)
 {
     /// <summary>The portrait is the armory's render, not a capture.</summary>
     public bool FromArmory => Folder is not null;
@@ -93,10 +95,10 @@ public sealed record PortraitRow(
     /// make one from. An older portrait whose newer capture has no screenshots is NOT one: the
     /// portrait is there, and that capture is gone for good.
     /// </summary>
-    public bool NeedsAttention =>
+    public bool NeedsAttention => !Gone && (
         Outcome is CaptureOutcome.Unusable or CaptureOutcome.Failed
         || (Ready && NearlySquare)
-        || (!Ready && Outcome == CaptureOutcome.NoScreenshots);
+        || (!Ready && Outcome == CaptureOutcome.NoScreenshots));
 }
 
 /// <summary>
@@ -117,7 +119,8 @@ public static class Collection
         IReadOnlyList<ManifestEntry> entries,
         IReadOnlyList<CharacterStatus> captures,
         IReadOnlyDictionary<string, DateTime> fileTimes,
-        Func<string, (string? Note, bool InFlight)>? enhanceState = null)
+        Func<string, (string? Note, bool InFlight)>? enhanceState = null,
+        IReadOnlySet<string>? roster = null)
     {
         var byKey = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
         foreach (var e in entries) byKey.TryAdd(e.Key, e);
@@ -150,6 +153,17 @@ public static class Collection
                 EnhancedModified: EnhancedModified(fileTimes, e),
                 Enhancing: e.Guid is not null && (enhanceState?.Invoke(e.Guid).InFlight ?? false),
                 Folder: e.Folder));
+        }
+
+        // The list follows AltStable's (#77): a character no account's roster has is Gone while
+        // it has a portrait, offered to the clean-up, and not listed once it has none - its
+        // capture records outlive it in AltStable.lua, which the companion never writes. A
+        // roster that could not be read says nothing of who is gone.
+        if (roster is not null)
+        {
+            rows = [.. rows
+                .Where(r => r.Guid is null || roster.Contains(r.Guid) || r.Ready)
+                .Select(r => r.Guid is not null && !roster.Contains(r.Guid) ? r with { Gone = true } : r)];
         }
 
         // Namesakes are told apart by the one thing that is theirs alone.

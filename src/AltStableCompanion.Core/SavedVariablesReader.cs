@@ -38,8 +38,9 @@ public sealed record PortraitStore(string Path, int Version, IReadOnlyList<Rende
 /// table stopped mid-way: what it would have said is not known, and the tables it did give
 /// are not a view of the account.
 /// </summary>
+/// <param name="HasRoster">The file has an <c>AltStableDB</c> table. Without one its characters are not known, which is not the same as none (#77).</param>
 public sealed record RosterStore(string Path, IReadOnlyList<RosterCharacter> Characters, IReadOnlySet<string> Hidden,
-    string? Problem = null);
+    string? Problem = null, bool HasRoster = true);
 
 /// <summary>
 /// Every account's file, read once each: the capture stores (an account with no captures has
@@ -127,8 +128,10 @@ public static class SavedVariablesReader
         string? problem = null;
         IReadOnlyList<RosterCharacter> chars;
         IReadOnlySet<string> hidden;
+        var hasRoster = false;
         try
         {
+            hasRoster = LuaTableScanner.ReadGlobal(text, RosterGlobal, out _) is Dictionary<object, object?>;
             chars = ReadRoster(text);
         }
         catch (SavedVariablesFormatException ex)
@@ -145,7 +148,7 @@ public static class SavedVariablesReader
             hidden = new HashSet<string>();
             problem = $"{ConfigGlobal}: {ex.Message}";
         }
-        return new RosterStore(path, chars, hidden, problem);
+        return new RosterStore(path, chars, hidden, problem, hasRoster);
     }
 
     // AltStableDB[guid] = { name, class, race, raceName, gender, level, lastUpdate, ... }: what
