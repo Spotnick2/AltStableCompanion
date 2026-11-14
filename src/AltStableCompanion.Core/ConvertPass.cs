@@ -311,7 +311,7 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
             characters, written, freed, stale, folderCreated, warnings,
             Accounts: accounts.Count,
             Refused: stores.Count(s => s.Refused is not null),
-            Portraits: Collection.Build(entries, characters, fileTimes, folder.EnhanceState, roster),
+            Portraits: Collection.Build(entries, characters, fileTimes, folder.EnhanceState, roster, Leftovers.OwnedGuids(folder)),
             ManifestWritten: manifestWritten,
             Roster: roster);
     }

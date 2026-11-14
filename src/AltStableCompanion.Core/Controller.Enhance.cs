@@ -914,7 +914,7 @@ public sealed partial class Controller
         {
             if (generation != _generation || _current.Shell.Report is not { } report) return;
             roster ??= report.Roster;
-            var rows = WithArmory(Collection.Build(entries, report.Characters, times, folder.EnhanceState, roster));
+            var rows = WithArmory(Collection.Build(entries, report.Characters, times, folder.EnhanceState, roster, Leftovers.OwnedGuids(folder)));
             var shell = _current.Shell;
             EnhancedNote? note = null;
             if (written is not null)

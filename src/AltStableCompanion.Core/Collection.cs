@@ -120,7 +120,8 @@ public static class Collection
         IReadOnlyList<CharacterStatus> captures,
         IReadOnlyDictionary<string, DateTime> fileTimes,
         Func<string, (string? Note, bool InFlight)>? enhanceState = null,
-        IReadOnlySet<string>? roster = null)
+        IReadOnlySet<string>? roster = null,
+        IReadOnlySet<string>? owned = null)
     {
         var byKey = new Dictionary<string, ManifestEntry>(StringComparer.Ordinal);
         foreach (var e in entries) byKey.TryAdd(e.Key, e);
@@ -156,14 +157,23 @@ public static class Collection
         }
 
         // The list follows AltStable's (#77): a character no account's roster has is Gone while
-        // it has a portrait, offered to the clean-up, and not listed once it has none - its
-        // capture records outlive it in AltStable.lua, which the companion never writes. A
-        // roster that could not be read says nothing of who is gone.
+        // the companion still keeps a file of it - a portrait, or what a clean-up cut short
+        // left (<paramref name="owned"/>) - and offered to the clean-up; it is not listed once
+        // nothing of it is left, as its capture records outlive it in AltStable.lua, which the
+        // companion never writes. A roster that could not be read says nothing of who is gone.
         if (roster is not null)
         {
+            bool Keeps(string guid) => owned?.Contains(guid) == true;
             rows = [.. rows
-                .Where(r => r.Guid is null || roster.Contains(r.Guid) || r.Ready)
+                .Where(r => r.Guid is null || roster.Contains(r.Guid) || r.Ready || Keeps(r.Guid))
                 .Select(r => r.Guid is not null && !roster.Contains(r.Guid) ? r with { Gone = true } : r)];
+            // Files of a character no row speaks of (no capture record, no portrait): a row of
+            // its own, so the clean-up can reach them.
+            var listed = rows.Where(r => r.Guid is not null).Select(r => r.Guid!).ToHashSet(StringComparer.Ordinal);
+            foreach (var guid in (owned ?? new HashSet<string>()).Where(g => !roster.Contains(g) && !listed.Contains(g)).Order(StringComparer.Ordinal))
+            {
+                rows.Add(new PortraitRow(UnknownName, guid, null, PortraitSource.None, null, null, CaptureOutcome.None, null, ShowGuid: true, Gone: true));
+            }
         }
 
         // Namesakes are told apart by the one thing that is theirs alone.
@@ -183,6 +193,9 @@ public static class Collection
             .ThenBy(r => r.Guid, StringComparer.Ordinal)
             .ThenBy(r => r.FileName, StringComparer.OrdinalIgnoreCase)];
     }
+
+    /// <summary>The name of a gone character whose files say no more than its GUID.</summary>
+    public const string UnknownName = "Unknown character";
 
     private static (ManifestEntry? Entry, PortraitSource Source) Find(
         Dictionary<string, ManifestEntry> byKey, CharacterStatus c)

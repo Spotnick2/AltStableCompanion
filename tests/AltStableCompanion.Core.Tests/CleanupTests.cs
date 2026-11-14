@@ -286,6 +286,51 @@ public class CleanupTests
     }
 
     [Fact]
+    public void A_gone_character_with_only_files_left_and_no_portrait_is_still_offered()
+    {
+        // What a clean-up cut short leaves: no portrait, a file of it all the same.
+        var captures = new[] { Status(A, "Karuzo Macphisto", CharacterState.Portrait), Status(G, "Karuzo Macphisto", CharacterState.Missing) };
+        var owned = new HashSet<string>(StringComparer.Ordinal) { G, "Player-6796-00000001" };
+        var rows = Collection.Build([Entry("karuzo-macphisto-0a598a", A)], captures, new Dictionary<string, DateTime>(), roster: Roster, owned: owned);
+        var g = rows.Single(r => r.Guid == G);
+        Assert.True(g.Gone && !g.Ready);
+        // Files and nothing else: no capture record, no portrait - a row all the same.
+        var unknown = rows.Single(r => r.Guid == "Player-6796-00000001");
+        Assert.True(unknown.Gone);
+        Assert.Equal(Collection.UnknownName, unknown.Name);
+        Assert.Equal("2 characters AltStable no longer has", PassText.GoneLine(rows));
+        Assert.Contains("Unknown character · Player-6796-00000001", PassText.CleanUpLines(rows));
+        // A GUID AltStable has is never one, files or not.
+        Assert.DoesNotContain(Collection.Build([], [], new Dictionary<string, DateTime>(), roster: Roster, owned: new HashSet<string> { A }), r => r.Gone);
+    }
+
+    [Fact]
+    public async Task A_portrait_s_sidecar_that_cannot_be_deleted_keeps_the_character_offered()
+    {
+        // Codex on #78 (P3): the portrait went, its read-only sidecar could not, and nothing
+        // left the character a row to retry from.
+        using var t = new TempInstall();
+        var (folder, _, gone, _) = Files(t);
+        t.WriteStore("1#1", Store());
+        File.SetAttributes(gone[1], FileAttributes.ReadOnly);                  // the capture's sidecar
+        using var c = ArmoryWorkerTests.Started(t, new FakeCdn(), armory: false);
+        ArmoryWorkerTests.Until(() => c.Current.Shell.Report?.Portraits?.Any(r => r.Guid == G && r.Gone) == true, "the gone row");
+        Assert.Contains("1 could not be deleted (karuzo-macphisto.json)", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
+        Assert.True(File.Exists(gone[1]));
+        Assert.False(File.Exists(gone[0]));
+        Assert.Contains(G, Leftovers.OwnedGuids(folder));
+        Assert.Contains(c.Current.Shell.Report!.Portraits!, r => r.Guid == G && r.Gone && !r.Ready);
+        // The next pass keeps it too.
+        c.ConvertNow();
+        Thread.Sleep(2000);
+        Assert.Contains(c.Current.Shell.Report!.Portraits!, r => r.Guid == G && r.Gone);
+        File.SetAttributes(gone[1], FileAttributes.Normal);
+        Assert.Equal("Deleted 1 file of 1 character.", await c.CleanUpCharactersAsync(t.Install.FlavorDir, [G]));
+        Assert.All(gone, f => Assert.False(File.Exists(f), f));
+        Assert.DoesNotContain(c.Current.Shell.Report!.Portraits!, r => r.Guid == G);
+    }
+
+    [Fact]
     public void Leaving_them_out_is_a_setting_that_deletes_nothing()
     {
         using var t = new TempInstall();
