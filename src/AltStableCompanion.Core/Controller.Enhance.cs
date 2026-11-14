@@ -879,6 +879,7 @@ public sealed partial class Controller
     {
         IReadOnlyList<ManifestEntry> entries;
         IReadOnlyDictionary<string, DateTime> times;
+        IReadOnlySet<string>? roster;
         try
         {
             // The pass of this install remembers what the last listing found: it decides what
@@ -894,8 +895,9 @@ public sealed partial class Controller
                 armory = _settings.Armory == true;
             }
             // Another install meanwhile: nothing this writes is kept, and its roster is not this one's.
-            var judge = install is null ? PortraitJudge.Unknown
-                : PortraitJudge.From(SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m)));
+            var snapshot = install is null ? null : SavedVariablesReader.Snapshot(install.AccountsDir, m => _log?.Write(m));
+            var judge = snapshot is null ? PortraitJudge.Unknown : PortraitJudge.From(snapshot);
+            roster = snapshot is null ? null : Leftovers.RosterGuids(snapshot);
             entries = folder.Inventory(judge, listed.Add);
             if (armory && install is not null) entries = Armory.Flag(entries, folder, install, m => _log?.Write(m));
             if (pass is not null) pass.Listed(listed);
@@ -911,7 +913,8 @@ public sealed partial class Controller
         lock (_gate)
         {
             if (generation != _generation || _current.Shell.Report is not { } report) return;
-            var rows = WithArmory(Collection.Build(entries, report.Characters, times, folder.EnhanceState));
+            roster ??= report.Roster;
+            var rows = WithArmory(Collection.Build(entries, report.Characters, times, folder.EnhanceState, roster));
             var shell = _current.Shell;
             EnhancedNote? note = null;
             if (written is not null)
@@ -924,7 +927,7 @@ public sealed partial class Controller
             {
                 Shell = shell with
                 {
-                    Report = report with { Portraits = rows },
+                    Report = report with { Portraits = rows, Roster = roster },
                     LastEnhanced = note ?? shell.LastEnhanced,
                     EnhanceSeen = note is null && shell.EnhanceSeen,
                 },

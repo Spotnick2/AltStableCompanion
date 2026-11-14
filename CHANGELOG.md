@@ -6,6 +6,14 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- The list follows AltStable's: a character AltStable no longer has (forgotten, deleted, or
+  left over from the beta) is marked "AltStable no longer has this character" and not
+  counted, and **Clean up the character list** offers to delete their files - portraits,
+  armory and enhanced pictures, the screenshots of their captures - after naming them.
+  Nothing is deleted without that yes. A setting leaves them out of the list instead.
+
 ## [1.2.4]
 
 A character you are still gearing up gets their armory picture instead of last week's capture,

@@ -46,7 +46,9 @@ public sealed record PassReport(
     /// The manifest on disk lists what <see cref="Portraits"/> was built from. False when it
     /// could not be written: the portraits are files, and the game has not been told.
     /// </summary>
-    bool ManifestWritten = true);
+    bool ManifestWritten = true,
+    /// <summary>Every GUID in AltStableDB on any account, or null when a file could not be read (#77, <see cref="Leftovers.RosterGuids"/>).</summary>
+    IReadOnlySet<string>? Roster = null);
 
 /// <summary>
 /// One full, idempotent pass: read every store, pair the newest capture of each character with
@@ -304,12 +306,14 @@ public sealed class ConvertPass(WowInstall install, ConvertOptions options, Acti
 
         IReadOnlyList<CharacterStatus> characters =
             [.. statuses.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)];
+        var roster = Leftovers.RosterGuids(snapshot);
         return new PassReport(
             characters, written, freed, stale, folderCreated, warnings,
             Accounts: accounts.Count,
             Refused: stores.Count(s => s.Refused is not null),
-            Portraits: Collection.Build(entries, characters, fileTimes, folder.EnhanceState),
-            ManifestWritten: manifestWritten);
+            Portraits: Collection.Build(entries, characters, fileTimes, folder.EnhanceState, roster),
+            ManifestWritten: manifestWritten,
+            Roster: roster);
     }
 
     // The capture's identity in a sidecar: the shot-1 epoch, or its local stamp for a record

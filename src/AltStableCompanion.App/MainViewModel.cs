@@ -100,6 +100,13 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private int _armoryHours = Core.Armory.DefaultRemakeHours;
     private bool _armoryInDays = true;
     private string? _armorySweepText;
+    private bool _hideGone;
+    private string? _goneLine;
+    private IReadOnlyList<string> _cleanUpLines = [];
+    private IReadOnlyList<string> _cleanUpGuids = [];
+    private bool _cleanUpAsking;
+    private bool _cleaningUp;
+    private string? _cleanUpResult;
     private bool _armoryAsk;
     private bool _armoryAuto = true;
     private bool _armoryLimit = true;
@@ -136,6 +143,9 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         AnswerArmoryNo = new Command(() => controller.SetArmory(false));
         CheckArmory = new Command(controller.CheckArmoryNow);
         CheckArmoryFor = new Command<string>(controller.CheckArmoryNow);
+        AskCleanUp = new Command(AskToCleanUp);
+        CancelCleanUp = new Command(() => CleanUpAsking = false);
+        ConfirmCleanUp = new Command(CleanUp);
         SaveBlizzard = new Command(SaveBlizzardClient);
         TestBlizzard = new Command(TestBlizzardClient);
         RemoveBlizzard = new Command(() => BlizzardNote = controller.RemoveBlizzardClient());
@@ -426,6 +436,79 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     public bool HasAttention => _attention is not null;
+
+    // ---- characters AltStable no longer has (#77)
+    public Command AskCleanUp { get; }
+    public Command CancelCleanUp { get; }
+    public Command ConfirmCleanUp { get; }
+
+    /// <summary>"2 characters AltStable no longer has", with the button that offers to clean them up.</summary>
+    public string? GoneLine
+    {
+        get => _goneLine;
+        private set { if (Set(ref _goneLine, value)) Raise(nameof(HasGone)); }
+    }
+
+    public bool HasGone => _goneLine is not null && !_cleanUpAsking;
+
+    /// <summary>The question is open: these characters, and "Delete their files" or "Cancel".</summary>
+    public bool CleanUpAsking
+    {
+        get => _cleanUpAsking;
+        private set { if (Set(ref _cleanUpAsking, value)) Raise(nameof(HasGone)); }
+    }
+
+    public IReadOnlyList<string> CleanUpLines
+    {
+        get => _cleanUpLines;
+        private set => Set(ref _cleanUpLines, value);
+    }
+
+    /// <summary>What the last clean-up did, until the next question.</summary>
+    public string? CleanUpResult
+    {
+        get => _cleanUpResult;
+        private set { if (Set(ref _cleanUpResult, value)) Raise(nameof(HasCleanUpResult)); }
+    }
+
+    public bool HasCleanUpResult => _cleanUpResult is not null;
+
+    /// <summary>Settings: leave them out of the list, deleting nothing.</summary>
+    public bool HideGone
+    {
+        get => _hideGone;
+        set
+        {
+            if (!Set(ref _hideGone, value)) return;
+            _controller.SetHideGone(value);
+            ShowRows(DateTime.Today);
+        }
+    }
+
+    // The question names exactly who the yes is for: what the list showed when it was asked.
+    private void AskToCleanUp()
+    {
+        CleanUpLines = PassText.CleanUpLines(_rows);
+        _cleanUpGuids = [.. _rows.Where(r => r.Gone && r.Guid is not null).Select(r => r.Guid!)];
+        CleanUpResult = null;
+        CleanUpAsking = _cleanUpGuids.Count > 0;
+    }
+
+    private void CleanUp()
+    {
+        if (_cleaningUp || _cleanUpGuids.Count == 0) return;
+        _cleaningUp = true;
+        ConfirmCleanUp.Enabled = false;
+        CancelCleanUp.Enabled = false;
+        _controller.CleanUpCharactersAsync(_cleanUpGuids).ContinueWith(t => Dispatcher.UIThread.Post(() =>
+        {
+            _cleaningUp = false;
+            ConfirmCleanUp.Enabled = true;
+            CancelCleanUp.Enabled = true;
+            CleanUpAsking = false;
+            CleanUpResult = t.IsCompletedSuccessfully ? t.Result : "The clean-up failed; the log says why.";
+        }));
+    }
 
     public IReadOnlyList<PortraitLine> Portraits
     {
@@ -949,6 +1032,8 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         _rows = PassText.WithSkipped(shell.Report?.Portraits ?? [], shell.EnhanceSkipped);
         Count = PassText.Count(_rows);
         Attention = PassText.Attention(_rows);
+        GoneLine = PassText.GoneLine(_rows);
+        Set(ref _hideGone, now.HideGone, nameof(HideGone));
         ShowRows(today);
 
         var warnings = new List<string>(shell.Report?.Warnings ?? []);
@@ -974,7 +1059,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     {
         var install = _controller.Current.Shell.Install;
         var cutouts = install is null || !_wantThumbnails ? null : new CutoutFolder(install.CutoutAddonDir).CutoutsDir;
-        var lines = PassText.Matching(_rows, _search).Select(r =>
+        var lines = PassText.Matching(_hideGone ? [.. _rows.Where(r => !r.Gone)] : _rows, _search).Select(r =>
         {
             var failed = false;
             var thumbnail = cutouts is null ? null : _thumbnails.Get(cutouts, r, out failed);

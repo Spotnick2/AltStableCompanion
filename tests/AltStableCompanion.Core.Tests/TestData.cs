@@ -132,10 +132,24 @@ internal static class TestData
     /// </summary>
     public static string SavedVariables(IEnumerable<string> records, int version = 1)
     {
+        records = [.. records];
         var sb = new StringBuilder();
         sb.Append("""
 
             AltStableDB = {
+            """);
+        // As in the game: AltStable has a character before it can be captured. A name and no
+        // level, so nothing the armory or the enhancer would pick (#77's list follows this).
+        static string Field(string record, string key) =>
+            System.Text.RegularExpressions.Regex.Match(record, @"\[""" + key + @"""\] = ""([^""]*)""").Groups[1].Value;
+        foreach (var (guid, name) in records
+                     .Select(r => (Guid: Field(r, "guid"), Name: Field(r, "name")))
+                     .Where(x => x.Guid.Length > 0)
+                     .DistinctBy(x => x.Guid))
+        {
+            sb.Append("[\"").Append(guid).Append("\"] = {\n[\"name\"] = \"").Append(name).Append("\",\n},\n");
+        }
+        sb.Append("""
             ["Player-1-0001"] = {
             ["name"] = "Some Alt",
             ["gear"] = {

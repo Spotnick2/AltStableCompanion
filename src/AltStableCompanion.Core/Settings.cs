@@ -130,6 +130,13 @@ public sealed record Settings
     } = Core.Armory.DefaultDailyMax;
 
     /// <summary>
+    /// Leave characters AltStable no longer has out of the window's list (#77), without
+    /// deleting anything: for a player who would rather not clean up. The list still says
+    /// how many there are.
+    /// </summary>
+    public bool HideGoneCharacters { get; init; }
+
+    /// <summary>
     /// The player removed their Blizzard API client but its file could not be deleted: it is
     /// never loaded again, and deleted at the next start if it can be. Saving a client clears it.
     /// </summary>
@@ -185,11 +192,12 @@ public sealed record Settings
         && ArmoryDailyLimit == other.ArmoryDailyLimit
         && ArmoryDailyMax == other.ArmoryDailyMax
         && BlizzardRemoved == other.BlizzardRemoved
+        && HideGoneCharacters == other.HideGoneCharacters
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
         HashCode.Combine(HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, Enhance, RestartNoticeInstalls.Count),
-            Armory, ArmorySd, HashCode.Combine(ArmoryRemakeHours, ArmoryRemakeInDays), ArmoryEnhanceAuto, ArmoryDailyLimit, ArmoryDailyMax, BlizzardRemoved);
+            Armory, ArmorySd, HashCode.Combine(ArmoryRemakeHours, ArmoryRemakeInDays), ArmoryEnhanceAuto, ArmoryDailyLimit, HashCode.Combine(ArmoryDailyMax, BlizzardRemoved, HideGoneCharacters));
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
