@@ -186,9 +186,10 @@ public static class SheetExport
             .Select(h => (string)h.Value! == "Rested"
                 ? h with { Note = "Rested XP as a % of the next level, carried forward to the export as AltStable's own column does" }
                 : h).ToList();
-        if (avatar is not null)
-            header.Insert(0, new SheetCell(null, HeaderFill, Note: "The armory's picture of the character, or its silhouette "
-                + "until the armory has drawn it (from level " + Armory.MinLevel.ToString(CultureInfo.InvariantCulture) + ", after play)"));
+        // Always the first column, pictures or not: an address in the player's own formulas
+        // stays the same field whichever way the armory setting goes (Codex on #84).
+        header.Insert(0, new SheetCell(null, HeaderFill, Note: "With portraits from the armory on: the armory's picture of the "
+            + "character, or its silhouette until the armory has drawn it (from level " + Armory.MinLevel.ToString(CultureInfo.InvariantCulture) + ", after play)"));
         var rows = new List<IReadOnlyList<SheetCell>> { header };
         foreach (var c in chars)
         {
@@ -196,7 +197,7 @@ public static class SheetExport
             var money = Num(c, "money");
             var seen = Num(c, "lastUpdate");
             var row = new List<SheetCell>();
-            if (avatar is not null) row.Add(AvatarCell(c, avatar));
+            row.Add(avatar is null ? SheetCell.Empty : AvatarCell(c, avatar));
             row.AddRange(
             [
                 NameCell(c),
@@ -215,8 +216,7 @@ public static class SheetExport
             ]);
             rows.Add(row);
         }
-        return avatar is null ? new SheetTable(Characters, rows)
-            : new SheetTable(Characters, rows, FrozenColumns: 2, ImageSize: AvatarSize);
+        return new SheetTable(Characters, rows, FrozenColumns: 2, ImageSize: avatar is null ? null : AvatarSize);
     }
 
     // The render the app holds, else the race's silhouette: under level 10 the armory has none.

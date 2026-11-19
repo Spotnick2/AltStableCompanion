@@ -338,14 +338,121 @@ public sealed class SheetsControllerTests
 
         c.DisconnectGoogle();
 
-        Assert.Equal(GoogleState.NotConnected, c.Current.Sheets.Google);
-        Assert.Equal(SheetText.Disconnected, c.Current.Sheets.Note);
         Assert.False(File.Exists(Path.Combine(Data(t), GoogleTokenStore.FileName)));
-        Until(() => google.Revoked.Contains("refresh-1"), "the revoke");
+        Until(() => c.Current.Sheets.Google == GoogleState.NotConnected, "disconnected");
+        Assert.Equal(SheetText.Disconnected, c.Current.Sheets.Note);
+        Assert.Contains("refresh-1", google.Revoked);
         Assert.Equal(GoogleSheets.UrlOf("sheet-9"), c.Current.Sheets.Url);
         Assert.Equal("sheet-9", Settings.Load(Data(t)).GoogleSheetId);
         c.ExportSheet();                                            // not connected: nothing
         Assert.DoesNotContain(google.Requests, r => r.Contains("sheets.googleapis.com", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Disconnect_stops_the_export_in_hand_before_it_writes()
+    {
+        using var t = Install(s => s with { GoogleSheetId = "sheet-9", GoogleSheetUrl = GoogleSheets.UrlOf("sheet-9") });
+        GoogleTokenStore.Save(Data(t), "refresh-1");
+        var google = new FakeGoogleService { HoldListing = new SemaphoreSlim(0) };
+        google.Sheets["sheet-9"] = [new GoogleSheets.Tab(1, "Characters", "Characters#1")];
+        using var c = Started(t, google);
+
+        c.ExportSheet();
+        Until(() => google.Count("GET sheets.googleapis.com") == 1, "the export waiting on Google");
+        c.DisconnectGoogle();
+
+        Until(() => c.Current.Sheets.Google == GoogleState.NotConnected, "disconnected");
+        google.HoldListing.Release();
+        Assert.Equal(SheetText.Disconnected, c.Current.Sheets.Note);       // not the export's news
+        Assert.False(c.Current.Sheets.Exporting);
+        Thread.Sleep(200);
+        Assert.Equal(0, google.Count(":batchUpdate"));
+    }
+
+    [Fact]
+    public void An_export_that_ends_after_disconnect_changes_nothing()
+    {
+        using var t = Install(s => s with { GoogleSheetId = "sheet-9", GoogleSheetUrl = GoogleSheets.UrlOf("sheet-9") });
+        GoogleTokenStore.Save(Data(t), "refresh-1");
+        var google = new FakeGoogleService { HoldListing = new SemaphoreSlim(0), HoldDeaf = true, RefuseRefresh = false };
+        google.Sheets["sheet-9"] = [new GoogleSheets.Tab(1, "Characters", "Characters#1")];
+        using var c = Started(t, google);
+
+        c.ExportSheet();
+        Until(() => google.Count("GET sheets.googleapis.com") == 1, "the export waiting on Google");
+        c.DisconnectGoogle();
+        // Disconnect waits for it 5 seconds, then goes on without it.
+        Until(() => c.Current.Sheets.Google == GoogleState.NotConnected, "disconnected");
+        google.HoldListing.Release();
+        Until(() => File.ReadAllText(Path.Combine(Data(t), "log.txt")).Contains("google: the export was stopped"), "the old export's end");
+        Thread.Sleep(100);                                  // past its last word
+
+        Assert.False(c.Current.Sheets.Exporting);
+        Assert.Equal(GoogleState.NotConnected, c.Current.Sheets.Google);
+        Assert.Equal(SheetText.Disconnected, c.Current.Sheets.Note);
+        // Its answer came back after Disconnect: nothing more was sent.
+        Assert.Equal(0, google.Count(":batchUpdate"));
+    }
+
+    [Fact]
+    public void Connect_waits_for_the_revoke_of_the_sign_in_before()
+    {
+        using var t = Install();
+        GoogleTokenStore.Save(Data(t), "refresh-1");
+        var google = new FakeGoogleService { HoldRevoke = new SemaphoreSlim(0) };
+        using var c = Started(t, google);
+        var opened = new List<Uri>();
+
+        c.DisconnectGoogle();
+        Until(() => google.Count("/revoke") == 1, "the revoke on its way");
+        Assert.Equal(GoogleState.Disconnecting, c.Current.Sheets.Google);
+        c.ConnectGoogle(Browser(opened: opened));            // too soon: nothing
+        Assert.Empty(opened);
+        Assert.Equal("Disconnecting...", SheetText.State(c.Current.Sheets));
+
+        google.HoldRevoke.Release();
+        Until(() => c.Current.Sheets.Google == GoogleState.NotConnected, "the revoke answered");
+        c.ConnectGoogle(Browser(opened: opened));
+        Until(() => c.Current.Sheets.Google == GoogleState.Connected, "connected again");
+        Assert.Single(opened);
+    }
+
+    [Fact]
+    public void A_rate_limited_drive_keeps_the_saved_spreadsheet()
+    {
+        using var t = Install(s => s with { GoogleSheetId = "sheet-9", GoogleSheetUrl = GoogleSheets.UrlOf("sheet-9") });
+        GoogleTokenStore.Save(Data(t), "refresh-1");
+        var google = new FakeGoogleService { DriveRateLimited = true };
+        google.Sheets["sheet-9"] = [new GoogleSheets.Tab(1, "Characters", "Characters#1")];
+        using var c = Started(t, google);
+
+        c.ExportSheet();
+        var note = Exported(c);
+
+        Assert.Equal("Not exported: Google asked to slow down. Try again in a minute.", note);
+        Assert.True(c.Current.Sheets.Problem);
+        Assert.Equal(0, google.Created);
+        Assert.DoesNotContain("GET www.googleapis.com/drive/v3/files", google.Requests);      // no search for another
+        Assert.Equal("sheet-9", Settings.Load(Data(t)).GoogleSheetId);
+    }
+
+    [Fact]
+    public void Every_page_of_drive_is_looked_at_before_a_new_spreadsheet_is_made()
+    {
+        using var t = Install();
+        GoogleTokenStore.Save(Data(t), "refresh-1");
+        var google = new FakeGoogleService { PageSize = 1 };
+        google.Sheets["unowned"] = [new GoogleSheets.Tab(1, "Characters", null)];
+        google.Sheets["ours"] = [new GoogleSheets.Tab(1, "Characters", "Characters#1")];
+        google.Order = ["unowned", "ours"];
+        using var c = Started(t, google);
+
+        c.ExportSheet();
+        Assert.Contains(SheetText.Found, Exported(c));
+
+        Assert.Equal(["1"], google.PageTokens);
+        Assert.Equal(0, google.Created);
+        Assert.Equal("ours", Settings.Load(Data(t)).GoogleSheetId);
     }
 }
 
@@ -366,14 +473,32 @@ internal sealed class FakeGoogleService : HttpMessageHandler
     public List<string>? Order { get; set; }
     public bool RefuseRefresh { get; set; }
     public int Created { get; private set; }
+    /// <summary>Held until released: the listing of a spreadsheet's tabs, and the revoke.</summary>
+    public SemaphoreSlim? HoldListing { get; set; }
+    public SemaphoreSlim? HoldRevoke { get; set; }
+    /// <summary>The listing's hold does not end when the request is cancelled: an answer already on its way.</summary>
+    public bool HoldDeaf { get; set; }
+    /// <summary>Drive's per-file answer is its 403 for a rate limit.</summary>
+    public bool DriveRateLimited { get; set; }
+    /// <summary>Drive's list, this many files a page.</summary>
+    public int PageSize { get; set; } = 100;
+    public List<string> PageTokens { get; } = [];
+
+    public int Count(string part)
+    {
+        lock (_gate) return Requests.Count(r => r.Contains(part, StringComparison.Ordinal));
+    }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var uri = request.RequestUri!;
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+        lock (_gate) Requests.Add($"{request.Method} {uri.Host}{uri.AbsolutePath}");
+        if (HoldRevoke is { } revoke && uri.AbsolutePath == "/revoke") await revoke.WaitAsync(ct);
+        if (HoldListing is { } listing && uri.Host == "sheets.googleapis.com" && request.Method == HttpMethod.Get)
+            await listing.WaitAsync(HoldDeaf ? CancellationToken.None : ct);
         lock (_gate)
         {
-            Requests.Add($"{request.Method} {uri.Host}{uri.AbsolutePath}");
             if (uri.Host == "oauth2.googleapis.com")
             {
                 var form = GoogleSheets.ParseQuery(body);
@@ -400,14 +525,27 @@ internal sealed class FakeGoogleService : HttpMessageHandler
                 const string files = "/drive/v3/files";
                 if (uri.AbsolutePath == files)
                 {
-                    var order = Order ?? [.. Sheets.Keys.Reverse()];
-                    return Answer(new JsonObject
+                    var order = (Order ?? [.. Sheets.Keys.Reverse()]).Where(id => Sheets.ContainsKey(id) && !Trashed.Contains(id)).ToList();
+                    var query = GoogleSheets.ParseQuery(uri.Query.TrimStart('?'));
+                    var from = query.TryGetValue("pageToken", out var token) ? int.Parse(token, System.Globalization.CultureInfo.InvariantCulture) : 0;
+                    if (token is not null) PageTokens.Add(token);
+                    var page = new JsonObject
                     {
-                        ["files"] = new JsonArray(order.Where(id => Sheets.ContainsKey(id) && !Trashed.Contains(id))
-                            .Select(id => (JsonNode)new JsonObject { ["id"] = id }).ToArray()),
-                    });
+                        ["files"] = new JsonArray(order.Skip(from).Take(PageSize).Select(id => (JsonNode)new JsonObject { ["id"] = id }).ToArray()),
+                    };
+                    if (from + PageSize < order.Count) page["nextPageToken"] = (from + PageSize).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    return Answer(page);
                 }
                 var file = uri.AbsolutePath[(files.Length + 1)..];
+                if (DriveRateLimited)
+                    return Answer(new JsonObject
+                    {
+                        ["error"] = new JsonObject
+                        {
+                            ["code"] = 403, ["message"] = "User rate limit exceeded.",
+                            ["errors"] = new JsonArray(new JsonObject { ["domain"] = "usageLimits", ["reason"] = "userRateLimitExceeded" }),
+                        },
+                    }, HttpStatusCode.Forbidden);
                 return Sheets.ContainsKey(file)
                     ? Answer(new JsonObject { ["trashed"] = Trashed.Contains(file) })
                     : Answer(new JsonObject { ["error"] = new JsonObject { ["code"] = 404, ["message"] = "File not found." } }, HttpStatusCode.NotFound);

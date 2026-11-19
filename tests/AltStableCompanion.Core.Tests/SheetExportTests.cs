@@ -198,7 +198,7 @@ public sealed class SheetExportTests : IDisposable
         var header = table.Rows[0].Select(c => c.Value).ToList();
 
         Assert.Equal(10.269, (double)table.Rows[1][header.IndexOf("Gold")].Value!, 9);
-        Assert.Equal("0070DD", table.Rows[1][0].Fill);
+        Assert.Equal("0070DD", table.Rows[1][header.IndexOf("Name")].Fill);
         Assert.Equal("Shaman", table.Rows[1][header.IndexOf("Class")].Value);
     }
 
@@ -295,8 +295,11 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(2, table.FrozenColumns);
         Assert.Equal(SheetExport.AvatarSize, table.ImageSize);
 
+        // Without pictures the column is still there, empty: a formula's address keeps its field.
         var plain = SheetExport.BuildCharacters(chars, 0);
-        Assert.Equal("Name", plain.Rows[0][0].Value);
+        Assert.Equal("Name", plain.Rows[0][1].Value);
+        Assert.All(plain.Rows.Skip(1), r => Assert.Null(r[0].Value));
+        Assert.Equal(2, plain.FrozenColumns);
         Assert.Null(plain.ImageSize);
         Assert.DoesNotContain(plain.Rows.SelectMany(r => r), c => c.Value is SheetImage);
     }

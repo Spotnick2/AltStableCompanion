@@ -26,6 +26,12 @@ public enum GoogleState
     /// <summary>The browser is open on Google's page; Cancel stops waiting.</summary>
     Connecting,
     Connected,
+    /// <summary>
+    /// Disconnect pressed: the export in hand is stopped and Google asked to cancel the sign-in.
+    /// Connect waits for that - a revoke still on its way would cancel a new sign-in of the same
+    /// account too (Codex on #84).
+    /// </summary>
+    Disconnecting,
 }
 
 /// <summary>
@@ -47,9 +53,12 @@ public sealed partial class Controller
     private string? _googleToken;                        // under _gate: the refresh token, never shown or logged
     private CancellationTokenSource? _connectCts;        // under _gate: a sign-in waiting for the browser
     private bool _connectCancelled;                      // under _gate: by the player, not by the time limit
+    private CancellationTokenSource? _exportCts;         // under _gate: the export in hand; Disconnect stops it
+    private int _googleSession;                          // under _gate: one more at each Disconnect; an older export's end changes nothing
     private readonly CancellationTokenSource _sheetsStop = new();
     private Task? _connectTask;
     private Task? _exportTask;
+    private Task? _disconnectTask;
 
     private void StartSheets()
     {
@@ -75,6 +84,8 @@ public sealed partial class Controller
         // A batch is atomic on Google's side: one cut short has written nothing.
         foreach (var task in new[] { _connectTask, _exportTask })
             if (task is not null) await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+        // The revoke is not cut short: a sign-in the player removed is cancelled at Google too.
+        if (_disconnectTask is { } revoke) await Task.WhenAny(revoke, Task.Delay(RevokeTimeout + TimeSpan.FromSeconds(1)));
     }
 
     /// <summary>
@@ -169,25 +180,37 @@ public sealed partial class Controller
     }
 
     /// <summary>
-    /// "Disconnect": the sign-in is deleted here and Google is asked to cancel it. The
-    /// spreadsheet stays in the player's Drive, and its address here: the same account,
-    /// connected again, goes on writing it. While the browser is open, it is Cancel.
+    /// "Disconnect": the sign-in is deleted here, the export in hand stopped, and Google asked
+    /// to cancel the sign-in. Until Google has answered (or <see cref="RevokeTimeout"/>), the
+    /// state is <see cref="GoogleState.Disconnecting"/>. The spreadsheet stays in the player's
+    /// Drive, and its address here: the same account, connected again, goes on writing it.
+    /// While the browser is open, it is Cancel.
     /// </summary>
     public void DisconnectGoogle()
     {
         if (sheets is not { } hooks) return;
         string? token = null;
+        Task? export = null;
         bool connecting;
         lock (_gate)
         {
             connecting = _current.Sheets.Google == GoogleState.Connecting;
-            if (!connecting) (token, _googleToken) = (_googleToken, null);
+            if (!connecting)
+            {
+                if (_current.Sheets.Google != GoogleState.Connected) return;
+                (token, _googleToken) = (_googleToken, null);
+                _googleSession++;
+                try { _exportCts?.Cancel(); } catch (ObjectDisposedException) { }
+                export = _exportTask;
+                _current = _current with { Sheets = _current.Sheets with { Google = GoogleState.Disconnecting, Note = null, Problem = false } };
+            }
         }
         if (connecting)
         {
             CancelGoogleConnect();
             return;
         }
+        Changed?.Invoke();
 
         string? problem = null;
         try
@@ -199,31 +222,42 @@ public sealed partial class Controller
             problem = SheetText.NotDeleted;
             _log?.Write($"google: the sign-in's file could not be deleted: {ex.GetType().Name}");
         }
+        _log?.Write("google: disconnected");
+        _disconnectTask = Task.Run(() => FinishDisconnectAsync(hooks, token, export, problem));
+    }
+
+    // The export stopped (a batch already sent cannot be taken back), then the revoke - best
+    // effort: the token is gone from this PC whatever Google says. Then Connect again.
+    private async Task FinishDisconnectAsync(SheetHooks hooks, string? token, Task? export, string? problem)
+    {
+        if (export is not null) await Task.WhenAny(export, Task.Delay(TimeSpan.FromSeconds(5)));
+        if (token is not null)
+        {
+            try
+            {
+                using var http = new HttpClient(hooks.Http()) { Timeout = RevokeTimeout };
+                await new GoogleSheets(http, hooks.Client).RevokeAsync(token, CancellationToken.None);
+                _log?.Write("google: the sign-in was cancelled at Google");
+            }
+            catch (Exception ex)
+            {
+                _log?.Write($"google: Google could not be asked to cancel the sign-in: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
         lock (_gate)
         {
             _current = _current with
             {
-                Sheets = _current.Sheets with { Google = GoogleState.NotConnected, Note = problem ?? SheetText.Disconnected, Problem = problem is not null },
+                Sheets = _current.Sheets with
+                {
+                    Google = GoogleState.NotConnected,
+                    Exporting = false,
+                    Note = problem ?? SheetText.Disconnected,
+                    Problem = problem is not null,
+                },
             };
         }
-        _log?.Write("google: disconnected");
         Changed?.Invoke();
-        if (token is not null) _ = RevokeAsync(hooks, token);
-    }
-
-    // Best effort: the token is gone from this PC whatever Google says.
-    private async Task RevokeAsync(SheetHooks hooks, string token)
-    {
-        try
-        {
-            using var http = new HttpClient(hooks.Http()) { Timeout = RevokeTimeout };
-            await new GoogleSheets(http, hooks.Client).RevokeAsync(token, CancellationToken.None);
-            _log?.Write("google: the sign-in was cancelled at Google");
-        }
-        catch (Exception ex)
-        {
-            _log?.Write($"google: Google could not be asked to cancel the sign-in: {ex.GetType().Name}: {ex.Message}");
-        }
     }
 
     /// <summary>
@@ -238,6 +272,8 @@ public sealed partial class Controller
         WowInstall install;
         bool armory, sd;
         string? sheetId;
+        int session;
+        CancellationTokenSource cts;
         lock (_gate)
         {
             if (_stopping || _current.Sheets is not { Google: GoogleState.Connected, Exporting: false } || _googleToken is not { } held) return;
@@ -251,19 +287,22 @@ public sealed partial class Controller
             armory = _settings.Armory == true;
             sd = _settings.ArmorySd;
             sheetId = _settings.GoogleSheetId;
+            session = _googleSession;
+            cts = _exportCts = CancellationTokenSource.CreateLinkedTokenSource(_sheetsStop.Token);
             _current = _current with { Sheets = _current.Sheets with { Exporting = true, Note = null, Problem = false } };
+            _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, sheetId, session, cts));
         }
         Changed?.Invoke();
-        _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, sheetId));
     }
 
-    private async Task ExportAsync(SheetHooks hooks, string token, WowInstall install, bool armory, bool sd, string? sheetId)
+    private async Task ExportAsync(SheetHooks hooks, string token, WowInstall install, bool armory, bool sd, string? sheetId,
+        int session, CancellationTokenSource cts)
     {
         string note;
         var problem = true;
         string? url = null;
         var signedOut = false;
-        var stop = _sheetsStop.Token;
+        var stop = cts.Token;
         try
         {
             var roster = SheetExport.Load(install.AccountsDir);
@@ -297,7 +336,7 @@ public sealed partial class Controller
                 var found = false;
                 if (added is null)
                 {
-                    foreach (var id in await google.OwnSpreadsheetsAsync(access, stop))
+                    await foreach (var id in google.OwnSpreadsheetsAsync(access, stop))
                     {
                         if (id == sheetId) continue;
                         (added, _) = await TryWriteAsync(google, access, id, tables, stop, checkTrash: false);
@@ -334,7 +373,9 @@ public sealed partial class Controller
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {
-            return;     // quitting
+            // Quitting, or Disconnect: it says what happened.
+            note = "";
+            _log?.Write("google: the export was stopped");
         }
         catch (Exception ex)
         {
@@ -342,16 +383,26 @@ public sealed partial class Controller
             _log?.Write($"google: the export failed: {ex.GetType().Name}: {ex.Message}");
         }
 
-        if (signedOut)
-        {
-            try { GoogleTokenStore.Remove(_dataDir); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        }
         lock (_gate)
         {
-            // Signed out by Google: only if this is still the sign-in it refused.
+            if (_exportCts == cts) _exportCts = null;
+            // Disconnected since it began: this export's end is not the player's news any more,
+            // and the sign-in it used is not the one on disk.
+            if (session != _googleSession || _sheetsStop.IsCancellationRequested)
+            {
+                _current = _current with { Sheets = _current.Sheets with { Exporting = false, Url = url ?? _current.Sheets.Url } };
+                cts.Dispose();
+                return;
+            }
+            // Signed out by Google: only if this is still the sign-in it refused - checked, and
+            // its file deleted, under the gate, so a newer sign-in is never the one deleted.
             var refused = signedOut && _googleToken == token;
-            if (refused) _googleToken = null;
+            if (refused)
+            {
+                _googleToken = null;
+                try { GoogleTokenStore.Remove(_dataDir); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
             _current = _current with
             {
                 Sheets = _current.Sheets with
@@ -364,6 +415,7 @@ public sealed partial class Controller
                 },
             };
         }
+        cts.Dispose();
         Changed?.Invoke();
     }
 
@@ -380,7 +432,7 @@ public sealed partial class Controller
         {
             return (null, SheetText.LostTabs);
         }
-        catch (GoogleApiException ex) when (ex.Status is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+        catch (GoogleApiException ex) when (ex.NoSuchFile)
         {
             return (null, SheetText.LostSheet);
         }
@@ -426,6 +478,7 @@ public static class SheetText
     {
         { Note: { } note } => note,
         { Google: GoogleState.Connecting } => Waiting,
+        { Google: GoogleState.Disconnecting } => "Disconnecting...",
         { Exporting: true } => Exporting,
         { Google: GoogleState.Connected, Url: null } => "Connected. Export now makes the spreadsheet in your Google Drive.",
         { Google: GoogleState.Connected } => "Connected.",
@@ -447,6 +500,7 @@ public static class SheetText
 
     public static string ExportFailed(Exception ex) => ex switch
     {
+        GoogleApiException { RateLimited: true } => "Not exported: Google asked to slow down. Try again in a minute.",
         GoogleApiException g => "Not exported: " + g.Message,
         HttpRequestException or TaskCanceledException => "Not exported: Google could not be reached.",
         _ => "Not exported: " + ex.Message,

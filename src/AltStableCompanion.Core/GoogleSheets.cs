@@ -54,10 +54,27 @@ public sealed record GoogleClient(string Id, string Secret)
 /// <see cref="Status"/> is the HTTP status; <see cref="Error"/> the token endpoint's own code
 /// (<c>invalid_grant</c>: the sign-in was removed in the player's Google account, or expired).
 /// </summary>
-public sealed class GoogleApiException(string message, HttpStatusCode? status = null, string? error = null) : Exception(message)
+public sealed class GoogleApiException(string message, HttpStatusCode? status = null, string? error = null,
+    IReadOnlyList<string>? reasons = null) : Exception(message)
 {
     public HttpStatusCode? Status { get; } = status;
     public string? Error { get; } = error;
+
+    /// <summary>The API's own reasons: <c>error.errors[].reason</c> and <c>error.status</c>.</summary>
+    public IReadOnlyList<string> Reasons { get; } = reasons ?? [];
+
+    // Drive answers 403 for its rate limits too (Codex on #84): that is "later", not "gone".
+    private static readonly string[] RateReasons = ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "RESOURCE_EXHAUSTED"];
+    private static readonly string[] DeniedReasons = ["forbidden", "insufficientFilePermissions", "appNotAuthorizedToFile", "PERMISSION_DENIED"];
+
+    public bool RateLimited => Status == HttpStatusCode.TooManyRequests || Reasons.Any(r => RateReasons.Contains(r));
+
+    /// <summary>
+    /// The answer says the file is not there for this sign-in: 404, or a 403 that names a
+    /// permission and no rate limit. Anything else is an error to report, not a spreadsheet to replace.
+    /// </summary>
+    public bool NoSuchFile => Status == HttpStatusCode.NotFound
+        || (Status == HttpStatusCode.Forbidden && !RateLimited && Reasons.Any(r => DeniedReasons.Contains(r)));
 }
 
 /// <summary>A saved spreadsheet with none of the app's tabs: the player chooses a new one, nothing is written.</summary>
@@ -170,12 +187,21 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     /// too - so a player whose settings were lost goes on writing theirs rather than getting a
     /// second one.
     /// </summary>
-    public async Task<IReadOnlyList<string>> OwnSpreadsheetsAsync(string accessToken, CancellationToken ct)
+    public async IAsyncEnumerable<string> OwnSpreadsheetsAsync(string accessToken,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         var q = Uri.EscapeDataString("mimeType='application/vnd.google-apps.spreadsheet' and trashed=false");
-        var answer = await SendAsync(HttpMethod.Get, $"{DriveUrl}?q={q}&orderBy=modifiedTime%20desc&pageSize=20&fields=files(id)",
-            accessToken, null, ct);
-        return [.. (answer["files"]?.AsArray() ?? []).Select(f => (string?)f?["id"]).OfType<string>()];
+        string? page = null;
+        do
+        {
+            // Every page, until the caller has one it can write (Codex on #84).
+            var answer = await SendAsync(HttpMethod.Get, $"{DriveUrl}?q={q}&orderBy=modifiedTime%20desc&pageSize=100"
+                + "&fields=nextPageToken,files(id)" + (page is null ? "" : "&pageToken=" + Uri.EscapeDataString(page)),
+                accessToken, null, ct);
+            foreach (var id in (answer["files"]?.AsArray() ?? []).Select(f => (string?)f?["id"]).OfType<string>()) yield return id;
+            page = (string?)answer["nextPageToken"];
+        }
+        while (!string.IsNullOrEmpty(page));
     }
 
     /// <summary>
@@ -444,6 +470,9 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
 
     private async Task<JsonNode> SendAsync(HttpMethod method, string url, string accessToken, JsonNode? body, CancellationToken ct)
     {
+        // Stopped (Disconnect, Quit) between two requests: the next one is not sent, whatever
+        // the handler would do with a cancelled token - a batch must not follow a Disconnect.
+        ct.ThrowIfCancellationRequested();
         using var request = new HttpRequestMessage(method, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
@@ -469,7 +498,10 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         var error = json?["error"];
         var code = error is JsonValue ? (string?)error : null;
         var message = error is JsonObject e ? (string?)e["message"] : (string?)json?["error_description"] ?? code;
-        throw new GoogleApiException($"Google answered {(int)response.StatusCode}: {message ?? response.ReasonPhrase}", response.StatusCode, code);
+        var reasons = error is JsonObject o
+            ? (o["errors"]?.AsArray() ?? []).Select(r => (string?)r?["reason"]).Append((string?)o["status"]).OfType<string>().ToList()
+            : [];
+        throw new GoogleApiException($"Google answered {(int)response.StatusCode}: {message ?? response.ReasonPhrase}", response.StatusCode, code, reasons);
     }
 
     // The browser's redirect to http://127.0.0.1:<port>/?state=..&code=..: read each request's
