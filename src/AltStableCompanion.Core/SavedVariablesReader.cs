@@ -239,7 +239,7 @@ public static class SavedVariablesReader
 
     // WoW replaces the file (a .bak, then a rename) while we may be reading it; share
     // Delete as well as ReadWrite so our handle never blocks that, and close it at once.
-    private static string ReadShared(string path)
+    internal static string ReadShared(string path)
     {
         using var s = new FileStream(path, FileMode.Open, FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete);
