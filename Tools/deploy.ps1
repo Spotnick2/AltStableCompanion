@@ -12,6 +12,9 @@
     and log are NOT in it - they are in %APPDATA%\AltStableCompanion - so
     deploying again changes the program and nothing the player chose.
 
+    -GoogleClient is the app's Google OAuth client (#82): the owner's own copy by default.
+    Without it the exe has no Google Sheet export, and the script says so.
+
     -Shortcut adds "AltStable Companion" to the Start menu, or points the one
     that is there at this deployment. It does not make the app start with
     Windows: that is deliberately not offered yet.
@@ -23,6 +26,7 @@
 param(
     [string]$Destination = (Join-Path $env:LOCALAPPDATA "Programs\AltStableCompanion"),
     [switch]$Shortcut,
+    [string]$GoogleClient = (Join-Path $env:USERPROFILE ".secrets\google-oauth-client.json"),
     # Where the shortcut goes. The Start menu, unless somebody is trying the script out.
     [string]$ShortcutFolder = [Environment]::GetFolderPath("Programs")
 )
@@ -85,7 +89,11 @@ try {
 
 Write-Host "Building AltStable Companion ..." -ForegroundColor Cyan
 # The one build: Release.ps1 ships the same one.
-$built = & (Join-Path $PSScriptRoot "Publish-Exe.ps1") -Stage $stage -Revision ($revision ?? "")
+if ($GoogleClient -and -not (Test-Path -LiteralPath $GoogleClient -PathType Leaf)) {
+    Write-Warning "No Google client at $GoogleClient`: this exe has no Google Sheet export."
+    $GoogleClient = ""
+}
+$built = & (Join-Path $PSScriptRoot "Publish-Exe.ps1") -Stage $stage -Revision ($revision ?? "") -GoogleClient $GoogleClient
 
 # The build took its time: look again. Then the new exe is copied in under another
 # name and moved over the old one, so that a copy cut short leaves the old one whole.

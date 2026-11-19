@@ -116,6 +116,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     private string _blizzardId = "";
     private string _blizzardSecret = "";
     private string? _blizzardNote;
+    private SheetState _sheets = new();
     private UpdateState _update = new();
     private string _search = "";
     private IReadOnlyList<PortraitRow> _rows = [];
@@ -151,6 +152,11 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         TestBlizzard = new Command(TestBlizzardClient);
         RemoveBlizzard = new Command(() => BlizzardNote = controller.RemoveBlizzardClient());
         OpenBlizzardClients = new Command(() => OpenUrl(PassText.BlizzardClientsUrl));
+        ConnectGoogle = new Command(() => controller.ConnectGoogle(uri => OpenUrl(uri.OriginalString)));
+        CancelGoogle = new Command(controller.CancelGoogleConnect);
+        DisconnectGoogle = new Command(controller.DisconnectGoogle);
+        ExportSheet = new Command(controller.ExportSheet);
+        OpenSheet = new Command(() => OpenUrl(_sheets.Url));
         ToggleSettings = new Command(() => ShowSettings = !ShowSettings);
         ToggleHelp = new Command(() => ShowHelp = !ShowHelp);
         ClearSearch = new Command(() => Search = "");
@@ -243,6 +249,24 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
             BlizzardNote = t.IsCompletedSuccessfully ? t.Result : "Battle.net could not be asked.";
         }));
     }
+
+    // ---- the Google Sheet export (#82): connected on a press, exported on a press
+    public Command ConnectGoogle { get; }
+    public Command CancelGoogle { get; }
+    public Command DisconnectGoogle { get; }
+    public Command ExportSheet { get; }
+    public Command OpenSheet { get; }
+    public string SheetsExplanation => SheetText.Explanation;
+    /// <summary>A build without the app's Google client shows no section at all.</summary>
+    public bool SheetsAvailable => _sheets.Google != GoogleState.Unavailable;
+    public bool SheetsNotConnected => _sheets.Google == GoogleState.NotConnected;
+    public bool SheetsConnecting => _sheets.Google == GoogleState.Connecting;
+    public bool SheetsConnected => _sheets.Google == GoogleState.Connected;
+    /// <summary>The spreadsheet is the player's, connected or not: Open sheet shows once there is one.</summary>
+    public bool SheetHasUrl => _sheets.Url is not null;
+    public string SheetsStatus => SheetText.State(_sheets);
+    public bool SheetsProblem => _sheets.Problem;
+    public bool SheetsFine => !_sheets.Problem;
 
     public bool ArmoryHd
     {
@@ -989,6 +1013,20 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         ArmoryAsk = now.Armory is null && shell.Install is not null && !shell.Stopping;
         StartWatching.Enabled = now.Armory is not null;
         CheckArmory.Enabled = now.Armory == true && shell.Install is not null && !shell.Stopping && now.ArmorySweep is not { Running: true };
+        if (now.Sheets != _sheets)
+        {
+            _sheets = now.Sheets;
+            foreach (var name in new[]
+                     {
+                         nameof(SheetsAvailable), nameof(SheetsNotConnected), nameof(SheetsConnecting), nameof(SheetsConnected),
+                         nameof(SheetHasUrl), nameof(SheetsStatus), nameof(SheetsProblem), nameof(SheetsFine),
+                     })
+            {
+                Raise(name);
+            }
+        }
+        ExportSheet.Enabled = !_sheets.Exporting && shell.Install is not null && !shell.Stopping;
+        ConnectGoogle.Enabled = !shell.Stopping;
         if (Set(ref _blizzard, now.BlizzardClient, nameof(BlizzardSaved)))
         {
             Raise(nameof(BlizzardEntering));

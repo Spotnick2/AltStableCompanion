@@ -25,6 +25,12 @@ The release tag, such as v0.1.0 or v0.2.0-rc1. Left out, the props' version is r
 Where the exe, SHA256SUMS and notes.md go: publish\release under the repo unless named.
 Emptied first, so it must be a folder of its own - not the repo, not a folder holding it.
 
+.PARAMETER GoogleClient
+The app's Google OAuth client JSON (#82), embedded in the exe. The workflow writes it from the
+GOOGLE_OAUTH_CLIENT secret and names it in ALTSTABLE_GOOGLE_CLIENT; by hand, the owner's own
+copy in %USERPROFILE%\.secrets is used. A release without it is refused: every release has
+the export.
+
 .PARAMETER SkipBuild
 Only the checks (1 and 2): for trying tags and change logs without a four-minute publish.
 #>
@@ -32,6 +38,7 @@ Only the checks (1 and 2): for trying tags and change logs without a four-minute
 param(
     [string]$Tag = "",
     [string]$Out = "",
+    [string]$GoogleClient = $env:ALTSTABLE_GOOGLE_CLIENT,
     [switch]$SkipBuild
 )
 
@@ -95,6 +102,16 @@ if (-not $SkipBuild) {
     $revision = ([string](git -C $RepoRoot rev-parse HEAD 2>$null)).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $revision) { throw "git rev-parse failed: a release is built from a commit." }
     if (git -C $RepoRoot status --porcelain) { throw "The working tree has changes that are in no commit: a release is built from a commit." }
+    if (-not $GoogleClient -and $env:USERPROFILE) { $GoogleClient = Join-Path $env:USERPROFILE ".secrets\google-oauth-client.json" }
+    if (-not $GoogleClient -or -not (Test-Path -LiteralPath $GoogleClient -PathType Leaf)) {
+        throw "No Google OAuth client: set ALTSTABLE_GOOGLE_CLIENT (the workflow does, from the GOOGLE_OAUTH_CLIENT secret) or pass -GoogleClient."
+    }
+    # A Desktop app client, as GoogleClient.FromJson reads it - an empty secret writes an empty
+    # file, and the exe would quietly have no export. Checked, never printed.
+    $installed = try { (Get-Content -LiteralPath $GoogleClient -Raw | ConvertFrom-Json).installed } catch { $null }
+    if (-not $installed -or -not $installed.client_id -or -not $installed.client_secret) {
+        throw "The Google OAuth client file is not a Desktop app client (no installed.client_id and client_secret)."
+    }
 }
 
 if (Test-Path -LiteralPath $Out) { Remove-Item -LiteralPath $Out -Recurse -Force }
@@ -106,7 +123,7 @@ if ($SkipBuild) { return }
 # ---- the build, the one deploy.ps1 makes
 $stage = Join-Path $Out "stage"
 Write-Host "Publishing $revision ..." -ForegroundColor Cyan
-$built = & (Join-Path $PSScriptRoot "Publish-Exe.ps1") -Stage $stage -Revision $revision
+$built = & (Join-Path $PSScriptRoot "Publish-Exe.ps1") -Stage $stage -Revision $revision -GoogleClient $GoogleClient
 
 # ---- 4. the asset, its version, its hash
 $name = "AltStableCompanion-$version-win-x64.exe"

@@ -102,7 +102,13 @@ changes says `-dirty` in its version.
   the update check (a button, or a box the player ticks), portraits from the armory (#63,
   asked once, never defaulted: GETs of `render.worldofwarcraft.com` only, one at a time,
   conditional; with the player's OWN Battle.net client, also a token from `oauth.battle.net`
-  and profile GETs of `us.api.blizzard.com`, the client kept with DPAPI and never logged)
+  and profile GETs of `us.api.blizzard.com`, the client kept with DPAPI and never logged),
+  the Google Sheet export (#82: off until the player presses Connect; the sign-in through the
+  browser, then `oauth2.googleapis.com` for tokens and revoke, `sheets.googleapis.com` for
+  the spreadsheet the app created and `www.googleapis.com` (Drive) to find it again and see
+  whether it is in the trash - scope `drive.file` only - only on Connect, Export now or
+  Disconnect; the refresh token kept with DPAPI and never logged; the avatars are `=IMAGE()`
+  cells that Google fetches, not the app)
   and enhanced portraits (below). The app touches only screenshots it matched to a capture, the `AltStableCutouts`
   folder and `%APPDATA%\AltStableCompanion` - and, when the player presses Save diagnostics,
   one text file in the Downloads folder (not the Desktop, which OneDrive syncs by default). The published single-file exe also unpacks its

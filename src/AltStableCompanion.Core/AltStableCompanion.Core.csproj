@@ -11,4 +11,23 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
 
+  <!-- The app's Google OAuth client (#82), never in the repo: Tools/Publish-Exe.ps1 passes the
+       path of the JSON the Cloud console downloads (-p:GoogleClientJson=...), from the
+       release workflow's secret or the owner's own copy. Without it the build has no Google
+       export (GoogleClient.Shipped is null), which is what CI and a contributor's clone get. -->
+  <ItemGroup Condition="'$(GoogleClientJson)' != ''">
+    <EmbeddedResource Include="$(GoogleClientJson)" LogicalName="AltStableCompanion.google-client.json" />
+  </ItemGroup>
+  <Target Name="CheckGoogleClient" BeforeTargets="BeforeBuild" Condition="'$(GoogleClientJson)' != ''">
+    <Error Condition="!Exists('$(GoogleClientJson)')" Text="GoogleClientJson names a file that does not exist." />
+  </Target>
+  <!-- With the client or without, the compile runs again: a resource added from a file older
+       than the last build, or one taken away, is not a change the incremental build sees. -->
+  <Target Name="GoogleClientStamp" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(IntermediateOutputPath)google-client.stamp" Lines="$(GoogleClientJson)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <CustomAdditionalCompileInputs Include="$(IntermediateOutputPath)google-client.stamp" />
+    </ItemGroup>
+  </Target>
+
 </Project>

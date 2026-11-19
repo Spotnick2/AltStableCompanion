@@ -10,13 +10,18 @@ The folder the publish output goes to. Emptied first; the caller owns it.
 .PARAMETER Revision
 What the exe says it was built from (SourceRevisionId); nothing when unknown.
 
+.PARAMETER GoogleClient
+The app's Google OAuth client, the JSON the Cloud console downloads (#82). Embedded in the exe,
+never in the repo; without it the exe has no Google Sheet export.
+
 .OUTPUTS
 The path of the built exe.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string]$Stage,
-    [string]$Revision = ""
+    [string]$Revision = "",
+    [string]$GoogleClient = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +31,10 @@ $Project = Join-Path $RepoRoot "src\AltStableCompanion.App\AltStableCompanion.Ap
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
 $publish = @($Project, "-c", "Release", "-r", "win-x64", "-o", $Stage, "--nologo", "-v", "q", "-warnaserror")
 if ($Revision) { $publish += "-p:SourceRevisionId=$Revision" }
+if ($GoogleClient) {
+    if (-not (Test-Path -LiteralPath $GoogleClient -PathType Leaf)) { throw "The Google client '$GoogleClient' does not exist." }
+    $publish += "-p:GoogleClientJson=$([IO.Path]::GetFullPath($GoogleClient))"
+}
 dotnet publish @publish
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
 

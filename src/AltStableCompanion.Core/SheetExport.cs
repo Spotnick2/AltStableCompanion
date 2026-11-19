@@ -9,8 +9,24 @@ public sealed record SheetCell(object? Value, string? Fill = null, string? Color
     public static readonly SheetCell Empty = new((object?)null);
 }
 
-/// <summary>One tab the app owns: rewritten whole on every export. Row 0 is the header.</summary>
-public sealed record SheetTable(string Title, IReadOnlyList<IReadOnlyList<SheetCell>> Rows, int FrozenColumns = 1)
+/// <summary>A cell's picture, by its address: an <c>=IMAGE()</c> formula, so Google fetches it, not the app.</summary>
+public sealed record SheetImage(string Url);
+
+/// <summary>
+/// The Characters tab's pictures, with portraits from the armory on: the HD or SD model, and the
+/// characters whose render the app holds (<see cref="CutoutFolder.ArmoryRenders"/>). The others
+/// get the armory's silhouette: an <c>=IMAGE()</c> of a render that is not there is no error,
+/// just nothing (measured 2026-11-19), so the sheet cannot fall back on its own.
+/// </summary>
+public sealed record AvatarSource(bool Sd, IReadOnlySet<string> Drawn);
+
+/// <summary>
+/// One tab the app owns: rewritten whole on every export. Row 0 is the header.
+/// <see cref="ImageSize"/>: column 0 holds pictures, and it and every row below the header are
+/// that many pixels; null for a tab of text, whose rows are the default height.
+/// </summary>
+public sealed record SheetTable(string Title, IReadOnlyList<IReadOnlyList<SheetCell>> Rows, int FrozenColumns = 1,
+    int? ImageSize = null)
 {
     public int Columns => Rows.Count == 0 ? 0 : Rows.Max(r => r.Count);
 }
@@ -83,6 +99,8 @@ public static class SheetExport
     private const string ItemFill = "1F1F1F";     // item names in their game colours, on a tooltip's dark
     private const string CappedFill = "FFF200";   // a skill at its current cap: time to train the next rank
     private const string HordeFill = "B30000";
+    /// <summary>The avatars' cell: half their 84 px, so they are crisp on a 200% screen.</summary>
+    public const int AvatarSize = 42;
     private const string AllianceFill = "0047AB";
 
     /// <summary>
@@ -130,6 +148,7 @@ public static class SheetExport
             {
                 if (key is not string guid || entry is not Dictionary<object, object?> e) continue;
                 if (string.IsNullOrWhiteSpace(Str(e, "name"))) continue;
+                e["guid"] = guid;       // the key is the character's identity, whatever the record says
                 if (newest.TryGetValue(guid, out var had) && (Num(had, "lastUpdate") ?? 0) >= (Num(e, "lastUpdate") ?? 0)) continue;
                 newest[guid] = e;
             }
@@ -139,9 +158,14 @@ public static class SheetExport
         return new ExportRoster(chars, skipped);
     }
 
-    /// <summary>The three tabs, in the order they appear, as of <paramref name="now"/> (epoch seconds).</summary>
-    public static IReadOnlyList<SheetTable> Build(IReadOnlyList<Dictionary<object, object?>> chars, long now) =>
-        [BuildCharacters(chars, now), BuildGear(chars), BuildSkills(chars)];
+    /// <summary>
+    /// The three tabs, in the order they appear, as of <paramref name="now"/> (epoch seconds).
+    /// <paramref name="avatar"/>: a picture column on Characters (portraits from the armory on);
+    /// null for none.
+    /// </summary>
+    public static IReadOnlyList<SheetTable> Build(IReadOnlyList<Dictionary<object, object?>> chars, long now,
+        AvatarSource? avatar = null) =>
+        [BuildCharacters(chars, now, avatar), BuildGear(chars), BuildSkills(chars)];
 
     // Horde, then Alliance, then anything else; within a side, highest level, then ilvl, then name.
     internal static int Order(Dictionary<object, object?> a, Dictionary<object, object?> b)
@@ -155,21 +179,25 @@ public static class SheetExport
         return c != 0 ? c : string.CompareOrdinal(Str(a, "name"), Str(b, "name"));
     }
 
-    internal static SheetTable BuildCharacters(IReadOnlyList<Dictionary<object, object?>> chars, long now)
+    internal static SheetTable BuildCharacters(IReadOnlyList<Dictionary<object, object?>> chars, long now,
+        AvatarSource? avatar = null)
     {
-        var header = Header("Name", "Realm", "Class", "Race", "Faction", "Level", "iLvl", "Rested", "Gold", "Guild", "Last seen");
-        var rows = new List<IReadOnlyList<SheetCell>>
-        {
-            header.Select(h => (string)h.Value! == "Rested"
+        var header = Header("Name", "Realm", "Class", "Race", "Faction", "Level", "iLvl", "Rested", "Gold", "Guild", "Last seen")
+            .Select(h => (string)h.Value! == "Rested"
                 ? h with { Note = "Rested XP as a % of the next level, carried forward to the export as AltStable's own column does" }
-                : h).ToList(),
-        };
+                : h).ToList();
+        if (avatar is not null)
+            header.Insert(0, new SheetCell(null, HeaderFill, Note: "The armory's picture of the character, or its silhouette "
+                + "until the armory has drawn it (from level " + Armory.MinLevel.ToString(CultureInfo.InvariantCulture) + ", after play)"));
+        var rows = new List<IReadOnlyList<SheetCell>> { header };
         foreach (var c in chars)
         {
             var faction = Str(c, "faction");
             var money = Num(c, "money");
             var seen = Num(c, "lastUpdate");
-            rows.Add(
+            var row = new List<SheetCell>();
+            if (avatar is not null) row.Add(AvatarCell(c, avatar));
+            row.AddRange(
             [
                 NameCell(c),
                 Text(Str(c, "realm")),
@@ -185,9 +213,25 @@ public static class SheetExport
                 Text(Str(c, "guild")),
                 seen is double s and > 0 ? new SheetCell(SheetDate(s), NumberFormat: "yyyy-mm-dd hh:mm") : SheetCell.Empty,
             ]);
+            rows.Add(row);
         }
-        return new SheetTable(Characters, rows);
+        return avatar is null ? new SheetTable(Characters, rows)
+            : new SheetTable(Characters, rows, FrozenColumns: 2, ImageSize: AvatarSize);
     }
+
+    // The render the app holds, else the race's silhouette: under level 10 the armory has none.
+    private static SheetCell AvatarCell(Dictionary<object, object?> c, AvatarSource avatar)
+    {
+        var url = Num(c, "level") >= Armory.MinLevel && Str(c, "guid") is { } guid && avatar.Drawn.Contains(guid)
+            ? Armory.AvatarUrl(guid, avatar.Sd)
+            : null;
+        url ??= Armory.PlaceholderUrl(Str(c, "race"), Str(c, "faction"), Female(c));
+        return url is null ? SheetCell.Empty : new SheetCell(new SheetImage(url));
+    }
+
+    // sexID is 0 male, 1 female; an older record has only the word.
+    private static bool Female(Dictionary<object, object?> c) =>
+        Num(c, "sexID") is double id ? id == 1 : Str(c, "gender") == "Female";
 
     // The addon's ComputeLiveRestedPercent (RowRenderer.lua) for a character not logged in: the
     // snapshot, plus what accrues since - 5% of a level per 8 h in a rested area, per 32 h
