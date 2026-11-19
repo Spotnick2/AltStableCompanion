@@ -326,6 +326,10 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal("?", k[Col(table, "Feet")].Value);          // worn, its level not known
         Assert.Equal("item 9454", k[Col(table, "Feet")].Note);   // its name not cached at scan time
         Assert.Null(k[Col(table, "Head")].Value);                // nothing worn
+        // Each item links to its Wowhead Forever page: its tooltip, a click away.
+        Assert.Equal("https://www.wowhead.com/forever/item=9623", k[Col(table, "Chest")].Link);
+        Assert.Equal("https://www.wowhead.com/forever/item=9454", k[Col(table, "Feet")].Link);
+        Assert.Null(k[Col(table, "Head")].Link);
         Assert.Equal("Stamina +2", k[Col(table, "Chest enchant")].Value);
         // Only the slots someone has an enchant on.
         Assert.Equal(Lead + 1 + SheetExport.GearSlots.Length + 1, table.Columns);
@@ -382,6 +386,12 @@ public sealed class SheetExportTests : IDisposable
         var level = cells["rows"]![1]!["values"]![1]!;
         Assert.Equal(30.0, (double)level["userEnteredValue"]!["numberValue"]!);
         Assert.Equal("CENTER", (string)level["userEnteredFormat"]!["horizontalAlignment"]!);
+        Assert.Null(level["userEnteredFormat"]!["textFormat"]);
+
+        var linked = GoogleSheets.BuildWriteRequests([new SheetTable("Gear", [[new SheetCell(31.0, Link: "https://x/item=1")]])],
+            new Dictionary<string, long> { ["Gear"] = 7 })[1]!["updateCells"]!["rows"]![0]!["values"]![0]!;
+        Assert.Equal(31.0, (double)linked["userEnteredValue"]!["numberValue"]!);       // still a number
+        Assert.Equal("https://x/item=1", (string)linked["userEnteredFormat"]!["textFormat"]!["link"]!["uri"]!);
     }
 
     [Fact]

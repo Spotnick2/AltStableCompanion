@@ -453,11 +453,12 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         var format = new JsonObject { ["verticalAlignment"] = "MIDDLE" };
         if (c.Center) format["horizontalAlignment"] = "CENTER";
         if (c.Fill is not null) format["backgroundColor"] = Color(c.Fill);
-        if (c.Bold || c.Color is not null)
+        if (c.Bold || c.Color is not null || c.Link is not null)
         {
             var text = new JsonObject();
             if (c.Bold) text["bold"] = true;
             if (c.Color is not null) text["foregroundColor"] = Color(c.Color);
+            if (c.Link is not null) text["link"] = new JsonObject { ["uri"] = c.Link };
             format["textFormat"] = text;
         }
         if (c.NumberFormat is not null)

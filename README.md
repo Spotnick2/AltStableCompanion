@@ -192,7 +192,8 @@ you connect, in Settings → **Google Sheet**.
     short name), as letters in the standing's colour: E Exalted, R Revered, H Honored,
     F Friendly, N Neutral, U Unfriendly, Ho Hostile, Ha Hated;
   - **Gear**: each slot's item level in its quality colour (the item and its enchant when you
-    hover it), then the enchants, for the slots any character has one on.
+    hover it, and the item's Wowhead page when you click it), then the enchants, for the slots
+    any character has one on.
 
   The app rewrites its own four tabs whole each time. Tabs you add are never touched, so
   your own formulas can point at its tabs. Renaming its tabs, or the spreadsheet, is fine. If

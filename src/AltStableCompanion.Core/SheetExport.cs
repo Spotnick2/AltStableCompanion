@@ -4,10 +4,11 @@ namespace AltStableCompanion.Core;
 
 /// <summary>
 /// One cell of an exported tab: a string, a number or a <see cref="SheetImage"/>, and how it
-/// looks. Colours are "RRGGBB".
+/// looks. Colours are "RRGGBB". <see cref="Link"/>: the cell's text links there (an item's
+/// Wowhead page), the value staying what it is.
 /// </summary>
 public sealed record SheetCell(object? Value, string? Fill = null, string? Color = null, bool Bold = false,
-    string? NumberFormat = null, string? Note = null, bool Vertical = false, bool Center = false)
+    string? NumberFormat = null, string? Note = null, bool Vertical = false, bool Center = false, string? Link = null)
 {
     public static readonly SheetCell Empty = new((object?)null);
 }
@@ -68,6 +69,9 @@ public static class SheetExport
     public const string Skills = "Skills";
     public const string Reputations = "Reputations";
     public const string Gear = "Gear";
+
+    /// <summary>An item's Wowhead Forever page (the wowhead-forever skill's page prefix): its tooltip, a click away.</summary>
+    public const string WowheadItem = "https://www.wowhead.com/forever/item=";
 
     /// <summary>Blizzard's icon server, which the armory's site uses: <c>&lt;icon&gt;.jpg</c>, 56 px.</summary>
     public const string IconHost = "https://render.worldofwarcraft.com/us/icons/56/";
@@ -597,7 +601,8 @@ public static class SheetExport
         var note = new List<string> { name };
         if (Str(c, "gearench_" + key) is { Length: > 0 } ench) note.Add("Enchanted: " + ench);
         object value = Num(c, "gear_" + key) is double ilvl and > 0 ? ilvl : "?";
-        return new SheetCell(value, PageFill, color, Bold: true, Note: string.Join('\n', note), Center: true);
+        return new SheetCell(value, PageFill, color, Bold: true, Note: string.Join('\n', note), Center: true,
+            Link: id > 0 ? WowheadItem + id.ToString(CultureInfo.InvariantCulture) : null);
     }
 
     // The rulesets a realm's name ends with ("CAMWOW US2 Realm 1 PvE"): the owner wants the
