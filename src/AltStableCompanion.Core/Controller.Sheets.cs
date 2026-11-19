@@ -424,6 +424,8 @@ public sealed partial class Controller
     // an export outlived by a Disconnect does not choose the next session's spreadsheet. A
     // second guard, which no test reaches: such an export is cancelled, and its next request
     // throws before it has a spreadsheet to keep.
+    // The window has its address at once too: Open sheet works even if a Disconnect stops the
+    // first write (Codex on #84).
     private void SaveSheet(string id, string url, int session)
     {
         lock (_gate)
@@ -431,7 +433,9 @@ public sealed partial class Controller
             if (session != _googleSession) return;
             _settings = _settings with { GoogleSheetId = id, GoogleSheetUrl = url };
             Write();
+            _current = _current with { Sheets = _current.Sheets with { Url = url } };
         }
+        Changed?.Invoke();
     }
 
     // The export, into this spreadsheet: the tabs it added back, or null and why it was not used.

@@ -404,6 +404,26 @@ public sealed class SheetsControllerTests
     }
 
     [Fact]
+    public void A_spreadsheet_made_before_a_disconnect_can_still_be_opened()
+    {
+        using var t = Install();                                    // nothing saved, nothing in Drive
+        GoogleTokenStore.Save(Data(t), "refresh-1");
+        var google = new FakeGoogleService { HoldListing = new SemaphoreSlim(0) };
+        using var c = Started(t, google);
+
+        c.ExportSheet();
+        // Made, and its first write waiting on Google: then Disconnect.
+        Until(() => google.Count("GET sheets.googleapis.com") == 1, "the first write waiting on Google");
+        Assert.Equal(1, google.Created);
+        c.DisconnectGoogle();
+        Until(() => c.Current.Sheets.Google == GoogleState.NotConnected, "disconnected");
+
+        Assert.Equal(GoogleSheets.UrlOf("sheet-1"), c.Current.Sheets.Url);
+        Assert.Equal("sheet-1", Settings.Load(Data(t)).GoogleSheetId);
+        Assert.Equal(0, google.Count(":batchUpdate"));
+    }
+
+    [Fact]
     public void Connect_waits_for_the_revoke_of_the_sign_in_before()
     {
         using var t = Install();
