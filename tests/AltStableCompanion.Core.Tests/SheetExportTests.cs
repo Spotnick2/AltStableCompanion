@@ -20,6 +20,7 @@ public sealed class SheetExportTests : IDisposable
     internal static string Record(string guid, params (string Key, object Value)[] fields) =>
         $"[\"{guid}\"] = {{\n" + string.Concat(fields.Select(f => f.Value is string s
             ? $"[\"{f.Key}\"] = \"{s}\",\n"
+            : f.Value is bool b ? $"[\"{f.Key}\"] = {(b ? "true" : "false")},\n"
             : $"[\"{f.Key}\"] = {Convert.ToString(f.Value, CultureInfo.InvariantCulture)},\n")) + "},\n";
 
     // A whole file: the addon always writes both tables.
@@ -193,9 +194,14 @@ public sealed class SheetExportTests : IDisposable
             // Every column has a width: Sheets' own fit cuts bold text short.
             Assert.All(t.ColumnWidths!, w => Assert.NotNull(w));
             Assert.Equal(t.Columns, t.ColumnWidths!.Count);
-            // The "Last update" line runs on into the cells beside it: it does not widen Name.
-            Assert.Equal(SheetExport.TextWidth(t.Rows.Skip(1), 0), t.ColumnWidths[0]);
-            Assert.True(t.ColumnWidths[0] < SheetExport.TextWidth(t.Rows, 0));
+            // The "Last update" line runs on into the cells beside it: it widens Name only
+            // when the whole tab is narrower than it (Reputations here: nobody has met a faction).
+            Assert.True(t.ColumnWidths.Sum(w => w!.Value) >= SheetExport.TextWidth(t.Rows.Take(1), 0), t.Title);
+            if (t.Title == SheetExport.Characters)
+            {
+                Assert.Equal(SheetExport.TextWidth(t.Rows.Skip(1), 0), t.ColumnWidths[0]);
+                Assert.True(t.ColumnWidths[0] < SheetExport.TextWidth(t.Rows, 0));
+            }
         }
         Assert.Equal([SheetExport.Characters, SheetExport.Skills, SheetExport.Reputations, SheetExport.Gear],
             SheetExport.Build(chars, now).Select(t => t.Title));
@@ -228,19 +234,49 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal("CAMWOW US2 Realm 1 PvE", ruleset.Note);
     }
 
+    // AltStable 1.9.0's own cases (tests/test_warband.lua), as the badge its Ruleset column shows.
     [Theory]
+    [InlineData("Classic Beta PvE", "PvE")]
+    [InlineData("Classic Beta PvP", "PvP")]
+    [InlineData("Classic Beta PvP 2", "PvP")]
+    [InlineData("CLASSIC BETA PVP", "PvP")]
+    [InlineData("Forever RP", "RP")]
+    [InlineData("Forever RP-PvP", "RP-PvP")]
+    [InlineData("Forever RPPvP", "RP-PvP")]
+    [InlineData("Forever RP PvP 2", "RP-PvP")]
+    [InlineData("Forever Roleplay PvP", "RP-PvP")]
+    [InlineData("CAMWOW US2 Realm 3 RP-PVP", "RP-PvP")]
+    [InlineData("CAMWOW US2 Realm 2 RP", "RP")]
     [InlineData("CAMWOW US2 Realm 1 PvE", "PvE")]
-    [InlineData("Some Realm RP-PvP", "RP-PvP")]
-    [InlineData("Hardcore Land hardcore", "hardcore")]
-    [InlineData("Nameless", "Nameless")]
-    public void The_ruleset_is_the_realms_last_word_when_it_is_one(string realm, string expected) =>
+    [InlineData("Forever Hardcore", "HC")]
+    [InlineData("Forever HC", "HC")]
+    [InlineData("Carp Lake", "PvE")]                 // "rp" inside a word is not RP
+    [InlineData("Some Realm PvP2", "PvP")]           // but "pvp" counts anywhere, as the addon's find does
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    public void The_ruleset_is_read_from_the_realm_as_the_addon_reads_it(string? realm, string? expected) =>
         Assert.Equal(expected, SheetExport.Ruleset(realm));
+
+    [Fact]
+    public void A_character_is_numbered_for_the_account_that_scans_it_whichever_copy_is_newest()
+    {
+        // Account 1 (ALPHA) holds a synced copy, as new as the scanning account's own (ZETA).
+        Store("ALPHA#1", Db(
+            Record("Player-1-01", ("name", "Mine"), ("lastUpdate", 100)),
+            Record("Player-1-09", ("name", "Friend"), ("lastUpdate", 100))));
+        Store("ZETA#1", Db(Record("Player-1-01", ("name", "Mine"), ("lastUpdate", 100), ("scannedHere", true))));
+
+        var chars = SheetExport.Load(_dir).Characters;
+
+        Assert.Equal(2.0, chars.Single(c => (string)c["name"]! == "Mine")["accountNumber"]);
+        Assert.False(chars.Single(c => (string)c["name"]! == "Friend").ContainsKey("accountNumber"));   // on neither account
+    }
 
     [Fact]
     public void Accounts_are_numbered_in_their_folders_order_never_named()
     {
-        Store("ZETA#1", Db(Record("Player-1-01", ("name", "Late"))));
-        Store("ALPHA#1", Db(Record("Player-1-02", ("name", "Early"))));
+        Store("ZETA#1", Db(Record("Player-1-01", ("name", "Late"), ("scannedHere", true))));
+        Store("ALPHA#1", Db(Record("Player-1-02", ("name", "Early"), ("scannedHere", true))));
 
         var chars = SheetExport.Load(_dir).Characters;
 
@@ -248,6 +284,16 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(2.0, chars.Single(c => (string)c["name"]! == "Late")["accountNumber"]);
         Assert.DoesNotContain(SheetExport.Build(chars, 0).SelectMany(t => t.Rows).SelectMany(r => r),
             c => (c.Value as string ?? c.Note ?? "").Contains('#'));
+    }
+
+    [Fact]
+    public void An_empty_tab_still_has_room_for_its_last_update_line()
+    {
+        foreach (var t in SheetExport.Build([], 1795044105L))
+        {
+            Assert.Single(t.Rows);
+            Assert.True(t.ColumnWidths!.Sum(w => w!.Value) >= SheetExport.TextWidth(t.Rows, 0), t.Title);
+        }
     }
 
     [Fact]

@@ -233,8 +233,11 @@ public static class SheetExport
     /// file without one is not a whole one.
     /// <para>
     /// Each record gets <c>guid</c> (its key) and <c>accountNumber</c>: 1, 2, ... in the account
-    /// folders' sorted order. The folder names are Battle.net account identifiers, which never
-    /// leave the PC (as in diagnostics).
+    /// folders' sorted order, of the account that SCANS the character - its copy says
+    /// <c>scannedHere</c>, which AltStable never syncs (Core.lua, Provenance.LOCAL_ONLY) - not
+    /// of whichever copy is newest: a synced copy can tie it, and a friend's character is on
+    /// neither account. No such copy, no number. The folder names are Battle.net account
+    /// identifiers, which never leave the PC (as in diagnostics); Codex on #85.
     /// </para>
     /// </summary>
     internal static ExportRoster Load(IEnumerable<string> paths)
@@ -244,6 +247,7 @@ public static class SheetExport
             .Order(StringComparer.OrdinalIgnoreCase).ToList();
         var newest = new Dictionary<string, Dictionary<object, object?>>(StringComparer.Ordinal);
         var hidden = new HashSet<string>(StringComparer.Ordinal);
+        var owner = new Dictionary<string, int>(StringComparer.Ordinal);    // the account that scans it
         var skipped = new List<string>();
         foreach (var path in list)
         {
@@ -265,10 +269,15 @@ public static class SheetExport
                 if (key is not string guid || entry is not Dictionary<object, object?> e) continue;
                 if (string.IsNullOrWhiteSpace(Str(e, "name"))) continue;
                 e["guid"] = guid;       // the key is the character's identity, whatever the record says
-                e["accountNumber"] = (double)account;
+                if (e.TryGetValue("scannedHere", out var here) && here is true or "true") owner[guid] = account;
                 if (newest.TryGetValue(guid, out var had) && (Num(had, "lastUpdate") ?? 0) >= (Num(e, "lastUpdate") ?? 0)) continue;
                 newest[guid] = e;
             }
+        }
+        foreach (var (guid, e) in newest)
+        {
+            if (owner.TryGetValue(guid, out var account)) e["accountNumber"] = (double)account;
+            else e.Remove("accountNumber");
         }
         var chars = newest.Where(kv => !hidden.Contains(kv.Key)).Select(kv => kv.Value).ToList();
         chars.Sort(Order);
@@ -342,8 +351,13 @@ public static class SheetExport
                 }
             }
             List<int?> fixedWidths = [null, AvatarSize, AvatarSize, .. widths];
+            var sized = Enumerable.Range(0, columns).Select(i => fixedWidths.ElementAtOrDefault(i) ?? TextWidth(_rows.Skip(1), i)).ToList();
+            // The "Last update" line runs on across the row, but a tab can be narrower than it -
+            // an empty roster, a tab with no columns of its own (Codex on #85): Name takes the rest.
+            var line = TextWidth(_rows.Take(1), 0);
+            if (sized.Sum() < line) sized[0] += line - sized.Sum();
             return new SheetTable(title, _rows, FrozenColumns: Lead, FrozenRows: 1, RowHeights: _heights,
-                ColumnWidths: [.. Enumerable.Range(0, columns).Select(i => fixedWidths.ElementAtOrDefault(i) ?? TextWidth(_rows.Skip(1), i))]);
+                ColumnWidths: [.. sized.Select(w => (int?)w)]);
         }
 
         private void Add(IReadOnlyList<SheetCell> row, int? height)
@@ -605,14 +619,24 @@ public static class SheetExport
             Link: id > 0 ? WowheadItem + id.ToString(CultureInfo.InvariantCulture) : null);
     }
 
-    // The rulesets a realm's name ends with ("CAMWOW US2 Realm 1 PvE"): the owner wants the
-    // ruleset in the cell and the realm's name only on hover. A name without one shows whole.
-    private static readonly string[] RulesetWords = ["PvE", "PvP", "RP", "RPPvP", "RP-PvP", "Normal", "Hardcore"];
-
-    internal static string Ruleset(string realm)
+    /// <summary>
+    /// The realm's ruleset as AltStable's own Ruleset column shows it - its badge: PvE, PvP, RP,
+    /// RP-PvP, HC - or null for a realm it cannot read. A port of the addon's
+    /// <c>AltStable.RulesetOf</c> (Config.lua, AltStable 1.9.0) and <c>RULESET_BADGE</c>: words,
+    /// not substrings ("rp" inside a word is not RP); RP with PvP anywhere is RP-PvP. The owner
+    /// wants the ruleset in the cell and the realm's name only on hover (Codex on #85: a last-word
+    /// parse got "Forever Roleplay PvP" and "Classic Beta PvP 2" wrong).
+    /// </summary>
+    internal static string? Ruleset(string? realm)
     {
-        var last = realm.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
-        return last is not null && RulesetWords.Contains(last, StringComparer.OrdinalIgnoreCase) ? last : realm;
+        if (string.IsNullOrWhiteSpace(realm)) return null;
+        var words = " " + new string([.. realm.ToLowerInvariant().Select(ch => char.IsAsciiLetterOrDigit(ch) ? ch : ' ')]) + " ";
+        bool Word(string w) => words.Contains(" " + w + " ", StringComparison.Ordinal);
+        if (Word("hardcore") || Word("hc")) return "HC";
+        if (Word("rppvp")) return "RP-PvP";
+        var pvp = words.Contains("pvp", StringComparison.Ordinal);
+        if (Word("rp") || Word("roleplay")) return pvp ? "RP-PvP" : "RP";
+        return pvp ? "PvP" : "PvE";
     }
 
     private static string ClassFill(Dictionary<object, object?> c) =>

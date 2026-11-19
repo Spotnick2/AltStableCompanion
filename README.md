@@ -182,8 +182,8 @@ you connect, in Settings → **Google Sheet**.
   line, then a section per faction (its crest, its own header row, then its characters, each
   row in its class colour), and every tab starts with the name, the armory picture and the
   class icon. Four tabs:
-  - **Characters**: level, item level, rested XP, which account (1, 2, ... in the order of
-    the `WTF\Account` folders, whose names stay on your PC), gold in gold, silver and copper
+  - **Characters**: level, item level, rested XP, which account plays it (1, 2, ... in the
+    order of the `WTF\Account` folders, whose names stay on your PC; blank for a friend's), gold in gold, silver and copper
     (each faction's total on its banner), where the hearthstone is set, guild, when it was
     last played, race, and the realm's ruleset (its name when you hover it);
   - **Skills**: professions, cooking, fishing, first aid and riding, under their icons; a
