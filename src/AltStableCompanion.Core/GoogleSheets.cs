@@ -31,6 +31,9 @@ public sealed record GoogleClient(string Id, string Secret)
 /// <summary>A Google API answer that was not a success. The message is Google's, never a token.</summary>
 public sealed class GoogleApiException(string message) : Exception(message);
 
+/// <summary>A saved spreadsheet with none of the app's tabs: the player chooses a new one, nothing is written.</summary>
+public sealed class UnownedSheetException(string message) : Exception(message);
+
 /// <summary>
 /// The player's Google sign-in: the refresh token, kept with DPAPI for this Windows user in the
 /// data folder, like <see cref="BlizzardClientStore"/>. Never shown, never logged.
@@ -128,12 +131,15 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     }
 
     /// <summary>
-    /// The developer-metadata key that marks a tab as the app's, its value the table's title.
-    /// PROJECT visibility: only this app's Cloud project sees it (Codex on #83).
+    /// The developer-metadata key that marks a tab as the app's. Its value is the table's title and
+    /// the id of the tab it was put on, "Gear#1320087350": a tag found on any other tab is not
+    /// ours, so a copy of our tab stays the player's even if the copy carried the tag (Codex on
+    /// #83). Measured 2026-11-19: duplicateSheet and sheets.copyTo do not copy it. PROJECT
+    /// visibility: only this app's Cloud project sees it.
     /// </summary>
     public const string TabTag = "altstable.tab";
 
-    /// <summary>A tab as Google lists it: its id, its title now, and our tag on it, if any.</summary>
+    /// <summary>A tab as Google lists it: its id, its title now, and the table our tag on it names - only a tag put on THIS tab.</summary>
     internal sealed record Tab(long Id, string Title, string? Tag);
 
     /// <summary>
@@ -163,6 +169,12 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     /// tagged, in the same batch that fills it - so a reply lost on the way leaves nothing for a
     /// retry to lose track of: the tag is on the sheet, not in a file here (Codex on #83).
     /// Returns the titles of the tabs it had to add.
+    /// <para>
+    /// The spreadsheet must hold at least one of the app's tabs - one it just created does, its
+    /// tabs are tagged as they are made. One that holds none - written before the tags, or every tab of ours
+    /// deleted - throws <see cref="UnownedSheetException"/> before anything is written, rather
+    /// than adding a suffixed copy of every tab beside stale ones (Codex on #83).
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<string>> WriteAsync(string accessToken, string spreadsheetId,
         IReadOnlyList<SheetTable> tables, CancellationToken ct)
@@ -170,7 +182,10 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         var url = $"{SheetsUrl}/{Uri.EscapeDataString(spreadsheetId)}";
         var listing = await SendAsync(HttpMethod.Get,
             url + "?fields=sheets(properties(sheetId,title),developerMetadata(metadataKey,metadataValue))", accessToken, null, ct);
-        var (ids, adds) = PlanTabs(tables, Tabs(listing).ToList(), () => Random.Shared.Next(1, int.MaxValue));
+        var tabs = Tabs(listing).ToList();
+        if (!tabs.Any(t => t.Tag is not null))
+            throw new UnownedSheetException("the spreadsheet holds none of AltStable Companion's tabs (made before they were tagged, or all deleted)");
+        var (ids, adds) = PlanTabs(tables, tabs, () => Random.Shared.Next(1, int.MaxValue));
         var requests = new JsonArray();
         foreach (var (id, tabTitle, table) in adds)
         {
@@ -186,8 +201,8 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     }
 
     /// <summary>
-    /// Which tab each table goes to: the first tab tagged with its title, whatever it is called
-    /// now (a copy the player made of it, tag and all, is left alone); otherwise a new tab, with
+    /// Which tab each table goes to: the tab tagged with its title, whatever it is called now;
+    /// otherwise a new tab, with
     /// a fresh id from <paramref name="nextId"/> and the table's title - or, when a tab already
     /// has that title (names are unique, whatever the case), "Title (AltStable)", "Title (AltStable 2)", ...
     /// </summary>
@@ -215,7 +230,7 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     private static JsonObject TagJson(long sheetId, string table) => new()
     {
         ["metadataKey"] = TabTag,
-        ["metadataValue"] = table,
+        ["metadataValue"] = $"{table}#{sheetId}",
         ["location"] = new JsonObject { ["sheetId"] = sheetId },
         ["visibility"] = "PROJECT",
     };
@@ -225,9 +240,11 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         foreach (var s in answer["sheets"]?.AsArray() ?? [])
         {
             if ((string?)s?["properties"]?["title"] is not { } title || s["properties"]?["sheetId"] is not JsonNode id) continue;
+            var suffix = "#" + ((long)id).ToString(CultureInfo.InvariantCulture);
             var tag = (s["developerMetadata"]?.AsArray() ?? [])
-                .FirstOrDefault(m => (string?)m?["metadataKey"] == TabTag) is { } m ? (string?)m["metadataValue"] : null;
-            yield return new Tab((long)id, title, tag);
+                .Select(m => (string?)m?["metadataKey"] == TabTag ? (string?)m["metadataValue"] : null)
+                .FirstOrDefault(v => v is not null && v.Length > suffix.Length && v.EndsWith(suffix, StringComparison.Ordinal));
+            yield return new Tab((long)id, title, tag?[..^suffix.Length]);
         }
     }
 

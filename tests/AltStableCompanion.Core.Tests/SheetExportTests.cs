@@ -247,13 +247,39 @@ public sealed class SheetExportTests : IDisposable
         Assert.Empty(adds);
     }
 
-    [Fact]
-    public void A_copy_the_player_made_of_our_tab_is_left_alone()
+    // A listing of tabs as Google gives it, each tab with the raw value of our tag on it, if any.
+    private static JsonNode Listing(params (long Id, string Title, string? Tag)[] tabs) => new JsonObject
     {
-        var (ids, _) = GoogleSheets.PlanTabs([Table("Gear")],
-            [Tab(5, "Gear", "Gear"), Tab(6, "Copy of Gear", "Gear")], () => 77);
+        ["sheets"] = new JsonArray(tabs.Select(t => (JsonNode)new JsonObject
+        {
+            ["properties"] = new JsonObject { ["sheetId"] = t.Id, ["title"] = t.Title },
+            ["developerMetadata"] = t.Tag is null ? new JsonArray()
+                : new JsonArray(new JsonObject { ["metadataKey"] = GoogleSheets.TabTag, ["metadataValue"] = t.Tag }),
+        }).ToArray()),
+    };
 
-        Assert.Equal(5, ids["Gear"]);
+    [Fact]
+    public void A_copy_of_our_tab_carrying_our_tag_is_not_ours_listed_before_or_after_the_original()
+    {
+        var original = (5L, "Gear", (string?)"Gear#5");
+        var copy = (6L, "Copy of Gear", (string?)"Gear#5");     // the tag names the tab it was put on: 5
+
+        foreach (var listing in new[] { Listing(original, copy), Listing(copy, original) })
+        {
+            var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")], GoogleSheets.Tabs(listing).ToList(), () => 77);
+            Assert.Equal(5, ids["Gear"]);
+            Assert.Empty(adds);
+        }
+    }
+
+    [Fact]
+    public void Once_the_original_is_deleted_its_copy_is_still_the_players()
+    {
+        var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")],
+            GoogleSheets.Tabs(Listing((6L, "Copy of Gear", "Gear#5"))).ToList(), () => 77);
+
+        Assert.Equal(77, ids["Gear"]);
+        Assert.Equal([(77L, "Gear", "Gear")], adds);
     }
 
     [Fact]
@@ -272,19 +298,24 @@ public sealed class SheetExportTests : IDisposable
     {
         var listing = JsonNode.Parse("""
             {"sheets":[
-              {"properties":{"sheetId":1,"title":"Gear"},"developerMetadata":[{"metadataKey":"other.app","metadataValue":"Gear"},{"metadataKey":"altstable.tab","metadataValue":"Gear"}]},
+              {"properties":{"sheetId":1,"title":"Gear"},"developerMetadata":[{"metadataKey":"other.app","metadataValue":"Gear#1"},{"metadataKey":"altstable.tab","metadataValue":"Gear#1"}]},
               {"properties":{"sheetId":2,"title":"Skills"},"developerMetadata":[{"metadataKey":"other.app","metadataValue":"Skills"}]},
-              {"properties":{"sheetId":3,"title":"Notes"}}]}
+              {"properties":{"sheetId":3,"title":"Notes"}},
+              {"properties":{"sheetId":4,"title":"Old"},"developerMetadata":[{"metadataKey":"altstable.tab","metadataValue":"Gear"}]},
+              {"properties":{"sheetId":14,"title":"Odd"},"developerMetadata":[{"metadataKey":"altstable.tab","metadataValue":"Gear#4"}]},
+              {"properties":{"sheetId":7,"title":"Odder"},"developerMetadata":[{"metadataKey":"altstable.tab","metadataValue":"Gear#71"}]}]}
             """)!;
 
-        Assert.Equal([Tab(1, "Gear", "Gear"), Tab(2, "Skills"), Tab(3, "Notes")], GoogleSheets.Tabs(listing));
+        // 4: a tag without the tab's id; 14: "#4" is not "#14"; 7: "#71" is not "#7".
+        Assert.Equal([Tab(1, "Gear", "Gear"), Tab(2, "Skills"), Tab(3, "Notes"), Tab(4, "Old"), Tab(14, "Odd"), Tab(7, "Odder")],
+            GoogleSheets.Tabs(listing));
     }
 
     [Fact]
     public async Task A_missing_tab_is_added_and_tagged_in_the_same_batch_that_fills_it()
     {
         // The player has a "Skills" of their own: ours comes back as "Skills (AltStable)", tagged "Skills".
-        var google = new FakeGoogle([Tab(1, "Characters", "Characters"), Tab(2, "Skills")]);
+        var google = new FakeGoogle([Tab(1, "Characters", "Characters#1"), Tab(2, "Skills")]);
 
         var added = await new GoogleSheets(new HttpClient(google), new GoogleClient("id", "secret"))
             .WriteAsync("token", "sheet", [Table("Characters"), Table("Skills")], CancellationToken.None);
@@ -294,7 +325,7 @@ public sealed class SheetExportTests : IDisposable
         var newId = (long)requests[0]!["addSheet"]!["properties"]!["sheetId"]!;
         var tag = requests[1]!["createDeveloperMetadata"]!["developerMetadata"]!;
         Assert.Equal(GoogleSheets.TabTag, (string)tag["metadataKey"]!);
-        Assert.Equal("Skills", (string)tag["metadataValue"]!);
+        Assert.Equal($"Skills#{newId}", (string)tag["metadataValue"]!);
         Assert.Equal(newId, (long)tag["location"]!["sheetId"]!);
         Assert.Contains(requests, r => r!["updateCells"]?["range"]?["sheetId"] is JsonNode id && (long)id == newId);
         Assert.Contains(requests, r => r!["updateCells"]?["range"]?["sheetId"] is JsonNode id && (long)id == 1);
@@ -304,7 +335,7 @@ public sealed class SheetExportTests : IDisposable
     [Fact]
     public async Task A_batch_Google_applied_but_whose_answer_was_lost_is_not_redone()
     {
-        var google = new FakeGoogle([Tab(1, "Characters", "Characters")]) { LoseNextAnswer = true };
+        var google = new FakeGoogle([Tab(1, "Characters", "Characters#1")]) { LoseNextAnswer = true };
         var sheets = new GoogleSheets(new HttpClient(google), new GoogleClient("id", "secret"));
         SheetTable[] tables = [Table("Characters"), Table("Skills")];
 
@@ -315,9 +346,24 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(2, google.State.Count);    // Characters and the one Skills: no "Skills (AltStable)"
     }
 
+    [Theory]
+    [InlineData(null)]              // made before the tags
+    [InlineData("Characters")]      // tagged before a tag named its tab's id
+    public async Task A_sheet_holding_none_of_our_tabs_is_refused_before_anything_is_written(string? oldTag)
+    {
+        var google = new FakeGoogle([Tab(1, "Characters", oldTag), Tab(2, "Gear"), Tab(3, "Skills")]);
+        var sheets = new GoogleSheets(new HttpClient(google), new GoogleClient("id", "secret"));
+
+        await Assert.ThrowsAsync<UnownedSheetException>(() =>
+            sheets.WriteAsync("token", "sheet", [Table("Characters"), Table("Gear"), Table("Skills")], CancellationToken.None));
+
+        Assert.Empty(google.Batches);
+    }
+
     /// <summary>
     /// The Sheets API as far as the export uses it: a listing of tabs with our tags, and a
-    /// batch that applies addSheet and createDeveloperMetadata to that listing.
+    /// batch that applies addSheet and createDeveloperMetadata to that listing. A tab's Tag here
+    /// is the raw metadata value, as Google keeps it.
     /// </summary>
     private sealed class FakeGoogle(IEnumerable<GoogleSheets.Tab> tabs) : HttpMessageHandler
     {

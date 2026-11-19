@@ -73,7 +73,16 @@ if (string.IsNullOrEmpty(id))
     Console.WriteLine("Created a new spreadsheet.");
 }
 var watch = Stopwatch.StartNew();
-var added = await google.WriteAsync(access, id, tables, cts.Token);
+IReadOnlyList<string> added;
+try
+{
+    added = await google.WriteAsync(access, id, tables, cts.Token);
+}
+catch (UnownedSheetException ex)
+{
+    Console.Error.WriteLine($"{ex.Message}; nothing written. Run with --new for a fresh spreadsheet.");
+    return 1;
+}
 if (added.Count > 0) Console.WriteLine($"Added tabs: {string.Join(", ", added)}");
 Console.WriteLine($"Written in {watch.ElapsedMilliseconds} ms: https://docs.google.com/spreadsheets/d/{id}/edit");
 return 0;
