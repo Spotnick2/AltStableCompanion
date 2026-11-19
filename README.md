@@ -178,26 +178,36 @@ you connect, in Settings → **Google Sheet**.
   your Drive. If nothing comes back, **Cancel** stops waiting; after 5 minutes it gives up.
   Once connected, it exports at once.
 - **Export now** writes every character AltStable has, except those you hid, into a
-  spreadsheet named **AltStable**, on three tabs:
-  - **Characters**: name (in its class colour), realm, class, race, faction, level, item
-    level, rested XP, gold, guild and when it was last played;
-  - **Gear**: each slot's item in its quality colour, with its item level and enchant as
-    the cell's note;
-  - **Skills**: professions, cooking, fishing, first aid and riding; a skill at its current
-    cap is highlighted.
+  spreadsheet named **AltStable**. It is dark, like the game: each tab has a "Last update"
+  line, then a section per faction (its crest, its own header row, then its characters, each
+  row in its class colour), and every tab starts with the name, the armory picture and the
+  class icon. Four tabs:
+  - **Characters**: level, item level, rested XP, which account (1, 2, ... in the order of
+    the `WTF\Account` folders, whose names stay on your PC), gold in gold, silver and copper
+    (each faction's total on its banner), where the hearthstone is set, guild, when it was
+    last played, race, and the realm's ruleset (its name when you hover it);
+  - **Skills**: professions, cooking, fishing, first aid and riding, under their icons; a
+    skill at its current cap is yellow;
+  - **Reputations**: the factions any of your characters has met, under their tabard (or a
+    short name), as letters in the standing's colour: E Exalted, R Revered, H Honored,
+    F Friendly, N Neutral, U Unfriendly, Ho Hostile, Ha Hated;
+  - **Gear**: each slot's item level in its quality colour (the item and its enchant when you
+    hover it), then the enchants, for the slots any character has one on.
 
-  The app rewrites its own three tabs whole each time. Tabs you add are never touched, so
+  The app rewrites its own four tabs whole each time. Tabs you add are never touched, so
   your own formulas can point at its tabs. Renaming its tabs, or the spreadsheet, is fine. If
   you delete one of its tabs, the next export puts it back. There is only ever one: on a new
   PC, or after a reinstall, the app finds the spreadsheet it made before and goes on writing
   it. If that one is gone or in the trash, the next export makes a new one, and says so.
 - **Nothing is written unless every account was read.** If the game is writing an account's
   file at that moment, the export stops and says which account; try again a moment later.
-- **Avatars.** With [portraits from the armory](#portraits-from-the-armory-optional) on, the
-  Characters tab also shows each character's small armory picture, or the armory's silhouette
-  of its race until the armory has drawn it (under level 10, or not played since it could).
-  The spreadsheet asks Blizzard's picture server for them, not the app, and Google shows them only
-  once you open the spreadsheet and choose **Allow access**, which it asks for once.
+- **Pictures and icons.** The class, profession, coin and faction icons come from Blizzard's
+  icon server. With [portraits from the armory](#portraits-from-the-armory-optional) on, each
+  character's small armory picture shows too, or the armory's silhouette of its race until
+  the armory has drawn it (under level 10, or not played since it could); with it off, that
+  column stays empty. The spreadsheet asks Blizzard's servers for them, not the app, and
+  Google shows them only once you open the spreadsheet and choose **Allow access**, which it
+  asks for once.
 - **Open sheet** opens it in your browser. **Disconnect** deletes the sign-in from this PC
   and asks Google to cancel it; the spreadsheet stays yours, and connecting the same Google
   account again goes on writing it.

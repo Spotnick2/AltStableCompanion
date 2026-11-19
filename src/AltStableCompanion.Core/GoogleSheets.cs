@@ -344,11 +344,12 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     }
 
     /// <summary>
-    /// The requests that rewrite each tab: the grid sized to the table (one spare row, so the
-    /// frozen header is never every row), the header frozen, every cell written - the range is
-    /// the whole tab, so a cell the table no longer has is cleared - the rows' height set (a
-    /// tab's pictures, or the default once it has none) and the columns fitted, but for a
-    /// picture column, which is the pictures' width.
+    /// The requests that rewrite each tab: the grid exactly the table's size (no spare white row
+    /// under the dark), its frozen rows and columns - never every one, which Sheets refuses -,
+    /// no gridlines (the look is
+    /// bands of colour), every cell written - the range is the whole tab, so a cell the table no
+    /// longer has is cleared - each row's height (the default where the table says none, so a
+    /// row that was tall is not left tall), the fixed columns' widths, and the others fitted.
     /// </summary>
     internal static JsonArray BuildWriteRequests(IReadOnlyList<SheetTable> tables, IReadOnlyDictionary<string, long> sheetIds)
     {
@@ -366,13 +367,14 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
                         ["sheetId"] = id,
                         ["gridProperties"] = new JsonObject
                         {
-                            ["rowCount"] = t.Rows.Count + 1,
+                            ["rowCount"] = Math.Max(t.Rows.Count, 1),
                             ["columnCount"] = columns,
-                            ["frozenRowCount"] = 1,
+                            ["frozenRowCount"] = Math.Max(0, Math.Min(t.FrozenRows, t.Rows.Count - 1)),
                             ["frozenColumnCount"] = Math.Min(t.FrozenColumns, columns - 1),
+                            ["hideGridlines"] = true,
                         },
                     },
-                    ["fields"] = "gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount)",
+                    ["fields"] = "gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)",
                 },
             });
             requests.Add(new JsonObject
@@ -387,37 +389,42 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
                     ["fields"] = "userEnteredValue,userEnteredFormat,note",
                 },
             });
-            if (t.Rows.Count > 1) requests.Add(Size(id, "ROWS", 1, t.Rows.Count, t.ImageSize ?? DefaultRowHeight));
-            if (t.ImageSize is { } size)
+            // Rows: one request per run of equal heights.
+            for (var from = 0; from < t.Rows.Count;)
             {
-                requests.Add(Size(id, "COLUMNS", 0, 1, size));
-                // Text beside a picture sits in the middle of its tall row, not at the bottom.
-                if (t.Rows.Count > 1)
-                    requests.Add(new JsonObject
-                    {
-                        ["repeatCell"] = new JsonObject
-                        {
-                            ["range"] = new JsonObject { ["sheetId"] = id, ["startRowIndex"] = 1, ["endRowIndex"] = t.Rows.Count },
-                            ["cell"] = new JsonObject { ["userEnteredFormat"] = new JsonObject { ["verticalAlignment"] = "MIDDLE" } },
-                            ["fields"] = "userEnteredFormat.verticalAlignment",
-                        },
-                    });
+                var height = Height(t, from);
+                var to = from + 1;
+                while (to < t.Rows.Count && Height(t, to) == height) to++;
+                requests.Add(Size(id, "ROWS", from, to, height));
+                from = to;
             }
-            var fitFrom = t.ImageSize is null ? 0 : 1;
-            if (columns > fitFrom)
-                requests.Add(new JsonObject
+            // Columns: a fixed width, or fitted - one request per run of either.
+            for (var from = 0; from < columns;)
+            {
+                var width = Width(t, from);
+                var to = from + 1;
+                while (to < columns && Width(t, to) == width) to++;
+                requests.Add(width is { } px ? Size(id, "COLUMNS", from, to, px) : new JsonObject
                 {
                     ["autoResizeDimensions"] = new JsonObject
                     {
                         ["dimensions"] = new JsonObject
                         {
-                            ["sheetId"] = id, ["dimension"] = "COLUMNS", ["startIndex"] = fitFrom, ["endIndex"] = columns,
+                            ["sheetId"] = id, ["dimension"] = "COLUMNS", ["startIndex"] = from, ["endIndex"] = to,
                         },
                     },
                 });
+                from = to;
+            }
         }
         return requests;
     }
+
+    private static int Height(SheetTable t, int row) =>
+        t.RowHeights is { } h && row < h.Count && h[row] is { } px ? px : DefaultRowHeight;
+
+    private static int? Width(SheetTable t, int column) =>
+        t.ColumnWidths is { } w && column < w.Count ? w[column] : null;
 
     /// <summary>Sheets' own row height, in pixels.</summary>
     internal const int DefaultRowHeight = 21;
@@ -442,7 +449,9 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
             // A formula's string doubles its quotes; the address is ours (Armory.AvatarUrl) and has none.
             case SheetImage i: cell["userEnteredValue"] = new JsonObject { ["formulaValue"] = $"=IMAGE(\"{i.Url.Replace("\"", "\"\"")}\")" }; break;
         }
-        var format = new JsonObject();
+        // In the middle of its row, which is tall beside a picture; centred when it asks.
+        var format = new JsonObject { ["verticalAlignment"] = "MIDDLE" };
+        if (c.Center) format["horizontalAlignment"] = "CENTER";
         if (c.Fill is not null) format["backgroundColor"] = Color(c.Fill);
         if (c.Bold || c.Color is not null)
         {
@@ -457,7 +466,7 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
                 ["type"] = c.NumberFormat.Contains('y') ? "DATE_TIME" : "NUMBER", ["pattern"] = c.NumberFormat,
             };
         if (c.Vertical) format["textRotation"] = new JsonObject { ["vertical"] = true };
-        if (format.Count > 0) cell["userEnteredFormat"] = format;
+        cell["userEnteredFormat"] = format;
         if (c.Note is not null) cell["note"] = c.Note;
         return cell;
     }

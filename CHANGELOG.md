@@ -8,11 +8,15 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ### Added
 
-- **Google Sheet** (#82): your characters, their gear and their skills, in a spreadsheet in
-  your own Google Drive. Off until you connect in Settings. The app asks only for the
-  spreadsheets it creates, rewrites its own three tabs (Characters, Gear, Skills) on
-  **Export now**, and never touches tabs you add. With portraits from the armory on, the
-  Characters tab shows each character's armory avatar.
+- **Google Sheet** (#82): your characters in a spreadsheet in your own Google Drive, dark
+  like the game, a section per faction, each row in its class colour, with class, profession,
+  coin and faction icons. Four tabs: Characters (level, item level, rested, account, gold,
+  hearthstone, guild, last played, race, ruleset), Skills, Reputations (letters in the
+  standing's colour) and Gear (item levels in quality colours, and enchants). Off until you
+  connect in Settings. The app asks only for the spreadsheets it creates, rewrites its own
+  tabs on **Export now**, and never touches tabs you add. With portraits from the armory on,
+  each character's armory picture shows too, or its race's silhouette until the armory has
+  drawn it.
 
 ## [1.2.5]
 
