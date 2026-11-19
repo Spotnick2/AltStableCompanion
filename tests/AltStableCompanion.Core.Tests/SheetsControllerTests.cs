@@ -374,7 +374,7 @@ public sealed class SheetsControllerTests
     {
         using var t = Install(s => s with { GoogleSheetId = "sheet-9", GoogleSheetUrl = GoogleSheets.UrlOf("sheet-9") });
         GoogleTokenStore.Save(Data(t), "refresh-1");
-        var google = new FakeGoogleService { HoldListing = new SemaphoreSlim(0), HoldDeaf = true, RefuseRefresh = false };
+        var google = new FakeGoogleService { HoldListing = new SemaphoreSlim(0), HoldDeaf = true };
         google.Sheets["sheet-9"] = [new GoogleSheets.Tab(1, "Characters", "Characters#1")];
         using var c = Started(t, google);
 
@@ -383,15 +383,24 @@ public sealed class SheetsControllerTests
         c.DisconnectGoogle();
         // Disconnect waits for it 5 seconds, then goes on without it.
         Until(() => c.Current.Sheets.Google == GoogleState.NotConnected, "disconnected");
+        Assert.Equal(SheetText.Disconnected, c.Current.Sheets.Note);
+
+        // Connected again: the new export starts, and waits on Google too.
+        c.ConnectGoogle(Browser());
+        Until(() => google.Count("GET sheets.googleapis.com") == 2, "the new export waiting on Google");
+        Assert.True(c.Current.Sheets.Exporting);
+
+        // The old one's answer comes back: it ends, and the new export is still the one running.
         google.HoldListing.Release();
         Until(() => File.ReadAllText(Path.Combine(Data(t), "log.txt")).Contains("google: the export was stopped"), "the old export's end");
         Thread.Sleep(100);                                  // past its last word
+        Assert.True(c.Current.Sheets.Exporting);
+        Assert.Equal(GoogleState.Connected, c.Current.Sheets.Google);
+        Assert.Equal(0, google.Count(":batchUpdate"));      // nothing more was sent for it
 
-        Assert.False(c.Current.Sheets.Exporting);
-        Assert.Equal(GoogleState.NotConnected, c.Current.Sheets.Google);
-        Assert.Equal(SheetText.Disconnected, c.Current.Sheets.Note);
-        // Its answer came back after Disconnect: nothing more was sent.
-        Assert.Equal(0, google.Count(":batchUpdate"));
+        google.HoldListing.Release();
+        Assert.StartsWith("Exported 2 characters", Exported(c));
+        Assert.Equal(1, google.Count(":batchUpdate"));
     }
 
     [Fact]

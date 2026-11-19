@@ -341,7 +341,7 @@ public sealed partial class Controller
                         if (id == sheetId) continue;
                         (added, _) = await TryWriteAsync(google, access, id, tables, stop, checkTrash: false);
                         if (added is null) continue;
-                        Save(s => s with { GoogleSheetId = id, GoogleSheetUrl = GoogleSheets.UrlOf(id) }, quiet: true);
+                        SaveSheet(id, GoogleSheets.UrlOf(id), session);
                         url = GoogleSheets.UrlOf(id);
                         found = true;
                         _log?.Write("google: went on writing a spreadsheet the app made before");
@@ -353,7 +353,7 @@ public sealed partial class Controller
                 {
                     var (id, address) = await google.CreateAsync(access, SheetTitle, tables.Select(t => t.Title), stop);
                     // Kept before it is filled: a write that fails now must not make another one next time.
-                    Save(s => s with { GoogleSheetId = id, GoogleSheetUrl = address }, quiet: true);
+                    SaveSheet(id, address, session);
                     url = address;
                     made = true;
                     _log?.Write(lost is null ? "google: a spreadsheet was made" : $"google: the saved spreadsheet {lost}; a new one was made");
@@ -388,9 +388,10 @@ public sealed partial class Controller
             if (_exportCts == cts) _exportCts = null;
             // Disconnected since it began: this export's end is not the player's news any more,
             // and the sign-in it used is not the one on disk.
+            // Disconnect has already said so, and cleared Exporting; a newer session's export
+            // may be running now, whose flag this must not clear (Codex on #84).
             if (session != _googleSession || _sheetsStop.IsCancellationRequested)
             {
-                _current = _current with { Sheets = _current.Sheets with { Exporting = false, Url = url ?? _current.Sheets.Url } };
                 cts.Dispose();
                 return;
             }
@@ -417,6 +418,20 @@ public sealed partial class Controller
         }
         cts.Dispose();
         Changed?.Invoke();
+    }
+
+    // The spreadsheet an export settled on, kept - only while its session is the current one:
+    // an export outlived by a Disconnect does not choose the next session's spreadsheet. A
+    // second guard, which no test reaches: such an export is cancelled, and its next request
+    // throws before it has a spreadsheet to keep.
+    private void SaveSheet(string id, string url, int session)
+    {
+        lock (_gate)
+        {
+            if (session != _googleSession) return;
+            _settings = _settings with { GoogleSheetId = id, GoogleSheetUrl = url };
+            Write();
+        }
     }
 
     // The export, into this spreadsheet: the tabs it added back, or null and why it was not used.
