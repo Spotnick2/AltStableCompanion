@@ -65,6 +65,30 @@ public sealed class SheetExportTests : IDisposable
     }
 
     [Fact]
+    public void A_folder_with_no_AltStable_account_is_not_an_empty_roster()
+    {
+        Directory.CreateDirectory(Path.Combine(_dir, "C", "SavedVariables"));      // an account that never ran AltStable
+
+        foreach (var dir in new[] { _dir, Path.Combine(_dir, "typo") })
+        {
+            var roster = SheetExport.Load(dir);
+            Assert.True(roster.NoAccounts);
+            Assert.False(roster.Complete);
+        }
+    }
+
+    [Fact]
+    public void An_account_with_an_empty_roster_is_a_complete_empty_export()
+    {
+        Store("A", Db());
+
+        var roster = SheetExport.Load(_dir);
+
+        Assert.True(roster.Complete);
+        Assert.Empty(roster.Characters);
+    }
+
+    [Fact]
     public void An_account_whose_file_is_only_its_bak_right_now_is_skipped_not_left_out()
     {
         Store("A", Db(Record("Player-1-01", ("name", "Karuzo"))));
@@ -211,57 +235,125 @@ public sealed class SheetExportTests : IDisposable
 
     private static SheetTable Table(string title) => new(title, [[new SheetCell("Name")]]);
 
+    private static GoogleSheets.Tab Tab(long id, string title, string? tag = null) => new(id, title, tag);
+
     [Fact]
     public void A_tab_the_player_renamed_is_still_ours_and_their_tab_with_our_old_name_is_not()
     {
-        var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")], new Dictionary<string, long> { ["Gear"] = 5 },
-            new Dictionary<long, string> { [5] = "Gear export", [9] = "Gear" }, () => 77);
+        var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")],
+            [Tab(9, "Gear"), Tab(5, "Gear export", "Gear")], () => 77);
 
         Assert.Equal(5, ids["Gear"]);
         Assert.Empty(adds);
     }
 
     [Fact]
-    public void A_deleted_tab_comes_back_under_a_free_name_and_a_fresh_id()
+    public void A_copy_the_player_made_of_our_tab_is_left_alone()
     {
-        var draws = new Queue<int>([9, 9, 12]);   // 9 is taken: drawn again
-        var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")], new Dictionary<string, long> { ["Gear"] = 5 },
-            new Dictionary<long, string> { [9] = "gear", [3] = "Gear (AltStable)" }, draws.Dequeue);
+        var (ids, _) = GoogleSheets.PlanTabs([Table("Gear")],
+            [Tab(5, "Gear", "Gear"), Tab(6, "Copy of Gear", "Gear")], () => 77);
 
-        Assert.Equal(12, ids["Gear"]);
-        Assert.Equal([(12L, "Gear (AltStable 2)")], adds);
+        Assert.Equal(5, ids["Gear"]);
     }
 
     [Fact]
-    public async Task A_missing_tab_is_added_in_the_same_batch_that_fills_it()
+    public void A_deleted_tab_comes_back_under_a_free_name_and_a_fresh_id()
     {
-        var handler = new FakeGoogle("""{"sheets":[{"properties":{"sheetId":1,"title":"Characters"}}]}""");
-        var google = new GoogleSheets(new HttpClient(handler), new GoogleClient("id", "secret"));
+        var draws = new Queue<int>([9, 9, 12]);   // 9 is taken: drawn again
+        var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")],
+            [Tab(9, "gear"), Tab(3, "Gear (AltStable)"), Tab(4, "Skills", "Skills")], draws.Dequeue);
 
-        var owned = await google.WriteAsync("token", "sheet", [Table("Characters"), Table("Skills")],
-            new Dictionary<string, long> { ["Characters"] = 1, ["Skills"] = 2 }, CancellationToken.None);
-
-        var post = Assert.Single(handler.Posts);
-        var requests = JsonNode.Parse(post)!["requests"]!.AsArray();
-        var added = requests[0]!["addSheet"]!["properties"]!;
-        Assert.Equal("Skills", (string)added["title"]!);
-        Assert.Equal(owned["Skills"], (long)added["sheetId"]!);
-        Assert.Contains(requests, r => r!["updateCells"]?["range"]?["sheetId"] is JsonNode id && (long)id == owned["Skills"]);
-        Assert.Equal(1, owned["Characters"]);
+        Assert.Equal(12, ids["Gear"]);
+        Assert.Equal([(12L, "Gear (AltStable 2)", "Gear")], adds);
     }
 
-    private sealed class FakeGoogle(string sheets) : HttpMessageHandler
+    [Fact]
+    public void A_tab_is_ours_by_our_tag_only()
     {
-        public List<string> Posts { get; } = [];
+        var listing = JsonNode.Parse("""
+            {"sheets":[
+              {"properties":{"sheetId":1,"title":"Gear"},"developerMetadata":[{"metadataKey":"other.app","metadataValue":"Gear"},{"metadataKey":"altstable.tab","metadataValue":"Gear"}]},
+              {"properties":{"sheetId":2,"title":"Skills"},"developerMetadata":[{"metadataKey":"other.app","metadataValue":"Skills"}]},
+              {"properties":{"sheetId":3,"title":"Notes"}}]}
+            """)!;
+
+        Assert.Equal([Tab(1, "Gear", "Gear"), Tab(2, "Skills"), Tab(3, "Notes")], GoogleSheets.Tabs(listing));
+    }
+
+    [Fact]
+    public async Task A_missing_tab_is_added_and_tagged_in_the_same_batch_that_fills_it()
+    {
+        // The player has a "Skills" of their own: ours comes back as "Skills (AltStable)", tagged "Skills".
+        var google = new FakeGoogle([Tab(1, "Characters", "Characters"), Tab(2, "Skills")]);
+
+        var added = await new GoogleSheets(new HttpClient(google), new GoogleClient("id", "secret"))
+            .WriteAsync("token", "sheet", [Table("Characters"), Table("Skills")], CancellationToken.None);
+
+        Assert.Equal(["Skills (AltStable)"], added);
+        var requests = Assert.Single(google.Batches);
+        var newId = (long)requests[0]!["addSheet"]!["properties"]!["sheetId"]!;
+        var tag = requests[1]!["createDeveloperMetadata"]!["developerMetadata"]!;
+        Assert.Equal(GoogleSheets.TabTag, (string)tag["metadataKey"]!);
+        Assert.Equal("Skills", (string)tag["metadataValue"]!);
+        Assert.Equal(newId, (long)tag["location"]!["sheetId"]!);
+        Assert.Contains(requests, r => r!["updateCells"]?["range"]?["sheetId"] is JsonNode id && (long)id == newId);
+        Assert.Contains(requests, r => r!["updateCells"]?["range"]?["sheetId"] is JsonNode id && (long)id == 1);
+        Assert.DoesNotContain(requests, r => r!["updateCells"]?["range"]?["sheetId"] is JsonNode id && (long)id == 2);
+    }
+
+    [Fact]
+    public async Task A_batch_Google_applied_but_whose_answer_was_lost_is_not_redone()
+    {
+        var google = new FakeGoogle([Tab(1, "Characters", "Characters")]) { LoseNextAnswer = true };
+        var sheets = new GoogleSheets(new HttpClient(google), new GoogleClient("id", "secret"));
+        SheetTable[] tables = [Table("Characters"), Table("Skills")];
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => sheets.WriteAsync("token", "sheet", tables, CancellationToken.None));
+        var added = await sheets.WriteAsync("token", "sheet", tables, CancellationToken.None);
+
+        Assert.Empty(added);
+        Assert.Equal(2, google.State.Count);    // Characters and the one Skills: no "Skills (AltStable)"
+    }
+
+    /// <summary>
+    /// The Sheets API as far as the export uses it: a listing of tabs with our tags, and a
+    /// batch that applies addSheet and createDeveloperMetadata to that listing.
+    /// </summary>
+    private sealed class FakeGoogle(IEnumerable<GoogleSheets.Tab> tabs) : HttpMessageHandler
+    {
+        public List<GoogleSheets.Tab> State { get; } = tabs.ToList();
+        public List<JsonArray> Batches { get; } = [];
+        public bool LoseNextAnswer { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (request.Method == HttpMethod.Post) Posts.Add(await request.Content!.ReadAsStringAsync(ct));
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            if (request.Method == HttpMethod.Get)
             {
-                Content = new StringContent(request.Method == HttpMethod.Get ? sheets : "{}"),
-            };
+                var sheets = new JsonArray(State.Select(t => (JsonNode)new JsonObject
+                {
+                    ["properties"] = new JsonObject { ["sheetId"] = t.Id, ["title"] = t.Title },
+                    ["developerMetadata"] = t.Tag is null ? new JsonArray()
+                        : new JsonArray(new JsonObject { ["metadataKey"] = GoogleSheets.TabTag, ["metadataValue"] = t.Tag }),
+                }).ToArray());
+                return Answer(new JsonObject { ["sheets"] = sheets });
+            }
+            var requests = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!["requests"]!.AsArray();
+            Batches.Add(requests);
+            foreach (var r in requests)
+            {
+                if (r!["addSheet"]?["properties"] is { } p) State.Add(Tab((long)p["sheetId"]!, (string)p["title"]!));
+                if (r["createDeveloperMetadata"]?["developerMetadata"] is { } m)
+                {
+                    var at = State.FindIndex(t => t.Id == (long)m["location"]!["sheetId"]!);
+                    State[at] = State[at] with { Tag = (string)m["metadataValue"]! };
+                }
+            }
+            if (LoseNextAnswer) { LoseNextAnswer = false; throw new HttpRequestException("the answer was lost"); }
+            return Answer(new JsonObject());
         }
+
+        private static HttpResponseMessage Answer(JsonNode body) =>
+            new(System.Net.HttpStatusCode.OK) { Content = new StringContent(body.ToJsonString()) };
     }
 
     [Fact]

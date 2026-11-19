@@ -3,11 +3,10 @@
 //   dotnet run --project Tools/SheetsPoc -- --accounts <WTF\Account or a copy> --data-dir <dir>
 //       [--client <Desktop app client JSON>] [--dry-run] [--new]
 //
-// --dry-run prints the tabs and touches no network. The sign-in and the sheet are kept in
-// --data-dir (google-token.bin with DPAPI; google-sheet.json, the sheet's id and its tabs'
-// ids); --new makes a fresh sheet.
+// --dry-run prints the tabs and touches no network. The sign-in and the sheet's id are kept in
+// --data-dir (google-token.bin with DPAPI, google-sheet.txt); --new makes a fresh sheet. The
+// app's tabs are found by the tag on them, so nothing else is kept here.
 using System.Diagnostics;
-using System.Text.Json;
 using AltStableCompanion.Core;
 
 string? accounts = null, dataDir = null, clientPath = null;
@@ -31,9 +30,10 @@ if (accounts is null || (!dryRun && dataDir is null))
 }
 
 var roster = SheetExport.Load(accounts);
-if (roster.Skipped.Count > 0)
+if (!roster.Complete)
 {
-    // Writing now would drop that account's rows from the sheet.
+    // Writing now would drop that account's rows from the sheet - or every row, for a wrong path.
+    if (roster.NoAccounts) Console.Error.WriteLine($"no account using AltStable under {accounts}; nothing written");
     foreach (var s in roster.Skipped) Console.Error.WriteLine($"could not read {s}; nothing written");
     return 1;
 }
@@ -64,19 +64,16 @@ if (refresh is null)
 }
 var access = await google.AccessTokenAsync(refresh, cts.Token);
 
-var sheetFile = Path.Combine(dataDir!, "google-sheet.json");
-var sheet = !fresh && File.Exists(sheetFile) ? JsonSerializer.Deserialize<Sheet>(File.ReadAllText(sheetFile)) : null;
-if (sheet is null)
+var idFile = Path.Combine(dataDir!, "google-sheet.txt");
+var id = !fresh && File.Exists(idFile) ? File.ReadAllText(idFile).Trim() : null;
+if (string.IsNullOrEmpty(id))
 {
-    var (newId, _, tabs) = await google.CreateAsync(access, "AltStable", tables.Select(t => t.Title), cts.Token);
-    sheet = new Sheet(newId, new Dictionary<string, long>(tabs));
-    File.WriteAllText(sheetFile, JsonSerializer.Serialize(sheet));
+    (id, _) = await google.CreateAsync(access, "AltStable", tables.Select(t => t.Title), cts.Token);
+    File.WriteAllText(idFile, id);
     Console.WriteLine("Created a new spreadsheet.");
 }
 var watch = Stopwatch.StartNew();
-var owned = await google.WriteAsync(access, sheet.Id, tables, sheet.Tabs, cts.Token);
-File.WriteAllText(sheetFile, JsonSerializer.Serialize(sheet with { Tabs = new Dictionary<string, long>(owned) }));
-Console.WriteLine($"Written in {watch.ElapsedMilliseconds} ms: https://docs.google.com/spreadsheets/d/{sheet.Id}/edit");
+var added = await google.WriteAsync(access, id, tables, cts.Token);
+if (added.Count > 0) Console.WriteLine($"Added tabs: {string.Join(", ", added)}");
+Console.WriteLine($"Written in {watch.ElapsedMilliseconds} ms: https://docs.google.com/spreadsheets/d/{id}/edit");
 return 0;
-
-internal sealed record Sheet(string Id, Dictionary<string, long> Tabs);

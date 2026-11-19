@@ -15,8 +15,20 @@ public sealed record SheetTable(string Title, IReadOnlyList<IReadOnlyList<SheetC
     public int Columns => Rows.Count == 0 ? 0 : Rows.Max(r => r.Count);
 }
 
-/// <summary>What the export read: one record per character, and the files it could not read.</summary>
-public sealed record ExportRoster(IReadOnlyList<Dictionary<object, object?>> Characters, IReadOnlyList<string> Skipped);
+/// <summary>
+/// What the export read: one record per character, and the files it could not read.
+/// <see cref="NoAccounts"/>: the folder holds no account that uses AltStable - a wrong path, not
+/// an empty roster.
+/// </summary>
+public sealed record ExportRoster(IReadOnlyList<Dictionary<object, object?>> Characters, IReadOnlyList<string> Skipped,
+    bool NoAccounts = false)
+{
+    /// <summary>
+    /// Whether this may replace what the sheet has: every account read, and at least one. An
+    /// account whose roster is empty still counts - its export is an empty one.
+    /// </summary>
+    public bool Complete => Skipped.Count == 0 && !NoAccounts;
+}
 
 /// <summary>
 /// The Google Sheet export (#82): every account's <c>AltStableDB</c> as the Characters, Gear and
@@ -76,9 +88,15 @@ public static class SheetExport
     /// <summary>
     /// The roster of every account that uses AltStable (<see cref="Leftovers.AccountFiles"/>):
     /// one whose <c>AltStable.lua</c> is missing - only its <c>.bak</c> while the game replaces
-    /// it - is named in <see cref="ExportRoster.Skipped"/>, not left out (Codex on #83).
+    /// it - is named in <see cref="ExportRoster.Skipped"/>, not left out. A folder with no such
+    /// account at all (a typo, or <c>WTF</c> instead of <c>WTF\Account</c>) is
+    /// <see cref="ExportRoster.NoAccounts"/>: it must not empty the sheet (Codex on #83).
     /// </summary>
-    public static ExportRoster Load(string accountsDir) => Load(Leftovers.AccountFiles(accountsDir));
+    public static ExportRoster Load(string accountsDir)
+    {
+        var files = Leftovers.AccountFiles(accountsDir).ToList();
+        return files.Count == 0 ? new ExportRoster([], [], NoAccounts: true) : Load(files);
+    }
 
     /// <summary>
     /// These files' <c>AltStableDB</c>, one record per GUID: the newer <c>lastUpdate</c> wins when

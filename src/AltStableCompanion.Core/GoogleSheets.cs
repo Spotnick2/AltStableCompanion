@@ -128,84 +128,106 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     }
 
     /// <summary>
-    /// A new spreadsheet with one tab per title. Returns its id, its address, and each tab's id by
-    /// the title it was created with - the ids the app owns from then on.
+    /// The developer-metadata key that marks a tab as the app's, its value the table's title.
+    /// PROJECT visibility: only this app's Cloud project sees it (Codex on #83).
     /// </summary>
-    public async Task<(string Id, string Url, IReadOnlyDictionary<string, long> Tabs)> CreateAsync(
-        string accessToken, string title, IEnumerable<string> tabs, CancellationToken ct)
+    public const string TabTag = "altstable.tab";
+
+    /// <summary>A tab as Google lists it: its id, its title now, and our tag on it, if any.</summary>
+    internal sealed record Tab(long Id, string Title, string? Tag);
+
+    /// <summary>
+    /// A new spreadsheet with one tab per title, each tagged as the app's in the same request:
+    /// there is no moment when the app's tabs exist untagged. Returns its id and its address.
+    /// </summary>
+    public async Task<(string Id, string Url)> CreateAsync(string accessToken, string title, IEnumerable<string> tabs, CancellationToken ct)
     {
         var body = new JsonObject
         {
             ["properties"] = new JsonObject { ["title"] = title },
-            ["sheets"] = new JsonArray(tabs.Select(t => (JsonNode)new JsonObject
+            ["sheets"] = new JsonArray(tabs.Select((t, i) => (JsonNode)new JsonObject
             {
-                ["properties"] = new JsonObject { ["title"] = t },
+                ["properties"] = new JsonObject { ["sheetId"] = i + 1, ["title"] = t },
+                ["developerMetadata"] = new JsonArray(TagJson(i + 1, t)),
             }).ToArray()),
         };
         var answer = await SendAsync(HttpMethod.Post, SheetsUrl, accessToken, body, ct);
-        var ids = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (var (id, tab) in Tabs(answer)) ids[tab] = id;
         return ((string?)answer["spreadsheetId"] ?? throw new GoogleApiException("Google: no spreadsheet id came back"),
-            (string?)answer["spreadsheetUrl"] ?? "", ids);
+            (string?)answer["spreadsheetUrl"] ?? "");
     }
 
     /// <summary>
-    /// Rewrites the app's tabs whole, in one atomic batch. The app's tabs are the ids in
-    /// <paramref name="owned"/>, never a title: a tab the player renamed is still ours, and a tab
-    /// of theirs that took one of our names is still theirs (Codex on #83). One of ours the
-    /// player deleted is added back in the same batch that fills it. Returns the ids owned now,
-    /// for the caller to keep.
+    /// Rewrites the app's tabs whole, in one atomic batch. The app's tabs are the ones carrying
+    /// its tag, never a title: a tab the player renamed is still ours, and a tab of theirs that
+    /// took one of our names is still theirs. One of ours the player deleted is added back, and
+    /// tagged, in the same batch that fills it - so a reply lost on the way leaves nothing for a
+    /// retry to lose track of: the tag is on the sheet, not in a file here (Codex on #83).
+    /// Returns the titles of the tabs it had to add.
     /// </summary>
-    public async Task<IReadOnlyDictionary<string, long>> WriteAsync(string accessToken, string spreadsheetId,
-        IReadOnlyList<SheetTable> tables, IReadOnlyDictionary<string, long> owned, CancellationToken ct)
+    public async Task<IReadOnlyList<string>> WriteAsync(string accessToken, string spreadsheetId,
+        IReadOnlyList<SheetTable> tables, CancellationToken ct)
     {
         var url = $"{SheetsUrl}/{Uri.EscapeDataString(spreadsheetId)}";
-        var existing = Tabs(await SendAsync(HttpMethod.Get, url + "?fields=sheets.properties(sheetId,title)", accessToken, null, ct))
-            .ToDictionary(p => p.Id, p => p.Title);
-        var (ids, adds) = PlanTabs(tables, owned, existing, () => Random.Shared.Next(1, int.MaxValue));
-        var requests = new JsonArray(adds.Select(a => (JsonNode)new JsonObject
+        var listing = await SendAsync(HttpMethod.Get,
+            url + "?fields=sheets(properties(sheetId,title),developerMetadata(metadataKey,metadataValue))", accessToken, null, ct);
+        var (ids, adds) = PlanTabs(tables, Tabs(listing).ToList(), () => Random.Shared.Next(1, int.MaxValue));
+        var requests = new JsonArray();
+        foreach (var (id, tabTitle, table) in adds)
         {
-            ["addSheet"] = new JsonObject { ["properties"] = new JsonObject { ["sheetId"] = a.Id, ["title"] = a.Title } },
-        }).ToArray());
+            requests.Add(new JsonObject
+            {
+                ["addSheet"] = new JsonObject { ["properties"] = new JsonObject { ["sheetId"] = id, ["title"] = tabTitle } },
+            });
+            requests.Add(new JsonObject { ["createDeveloperMetadata"] = new JsonObject { ["developerMetadata"] = TagJson(id, table) } });
+        }
         foreach (var r in BuildWriteRequests(tables, ids)) requests.Add(r!.DeepClone());
         await SendAsync(HttpMethod.Post, url + ":batchUpdate", accessToken, new JsonObject { ["requests"] = requests }, ct);
-        return ids;
+        return adds.Select(a => a.Title).ToList();
     }
 
     /// <summary>
-    /// Which tab each table goes to: its owned id while that tab exists, whatever it is called
-    /// now; otherwise a new tab, with a fresh id from <paramref name="nextId"/> and the table's
-    /// title - or, when a tab already has that title (names are unique, whatever the case),
-    /// "Title (AltStable)", "Title (AltStable 2)", ...
+    /// Which tab each table goes to: the first tab tagged with its title, whatever it is called
+    /// now (a copy the player made of it, tag and all, is left alone); otherwise a new tab, with
+    /// a fresh id from <paramref name="nextId"/> and the table's title - or, when a tab already
+    /// has that title (names are unique, whatever the case), "Title (AltStable)", "Title (AltStable 2)", ...
     /// </summary>
-    internal static (Dictionary<string, long> Ids, List<(long Id, string Title)> Adds) PlanTabs(
-        IReadOnlyList<SheetTable> tables, IReadOnlyDictionary<string, long> owned,
-        IReadOnlyDictionary<long, string> existing, Func<int> nextId)
+    internal static (Dictionary<string, long> Ids, List<(long Id, string Title, string Table)> Adds) PlanTabs(
+        IReadOnlyList<SheetTable> tables, IReadOnlyList<Tab> existing, Func<int> nextId)
     {
         var ids = new Dictionary<string, long>(StringComparer.Ordinal);
-        var adds = new List<(long Id, string Title)>();
-        var titles = new HashSet<string>(existing.Values, StringComparer.OrdinalIgnoreCase);
-        var taken = new HashSet<long>(existing.Keys);
+        var adds = new List<(long Id, string Title, string Table)>();
+        var titles = new HashSet<string>(existing.Select(e => e.Title), StringComparer.OrdinalIgnoreCase);
+        var taken = new HashSet<long>(existing.Select(e => e.Id));
         foreach (var t in tables)
         {
-            if (owned.TryGetValue(t.Title, out var id) && existing.ContainsKey(id)) { ids[t.Title] = id; continue; }
+            if (existing.FirstOrDefault(e => e.Tag == t.Title) is { } ours) { ids[t.Title] = ours.Id; continue; }
             long fresh;
             do fresh = nextId(); while (!taken.Add(fresh));
             var title = t.Title;
             for (var n = 1; titles.Contains(title); n++) title = n == 1 ? $"{t.Title} (AltStable)" : $"{t.Title} (AltStable {n})";
             titles.Add(title);
-            adds.Add((fresh, title));
+            adds.Add((fresh, title, t.Title));
             ids[t.Title] = fresh;
         }
         return (ids, adds);
     }
 
-    private static IEnumerable<(long Id, string Title)> Tabs(JsonNode answer)
+    private static JsonObject TagJson(long sheetId, string table) => new()
+    {
+        ["metadataKey"] = TabTag,
+        ["metadataValue"] = table,
+        ["location"] = new JsonObject { ["sheetId"] = sheetId },
+        ["visibility"] = "PROJECT",
+    };
+
+    internal static IEnumerable<Tab> Tabs(JsonNode answer)
     {
         foreach (var s in answer["sheets"]?.AsArray() ?? [])
         {
-            if ((string?)s?["properties"]?["title"] is { } title && s["properties"]?["sheetId"] is JsonNode id)
-                yield return ((long)id, title);
+            if ((string?)s?["properties"]?["title"] is not { } title || s["properties"]?["sheetId"] is not JsonNode id) continue;
+            var tag = (s["developerMetadata"]?.AsArray() ?? [])
+                .FirstOrDefault(m => (string?)m?["metadataKey"] == TabTag) is { } m ? (string?)m["metadataValue"] : null;
+            yield return new Tab((long)id, title, tag);
         }
     }
 
