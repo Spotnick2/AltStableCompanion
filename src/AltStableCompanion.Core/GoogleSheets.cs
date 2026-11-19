@@ -26,10 +26,56 @@ public sealed record GoogleClient(string Id, string Secret)
             throw new FormatException("the client has no client_id or client_secret");
         return new GoogleClient(id, secret);
     }
+
+    /// <summary>The embedded resource a build carries the client in (the Core project's <c>GoogleClientJson</c>).</summary>
+    public const string ResourceName = "AltStableCompanion.google-client.json";
+
+    /// <summary>
+    /// The client this build was made with, or null: the repo never holds it. A release build
+    /// embeds it from a GitHub Actions secret, the owner's deploy from their own copy; a build
+    /// without it (CI, a contributor's clone) has no Google export.
+    /// </summary>
+    public static GoogleClient? Shipped { get; } = ReadShipped();
+
+    private static GoogleClient? ReadShipped()
+    {
+        using var stream = typeof(GoogleClient).Assembly.GetManifestResourceStream(ResourceName);
+        if (stream is null) return null;
+        try { return FromJson(new StreamReader(stream).ReadToEnd()); }
+        catch (Exception ex) when (ex is FormatException or JsonException) { return null; }
+    }
+
+    // Never the secret, in a log line or an exception that prints the record.
+    public override string ToString() => $"GoogleClient {{ Id = {Id} }}";
 }
 
-/// <summary>A Google API answer that was not a success. The message is Google's, never a token.</summary>
-public sealed class GoogleApiException(string message) : Exception(message);
+/// <summary>
+/// A Google API answer that was not a success. The message is Google's, never a token.
+/// <see cref="Status"/> is the HTTP status; <see cref="Error"/> the token endpoint's own code
+/// (<c>invalid_grant</c>: the sign-in was removed in the player's Google account, or expired).
+/// </summary>
+public sealed class GoogleApiException(string message, HttpStatusCode? status = null, string? error = null,
+    IReadOnlyList<string>? reasons = null) : Exception(message)
+{
+    public HttpStatusCode? Status { get; } = status;
+    public string? Error { get; } = error;
+
+    /// <summary>The API's own reasons: <c>error.errors[].reason</c> and <c>error.status</c>.</summary>
+    public IReadOnlyList<string> Reasons { get; } = reasons ?? [];
+
+    // Drive answers 403 for its rate limits too (Codex on #84): that is "later", not "gone".
+    private static readonly string[] RateReasons = ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "RESOURCE_EXHAUSTED"];
+    private static readonly string[] DeniedReasons = ["forbidden", "insufficientFilePermissions", "appNotAuthorizedToFile", "PERMISSION_DENIED"];
+
+    public bool RateLimited => Status == HttpStatusCode.TooManyRequests || Reasons.Any(r => RateReasons.Contains(r));
+
+    /// <summary>
+    /// The answer says the file is not there for this sign-in: 404, or a 403 that names a
+    /// permission and no rate limit. Anything else is an error to report, not a spreadsheet to replace.
+    /// </summary>
+    public bool NoSuchFile => Status == HttpStatusCode.NotFound
+        || (Status == HttpStatusCode.Forbidden && !RateLimited && Reasons.Any(r => DeniedReasons.Contains(r)));
+}
 
 /// <summary>A saved spreadsheet with none of the app's tabs: the player chooses a new one, nothing is written.</summary>
 public sealed class UnownedSheetException(string message) : Exception(message);
@@ -80,7 +126,12 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     public const string Scope = "https://www.googleapis.com/auth/drive.file";
     private const string AuthUrl = "https://accounts.google.com/o/oauth2/v2/auth";
     private const string TokenUrl = "https://oauth2.googleapis.com/token";
+    private const string RevokeUrl = "https://oauth2.googleapis.com/revoke";
     private const string SheetsUrl = "https://sheets.googleapis.com/v4/spreadsheets";
+    private const string DriveUrl = "https://www.googleapis.com/drive/v3/files";
+
+    /// <summary>A spreadsheet's address, for "Open sheet".</summary>
+    public static string UrlOf(string spreadsheetId) => $"https://docs.google.com/spreadsheets/d/{Uri.EscapeDataString(spreadsheetId)}/edit";
 
     /// <summary>
     /// Signs the player in: the browser opens Google's consent page, Google sends the code back
@@ -128,6 +179,50 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
             ("refresh_token", refreshToken), ("client_id", client.Id), ("client_secret", client.Secret),
             ("grant_type", "refresh_token")], ct);
         return (string?)token["access_token"] ?? throw new GoogleApiException("Google: no access token came back");
+    }
+
+    /// <summary>
+    /// The spreadsheets the app made in the player's Drive and not in the trash, newest first.
+    /// With <c>drive.file</c>, Drive lists the app's own files and nothing else - renamed ones
+    /// too - so a player whose settings were lost goes on writing theirs rather than getting a
+    /// second one.
+    /// </summary>
+    public async IAsyncEnumerable<string> OwnSpreadsheetsAsync(string accessToken,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        var q = Uri.EscapeDataString("mimeType='application/vnd.google-apps.spreadsheet' and trashed=false");
+        string? page = null;
+        do
+        {
+            // Every page, until the caller has one it can write (Codex on #84).
+            var answer = await SendAsync(HttpMethod.Get, $"{DriveUrl}?q={q}&orderBy=modifiedTime%20desc&pageSize=100"
+                + "&fields=nextPageToken,files(id)" + (page is null ? "" : "&pageToken=" + Uri.EscapeDataString(page)),
+                accessToken, null, ct);
+            foreach (var id in (answer["files"]?.AsArray() ?? []).Select(f => (string?)f?["id"]).OfType<string>()) yield return id;
+            page = (string?)answer["nextPageToken"];
+        }
+        while (!string.IsNullOrEmpty(page));
+    }
+
+    /// <summary>
+    /// Whether the player moved the spreadsheet to the trash: the Sheets API still writes a
+    /// spreadsheet there, where nobody would see it. 404 for one deleted for good.
+    /// </summary>
+    public async Task<bool> TrashedAsync(string accessToken, string spreadsheetId, CancellationToken ct)
+    {
+        var answer = await SendAsync(HttpMethod.Get, $"{DriveUrl}/{Uri.EscapeDataString(spreadsheetId)}?fields=trashed", accessToken, null, ct);
+        return (bool?)answer["trashed"] == true;
+    }
+
+    /// <summary>
+    /// Tells Google to cancel the sign-in: the refresh token, and every access token it gave,
+    /// stop working. "Disconnect" asks it as well as deleting the token here.
+    /// </summary>
+    public async Task RevokeAsync(string refreshToken, CancellationToken ct)
+    {
+        using var content = new FormUrlEncodedContent([new KeyValuePair<string, string>("token", refreshToken)]);
+        using var response = await http.PostAsync(RevokeUrl, content, ct);
+        if (!response.IsSuccessStatusCode) await ReadAsync(response, ct);
     }
 
     /// <summary>
@@ -251,7 +346,9 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
     /// <summary>
     /// The requests that rewrite each tab: the grid sized to the table (one spare row, so the
     /// frozen header is never every row), the header frozen, every cell written - the range is
-    /// the whole tab, so a cell the table no longer has is cleared - and the columns fitted.
+    /// the whole tab, so a cell the table no longer has is cleared - the rows' height set (a
+    /// tab's pictures, or the default once it has none) and the columns fitted, but for a
+    /// picture column, which is the pictures' width.
     /// </summary>
     internal static JsonArray BuildWriteRequests(IReadOnlyList<SheetTable> tables, IReadOnlyDictionary<string, long> sheetIds)
     {
@@ -290,19 +387,50 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
                     ["fields"] = "userEnteredValue,userEnteredFormat,note",
                 },
             });
-            requests.Add(new JsonObject
+            if (t.Rows.Count > 1) requests.Add(Size(id, "ROWS", 1, t.Rows.Count, t.ImageSize ?? DefaultRowHeight));
+            if (t.ImageSize is { } size)
             {
-                ["autoResizeDimensions"] = new JsonObject
-                {
-                    ["dimensions"] = new JsonObject
+                requests.Add(Size(id, "COLUMNS", 0, 1, size));
+                // Text beside a picture sits in the middle of its tall row, not at the bottom.
+                if (t.Rows.Count > 1)
+                    requests.Add(new JsonObject
                     {
-                        ["sheetId"] = id, ["dimension"] = "COLUMNS", ["startIndex"] = 0, ["endIndex"] = columns,
+                        ["repeatCell"] = new JsonObject
+                        {
+                            ["range"] = new JsonObject { ["sheetId"] = id, ["startRowIndex"] = 1, ["endRowIndex"] = t.Rows.Count },
+                            ["cell"] = new JsonObject { ["userEnteredFormat"] = new JsonObject { ["verticalAlignment"] = "MIDDLE" } },
+                            ["fields"] = "userEnteredFormat.verticalAlignment",
+                        },
+                    });
+            }
+            var fitFrom = t.ImageSize is null ? 0 : 1;
+            if (columns > fitFrom)
+                requests.Add(new JsonObject
+                {
+                    ["autoResizeDimensions"] = new JsonObject
+                    {
+                        ["dimensions"] = new JsonObject
+                        {
+                            ["sheetId"] = id, ["dimension"] = "COLUMNS", ["startIndex"] = fitFrom, ["endIndex"] = columns,
+                        },
                     },
-                },
-            });
+                });
         }
         return requests;
     }
+
+    /// <summary>Sheets' own row height, in pixels.</summary>
+    internal const int DefaultRowHeight = 21;
+
+    private static JsonObject Size(long sheetId, string dimension, int start, int end, int pixels) => new()
+    {
+        ["updateDimensionProperties"] = new JsonObject
+        {
+            ["range"] = new JsonObject { ["sheetId"] = sheetId, ["dimension"] = dimension, ["startIndex"] = start, ["endIndex"] = end },
+            ["properties"] = new JsonObject { ["pixelSize"] = pixels },
+            ["fields"] = "pixelSize",
+        },
+    };
 
     private static JsonNode CellJson(SheetCell c)
     {
@@ -311,6 +439,8 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         {
             case string s: cell["userEnteredValue"] = new JsonObject { ["stringValue"] = s }; break;
             case double d: cell["userEnteredValue"] = new JsonObject { ["numberValue"] = d }; break;
+            // A formula's string doubles its quotes; the address is ours (Armory.AvatarUrl) and has none.
+            case SheetImage i: cell["userEnteredValue"] = new JsonObject { ["formulaValue"] = $"=IMAGE(\"{i.Url.Replace("\"", "\"\"")}\")" }; break;
         }
         var format = new JsonObject();
         if (c.Fill is not null) format["backgroundColor"] = Color(c.Fill);
@@ -340,6 +470,9 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
 
     private async Task<JsonNode> SendAsync(HttpMethod method, string url, string accessToken, JsonNode? body, CancellationToken ct)
     {
+        // Stopped (Disconnect, Quit) between two requests: the next one is not sent, whatever
+        // the handler would do with a cancelled token - a batch must not follow a Disconnect.
+        ct.ThrowIfCancellationRequested();
         using var request = new HttpRequestMessage(method, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
@@ -363,8 +496,12 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         try { json = JsonNode.Parse(text); } catch (JsonException) { }
         if (response.IsSuccessStatusCode && json is not null) return json;
         var error = json?["error"];
-        var message = error is JsonObject e ? (string?)e["message"] : (string?)json?["error_description"] ?? (string?)error;
-        throw new GoogleApiException($"Google answered {(int)response.StatusCode}: {message ?? response.ReasonPhrase}");
+        var code = error is JsonValue ? (string?)error : null;
+        var message = error is JsonObject e ? (string?)e["message"] : (string?)json?["error_description"] ?? code;
+        var reasons = error is JsonObject o
+            ? (o["errors"]?.AsArray() ?? []).Select(r => (string?)r?["reason"]).Append((string?)o["status"]).OfType<string>().ToList()
+            : [];
+        throw new GoogleApiException($"Google answered {(int)response.StatusCode}: {message ?? response.ReasonPhrase}", response.StatusCode, code, reasons);
     }
 
     // The browser's redirect to http://127.0.0.1:<port>/?state=..&code=..: read each request's

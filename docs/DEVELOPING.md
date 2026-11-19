@@ -59,6 +59,18 @@ A version with a `-` (`0.2.0-rc1`) is a pre-release. To rehearse, run the workfl
 from the Actions tab on any branch: it does everything but publish. Either way, the built
 files are kept as the run's artifact.
 
+The app's Google OAuth client (the Google Sheet export, #82) is never in the repo. A "Desktop
+app" client in the maintainer's Google Cloud project, its JSON is the repo secret
+`GOOGLE_OAUTH_CLIENT`; `release.yml` writes it outside the checkout and `Release.ps1`
+refuses to build without it. `Tools/deploy.ps1` takes the owner's own copy,
+`%USERPROFILE%\.secrets\google-oauth-client.json`, and says so when it is missing. Any other
+build (CI, `dotnet build`, a contributor's clone) has no Google section. For a run from
+`bin`, build with `-p:GoogleClientJson=<that file>`. The consent screen must be **In
+production**: in Testing, only listed test users can connect, and a sign-in expires after 7
+days. With only `drive.file` (non-sensitive), it needs no Google security review. The project
+has two APIs enabled: Google Sheets (the spreadsheet) and Google Drive (finding the app's own
+spreadsheet again, and its trash flag).
+
 If the publish step fails after the tag is up:
 1. Look under the releases page's Drafts first. `gh release create` makes a draft before
    it uploads the files, so a failed upload can leave one, and it must go before the

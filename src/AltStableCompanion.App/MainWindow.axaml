@@ -280,6 +280,30 @@
           </StackPanel>
         </Border>
 
+        <!-- The Google Sheet export (#82): only in a build that carries the app's Google client.
+             The words are Core's (SheetText) and say only what the code does. -->
+        <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0"
+                IsVisible="{Binding SheetsAvailable}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Google Sheet" FontWeight="SemiBold" />
+            <WrapPanel>
+              <Button Content="Connect..." Command="{Binding ConnectGoogle}" IsVisible="{Binding SheetsNotConnected}" Margin="0,0,8,6"
+                      ToolTip.Tip="Sign in to Google in your browser and allow the app to make its own spreadsheet" />
+              <Button Content="Cancel" Command="{Binding CancelGoogle}" IsVisible="{Binding SheetsConnecting}" Margin="0,0,8,6"
+                      ToolTip.Tip="Stop waiting for Google; nothing is connected" />
+              <Button Content="Export now" Command="{Binding ExportSheet}" IsVisible="{Binding SheetsConnected}" Margin="0,0,8,6"
+                      ToolTip.Tip="Write every character to the spreadsheet now" />
+              <Button Content="Open sheet" Command="{Binding OpenSheet}" IsVisible="{Binding SheetHasUrl}" Margin="0,0,8,6"
+                      ToolTip.Tip="The spreadsheet, in your browser" />
+              <Button Content="Disconnect" Command="{Binding DisconnectGoogle}" IsVisible="{Binding SheetsConnected}" Margin="0,0,8,6"
+                      ToolTip.Tip="Forget the sign-in on this PC and ask Google to cancel it; the spreadsheet stays yours" />
+            </WrapPanel>
+            <TextBlock Text="{Binding SheetsStatus}" TextWrapping="Wrap" IsVisible="{Binding SheetsFine}" />
+            <TextBlock Classes="warn" Text="{Binding SheetsStatus}" TextWrapping="Wrap" IsVisible="{Binding SheetsProblem}" />
+            <TextBlock Classes="dim" Text="{Binding SheetsExplanation}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <!-- The one thing that leaves this PC, off unless chosen. Every word here is Core's
              (PassText.EnhanceExplanation) and says only what the code does. -->
         <Border BorderBrush="{DynamicResource RimBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">

@@ -16,7 +16,8 @@ public sealed record DiagnosticsFacts(
     bool CodexProbed,
     string? CodexStatus,
     string LogPath,
-    string Armory = "not asked yet");
+    string Armory = "not asked yet",
+    string Google = "not in this build");
 
 /// <summary>
 /// Help, "Save diagnostics": ONE text file a player can attach to an issue. No images, no
@@ -57,6 +58,7 @@ public static partial class Diagnostics
         }
         sb.AppendLine(CultureInfo.InvariantCulture, $"Armory:     {facts.Armory}");
         sb.AppendLine(CultureInfo.InvariantCulture, $"Enhanced:   {(facts.Enhance ? "on" : "off")}");
+        sb.AppendLine(CultureInfo.InvariantCulture, $"Google:     {facts.Google}");
         // Found or not, and signed in or not: what `codex login status` says in full is the
         // account's business.
         sb.AppendLine(CultureInfo.InvariantCulture, $"Codex:      {(!facts.CodexProbed ? "not looked for" : facts.CodexStatus is null ? "not found"

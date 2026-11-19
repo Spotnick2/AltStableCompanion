@@ -86,6 +86,42 @@ public static class Armory
     }
 
     /// <summary>
+    /// The armory's small picture of the character's face, by the same player number: an 84x84
+    /// JPEG, <c>-avatar-sd</c> for the SD model, 403 for a character with no render (measured
+    /// 2026-11-19 on Forever US). The Google Sheet export shows it; Google fetches it, not the app.
+    /// </summary>
+    public static string? AvatarUrl(string guid, bool sd)
+    {
+        if (PlayerNumber(guid) is not { } n) return null;
+        return string.Create(CultureInfo.InvariantCulture,
+            $"https://{Host}/forever-us/character/{n % 256}/{n}-avatar{(sd ? "-sd" : "")}.jpg");
+    }
+
+    // ChrRaces ids (References\Forever\db\forever-chrraces-1.60.1.70790.csv) of the races
+    // Forever plays, by the race token AltStable stores. Skyborne is one token for two races,
+    // told apart by faction: High Order (Alliance) and Windshaper (Horde).
+    private static readonly Dictionary<string, int> RaceIds = new(StringComparer.Ordinal)
+    {
+        ["Human"] = 1, ["Orc"] = 2, ["Dwarf"] = 3, ["NightElf"] = 4, ["Scourge"] = 5,
+        ["Tauren"] = 6, ["Gnome"] = 7, ["Troll"] = 8,
+    };
+
+    /// <summary>
+    /// The armory's silhouette for a race and sex, what its website shows for a character it has
+    /// not drawn: <c>shadow/avatar/&lt;race id&gt;-&lt;0 male, 1 female&gt;.jpg</c>, measured
+    /// 2026-11-19 for the ten Forever races and both sexes (84x84 JPEGs). Null for a race it does not know.
+    /// </summary>
+    public static string? PlaceholderUrl(string? race, string? faction, bool female)
+    {
+        int id;
+        if (race == "Skyborne") id = faction switch { "Alliance" => 95, "Horde" => 96, _ => 0 };
+        else id = race is not null && RaceIds.TryGetValue(race, out var known) ? known : 0;
+        if (id == 0) return null;
+        return string.Create(CultureInfo.InvariantCulture,
+            $"https://{Host}/forever-us/shadow/avatar/{id}-{(female ? 1 : 0)}.jpg");
+    }
+
+    /// <summary>
     /// The old rule, now the contract's cases 4 and 5 (<see cref="PortraitJudge"/>: a character
     /// that changed since the capture, or one it cannot tell about): the render when it is newer by the
     /// estimate - it shows the character as of its date minus <see cref="RenderDelay"/> - and

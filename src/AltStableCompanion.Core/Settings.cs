@@ -143,6 +143,14 @@ public sealed record Settings
     public bool BlizzardRemoved { get; init; }
 
     /// <summary>
+    /// The spreadsheet the Google export writes (#82), and its address for "Open sheet"; null
+    /// until the first export makes one. Kept through a Disconnect: connecting the same Google
+    /// account again goes on writing it.
+    /// </summary>
+    public string? GoogleSheetId { get; init; }
+    public string? GoogleSheetUrl { get; init; }
+
+    /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
     /// notice is dismissed, so the notice survives the app being closed - or killed - in
@@ -193,11 +201,13 @@ public sealed record Settings
         && ArmoryDailyMax == other.ArmoryDailyMax
         && BlizzardRemoved == other.BlizzardRemoved
         && HideGoneCharacters == other.HideGoneCharacters
+        && GoogleSheetId == other.GoogleSheetId
+        && GoogleSheetUrl == other.GoogleSheetUrl
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>
         HashCode.Combine(HashCode.Combine(WowFlavorDir, KeepScreenshots, Paused, Started, Skin, InstallUnknown, Enhance, RestartNoticeInstalls.Count),
-            Armory, ArmorySd, HashCode.Combine(ArmoryRemakeHours, ArmoryRemakeInDays), ArmoryEnhanceAuto, ArmoryDailyLimit, HashCode.Combine(ArmoryDailyMax, BlizzardRemoved, HideGoneCharacters));
+            Armory, ArmorySd, HashCode.Combine(ArmoryRemakeHours, ArmoryRemakeInDays), ArmoryEnhanceAuto, ArmoryDailyLimit, HashCode.Combine(ArmoryDailyMax, BlizzardRemoved, HideGoneCharacters, GoogleSheetId));
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

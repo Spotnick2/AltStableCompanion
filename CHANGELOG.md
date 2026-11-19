@@ -6,6 +6,14 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- **Google Sheet** (#82): your characters, their gear and their skills, in a spreadsheet in
+  your own Google Drive. Off until you connect in Settings. The app asks only for the
+  spreadsheets it creates, rewrites its own three tabs (Characters, Gear, Skills) on
+  **Export now**, and never touches tabs you add. With portraits from the armory on, the
+  Characters tab shows each character's armory avatar.
+
 ## [1.2.5]
 
 The list follows AltStable's, and can be cleaned up of characters AltStable no longer has;

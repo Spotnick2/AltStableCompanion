@@ -38,10 +38,21 @@ jobs:
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "prerelease=$($tag.Contains('-'))" >> $env:GITHUB_OUTPUT
 
+      # The app's Google OAuth client (#82) is a secret, never in the repo: written outside the
+      # checkout for the build to embed, and deleted after.
       - name: Build the release
+        env:
+          GOOGLE_OAUTH_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT }}
         run: |
-          $tag = '${{ steps.tag.outputs.tag }}'
-          if ($tag) { ./Tools/Release.ps1 -Tag $tag -Out publish/release } else { ./Tools/Release.ps1 -Out publish/release }
+          $client = Join-Path $env:RUNNER_TEMP 'google-client.json'
+          [IO.File]::WriteAllText($client, $env:GOOGLE_OAUTH_CLIENT)
+          $env:ALTSTABLE_GOOGLE_CLIENT = $client
+          try {
+            $tag = '${{ steps.tag.outputs.tag }}'
+            if ($tag) { ./Tools/Release.ps1 -Tag $tag -Out publish/release } else { ./Tools/Release.ps1 -Out publish/release }
+          } finally {
+            Remove-Item -LiteralPath $client -Force -ErrorAction SilentlyContinue
+          }
 
       # The exact bytes that were built and checked, whatever happens next: a publish that
       # fails on GitHub's side can be retried from the Actions tab without a new build.

@@ -16,6 +16,7 @@ the cutouts the addon's Roster scene draws your characters with.
 | **AltStable Companion** (this app) | Turns your `/alts portrait` captures into Roster portraits | Only for portraits in the Roster |
 | **Portraits from the armory** (a setting in this app) | Takes each character's picture from Blizzard's armory website, with no capture | No: the app asks you once |
 | **Enhanced portraits** (a setting in this app) | Asks the Codex CLI on your PC for a nicer picture of each portrait | No: off by default, and it uses your ChatGPT account's usage |
+| **Google Sheet** (a setting in this app) | Writes your characters, their gear and their skills into a spreadsheet in your Google Drive | No: off until you connect |
 
 ## Install
 
@@ -167,6 +168,47 @@ That picture is not made again until you capture that character again or change 
 style. Codex keeps its own copy of every picture in its `generated_images` folder; the app
 reads it and never cleans it.
 
+## Google Sheet (optional)
+
+Your alts as a spreadsheet in your own Google Drive, in place of one kept by hand. Off until
+you connect, in Settings → **Google Sheet**.
+
+- **Connect…** opens Google's sign-in page in your browser. The app asks for one permission:
+  the spreadsheets it creates itself (Google's `drive.file`). It cannot see anything else in
+  your Drive. If nothing comes back, **Cancel** stops waiting; after 5 minutes it gives up.
+  Once connected, it exports at once.
+- **Export now** writes every character AltStable has, except those you hid, into a
+  spreadsheet named **AltStable**, on three tabs:
+  - **Characters**: name (in its class colour), realm, class, race, faction, level, item
+    level, rested XP, gold, guild and when it was last played;
+  - **Gear**: each slot's item in its quality colour, with its item level and enchant as
+    the cell's note;
+  - **Skills**: professions, cooking, fishing, first aid and riding; a skill at its current
+    cap is highlighted.
+
+  The app rewrites its own three tabs whole each time. Tabs you add are never touched, so
+  your own formulas can point at its tabs. Renaming its tabs, or the spreadsheet, is fine. If
+  you delete one of its tabs, the next export puts it back. There is only ever one: on a new
+  PC, or after a reinstall, the app finds the spreadsheet it made before and goes on writing
+  it. If that one is gone or in the trash, the next export makes a new one, and says so.
+- **Nothing is written unless every account was read.** If the game is writing an account's
+  file at that moment, the export stops and says which account; try again a moment later.
+- **Avatars.** With [portraits from the armory](#portraits-from-the-armory-optional) on, the
+  Characters tab also shows each character's small armory picture, or the armory's silhouette
+  of its race until the armory has drawn it (under level 10, or not played since it could).
+  The spreadsheet asks Blizzard's picture server for them, not the app, and Google shows them only
+  once you open the spreadsheet and choose **Allow access**, which it asks for once.
+- **Open sheet** opens it in your browser. **Disconnect** deletes the sign-in from this PC
+  and asks Google to cancel it; the spreadsheet stays yours, and connecting the same Google
+  account again goes on writing it.
+
+The sign-in is kept for this Windows user only (DPAPI, like the Blizzard API client), never
+logged, and never in diagnostics. What the app sends, and when: only when you press
+**Connect**, **Export now** or **Disconnect**, to `oauth2.googleapis.com` (the sign-in),
+`sheets.googleapis.com` (the spreadsheet) and `www.googleapis.com` (Drive: only to find the
+spreadsheet it made, and whether it is in the trash), carrying the fields listed above and
+nothing else.
+
 ## Updates
 
 **Help → About** says which version this is. **Check for updates** asks GitHub for the
@@ -189,16 +231,16 @@ the one it is. **Help → About** is the authority on what is running.
 
 ## What it touches
 
-No network access, except the three things you ask for: portraits from the armory and
-enhanced portraits, which you switch on, and the update check.
+No network access, except the four things you ask for: portraits from the armory,
+enhanced portraits and the Google Sheet, which you switch on, and the update check.
 
 It touches only:
 - the screenshots it matched to a capture, and, when you clean up the character list and
   say yes, those of the characters you clean up;
 - the `AltStableCutouts` addon folder;
 - its own settings and log in `%APPDATA%\AltStableCompanion`, and there, in `originals`, each
-  enhanced portrait as Codex made it, full size (about 2 MB each), and your Blizzard API
-  client when you save one;
+  enhanced portrait as Codex made it, full size (about 2 MB each), your Blizzard API
+  client when you save one, and your Google sign-in when you connect;
 - a diagnostics file in your Downloads folder, only when you press Help → **Save diagnostics…**;
 - for enhanced portraits, Codex's own `generated_images` folder, read only.
 

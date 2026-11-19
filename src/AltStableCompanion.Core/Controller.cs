@@ -42,7 +42,11 @@ public sealed record Snapshot(
     /// <summary>"Check the armory now": its progress while it runs, then what it found. Null before the first press this run.</summary>
     ArmorySweep? ArmorySweep = null,
     /// <summary>Characters AltStable no longer has are left out of the list (#77).</summary>
-    bool HideGone = false);
+    bool HideGone = false)
+{
+    /// <summary>The Google Sheet export (#82): connected or not, and what the last export came to.</summary>
+    public SheetState Sheets { get; init; } = new();
+}
 
 public enum BlizzardClientState
 {
@@ -88,7 +92,7 @@ public enum BlizzardClientState
 /// </summary>
 public sealed partial class Controller(StartupOptions options, Func<WowInstall?>? detect = null,
     Func<DateTime>? clock = null, EnhanceHooks? enhance = null, UpdateHooks? update = null,
-    Func<HttpMessageHandler>? armoryHttp = null) : IDisposable
+    Func<HttpMessageHandler>? armoryHttp = null, SheetHooks? sheets = null) : IDisposable
 {
     private readonly Func<DateTime> _clock = clock ?? (() => DateTime.Now);
     // The way to Codex, or none: a controller made without one never enhances. The app hands
@@ -176,6 +180,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         StartEnhancer();
         StartUpdater();
         StartArmory();
+        StartSheets();
     }
 
     /// <summary>The player picked a folder. False when it is not a WoW folder: nothing changes.</summary>
@@ -300,6 +305,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         StopEnhancer();
         StopUpdater();
         StopArmory();
+        StopSheets();
         Changed?.Invoke();
         return Task.Run(async () =>
         {
@@ -308,6 +314,7 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
             if (_enhanceLoop is { } loop) await Task.WhenAny(loop, Task.Delay(TimeSpan.FromSeconds(15)));
             // A request in flight is cancelled with the worker.
             if (_armoryLoop is { } armory) await Task.WhenAny(armory, Task.Delay(TimeSpan.FromSeconds(5)));
+            await WaitForSheetsAsync();
             _log?.Write("stopped");
         });
     }
@@ -543,5 +550,6 @@ public sealed partial class Controller(StartupOptions options, Func<WowInstall?>
         StopEnhancer();
         StopUpdater();
         StopArmory();
+        StopSheets();
     }
 }

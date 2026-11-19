@@ -17,13 +17,13 @@ public sealed class SheetExportTests : IDisposable
         return path;
     }
 
-    private static string Record(string guid, params (string Key, object Value)[] fields) =>
+    internal static string Record(string guid, params (string Key, object Value)[] fields) =>
         $"[\"{guid}\"] = {{\n" + string.Concat(fields.Select(f => f.Value is string s
             ? $"[\"{f.Key}\"] = \"{s}\",\n"
             : $"[\"{f.Key}\"] = {Convert.ToString(f.Value, CultureInfo.InvariantCulture)},\n")) + "},\n";
 
     // A whole file: the addon always writes both tables.
-    private static string Db(params string[] records) => "AltStableDB = {\n" + string.Concat(records) + "}\nAltStableConfig = {\n}\n";
+    internal static string Db(params string[] records) => "AltStableDB = {\n" + string.Concat(records) + "}\nAltStableConfig = {\n}\n";
 
     private static Dictionary<object, object?> Char(params (string Key, object? Value)[] fields) =>
         fields.ToDictionary(f => (object)f.Key, f => f.Value is int i ? (double)i : f.Value);
@@ -198,7 +198,7 @@ public sealed class SheetExportTests : IDisposable
         var header = table.Rows[0].Select(c => c.Value).ToList();
 
         Assert.Equal(10.269, (double)table.Rows[1][header.IndexOf("Gold")].Value!, 9);
-        Assert.Equal("0070DD", table.Rows[1][0].Fill);
+        Assert.Equal("0070DD", table.Rows[1][header.IndexOf("Name")].Fill);
         Assert.Equal("Shaman", table.Rows[1][header.IndexOf("Class")].Value);
     }
 
@@ -231,6 +231,119 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(1.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["red"]!);
         Assert.Equal(124 / 255.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["green"]!, 9);
         Assert.Equal(30.0, (double)cells["rows"]![1]!["values"]![1]!["userEnteredValue"]!["numberValue"]!);
+    }
+
+    [Fact]
+    public void The_avatar_is_the_armory_one_by_player_number_hd_or_sd()
+    {
+        // Measured 2026-11-19: 678282 (0x000A598A) has both, 84x84 JPEGs.
+        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-avatar.jpg",
+            Armory.AvatarUrl("Player-6796-000A598A", sd: false));
+        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-avatar-sd.jpg",
+            Armory.AvatarUrl("Player-6796-000A598A", sd: true));
+        Assert.Null(Armory.AvatarUrl("Creature-0-1-2", sd: false));
+    }
+
+    [Theory]
+    [InlineData("Orc", "Horde", "Male", 0, "2-0")]
+    [InlineData("Scourge", "Horde", "Female", 1, "5-1")]
+    [InlineData("Skyborne", "Alliance", "Female", 1, "95-1")]     // High Order
+    [InlineData("Skyborne", "Horde", "Male", 0, "96-0")]          // Windshaper
+    public void The_placeholder_is_the_armory_silhouette_of_the_race_and_sex(string race, string faction, string gender, int sexId, string file)
+    {
+        // Measured 2026-11-19: forever-us/shadow/avatar/<ChrRaces id>-<0 male, 1 female>.jpg, all ten.
+        var expected = "https://render.worldofwarcraft.com/forever-us/shadow/avatar/" + file + ".jpg";
+        Assert.Equal(expected, Armory.PlaceholderUrl(race, faction, female: sexId == 1));
+
+        // sexID first; an older record has only the word.
+        foreach (var fields in new[] { new (string, object)[] { ("sexID", sexId), ("gender", "nonsense") }, [("gender", gender)] })
+        {
+            var path = Store("S" + file + fields.Length, Db(Record("Player-1-01",
+                [("name", "Low"), ("level", 5), ("race", race), ("faction", faction), .. fields])));
+            var table = SheetExport.BuildCharacters(SheetExport.Load([path]).Characters, 0, new AvatarSource(false, new HashSet<string>()));
+            Assert.Equal(expected, Assert.IsType<SheetImage>(table.Rows[1][0].Value).Url);
+        }
+    }
+
+    [Fact]
+    public void A_race_the_armory_has_no_silhouette_for_gets_no_picture()
+    {
+        Assert.Null(Armory.PlaceholderUrl("Skyborne", "Neutral", female: false));
+        Assert.Null(Armory.PlaceholderUrl("Vulpera", "Horde", female: false));
+        Assert.Null(Armory.PlaceholderUrl(null, "Horde", female: false));
+    }
+
+    [Fact]
+    public void With_avatars_a_drawn_character_gets_its_own_and_everyone_else_the_silhouette()
+    {
+        var path = Store("A", Db(
+            Record("Player-1-0000000A", ("name", "Drawn"), ("level", 10), ("race", "Orc"), ("sexID", 1)),
+            Record("Player-1-0000000B", ("name", "Undrawn"), ("level", 30), ("race", "Orc"), ("sexID", 0)),
+            Record("Player-1-00000009", ("name", "Nine"), ("level", 9), ("race", "Troll"), ("sexID", 1))));
+        var chars = SheetExport.Load([path]).Characters;
+        // A render under level 10 is not one the armory makes: a leftover is not trusted.
+        var drawn = new HashSet<string> { "Player-1-0000000A", "Player-1-00000009" };
+
+        var table = SheetExport.BuildCharacters(chars, 0, new AvatarSource(true, drawn));
+        string? Image(string name) => table.Rows.Single(r => r.Any(c => c.Value as string == name))[0].Value is SheetImage i ? i.Url : null;
+
+        // The record's key is the character's identity, and SD is the model asked for.
+        Assert.Equal(Armory.AvatarUrl("Player-1-0000000A", sd: true), Image("Drawn"));
+        Assert.Equal(Armory.PlaceholderUrl("Orc", null, female: false), Image("Undrawn"));
+        Assert.Equal(Armory.PlaceholderUrl("Troll", null, female: true), Image("Nine"));
+        Assert.Equal("Name", table.Rows[0][1].Value);
+        Assert.Equal(2, table.FrozenColumns);
+        Assert.Equal(SheetExport.AvatarSize, table.ImageSize);
+
+        // Without pictures the column is still there, empty: a formula's address keeps its field.
+        var plain = SheetExport.BuildCharacters(chars, 0);
+        Assert.Equal("Name", plain.Rows[0][1].Value);
+        Assert.All(plain.Rows.Skip(1), r => Assert.Null(r[0].Value));
+        Assert.Equal(2, plain.FrozenColumns);
+        Assert.Null(plain.ImageSize);
+        Assert.DoesNotContain(plain.Rows.SelectMany(r => r), c => c.Value is SheetImage);
+    }
+
+    [Fact]
+    public void A_picture_column_is_an_image_formula_its_size_and_the_rows_its_height()
+    {
+        var table = new SheetTable("Characters",
+            [[SheetCell.Empty, new SheetCell("Name")], [new SheetCell(new SheetImage("https://x/a.jpg")), new SheetCell("K")]],
+            FrozenColumns: 2, ImageSize: 42);
+
+        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Characters"] = 3 });
+
+        var image = requests[1]!["updateCells"]!["rows"]![1]!["values"]![0]!;
+        Assert.Equal("=IMAGE(\"https://x/a.jpg\")", (string)image["userEnteredValue"]!["formulaValue"]!);
+        var sizes = requests.Select(r => r!["updateDimensionProperties"]).OfType<JsonNode>().ToList();
+        Assert.Contains(sizes, d => (string)d["range"]!["dimension"]! == "ROWS" && (int)d["range"]!["startIndex"]! == 1
+            && (int)d["range"]!["endIndex"]! == 2 && (int)d["properties"]!["pixelSize"]! == 42);
+        Assert.Contains(sizes, d => (string)d["range"]!["dimension"]! == "COLUMNS" && (int)d["range"]!["startIndex"]! == 0
+            && (int)d["range"]!["endIndex"]! == 1 && (int)d["properties"]!["pixelSize"]! == 42);
+        // After the cells, which write the whole format: the text in the middle of the tall rows.
+        var middle = requests.Select((r, i) => (r!["repeatCell"], i)).Single(x => x.Item1 is not null);
+        Assert.True(middle.i > 1);
+        Assert.Equal("MIDDLE", (string)middle.Item1!["cell"]!["userEnteredFormat"]!["verticalAlignment"]!);
+        Assert.Equal(1, (int)middle.Item1["range"]!["startRowIndex"]!);
+        Assert.Equal(2, (int)middle.Item1["range"]!["endRowIndex"]!);
+        // The fit leaves the pictures' column alone: it would shrink it to nothing.
+        var fit = requests.Select(r => r!["autoResizeDimensions"]).OfType<JsonNode>().Single();
+        Assert.Equal(1, (int)fit["dimensions"]!["startIndex"]!);
+    }
+
+    [Fact]
+    public void A_tab_of_text_gets_its_rows_back_to_the_default_height()
+    {
+        // Pictures turned off after an export with them: the rows were 42 px.
+        var table = new SheetTable("Characters", [[new SheetCell("Name")], [new SheetCell("K")], [new SheetCell("L")]]);
+
+        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Characters"] = 3 });
+
+        var size = requests.Select(r => r!["updateDimensionProperties"]).OfType<JsonNode>().Single();
+        Assert.Equal("ROWS", (string)size["range"]!["dimension"]!);
+        Assert.Equal(3, (int)size["range"]!["endIndex"]!);
+        Assert.Equal(GoogleSheets.DefaultRowHeight, (int)size["properties"]!["pixelSize"]!);
+        Assert.Equal(0, (int)requests.Select(r => r!["autoResizeDimensions"]).OfType<JsonNode>().Single()["dimensions"]!["startIndex"]!);
     }
 
     private static SheetTable Table(string title) => new(title, [[new SheetCell("Name")]]);

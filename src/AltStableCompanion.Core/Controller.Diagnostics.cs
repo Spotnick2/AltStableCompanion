@@ -34,6 +34,14 @@ public sealed partial class Controller
                     BlizzardClientState.Unreadable => "; Blizzard API client cannot be read",
                     BlizzardClientState.NotDeleted => "; Blizzard API client removed, its file not deleted (not used)",
                     _ => "",
+                },
+                // Connected or not: never the sign-in, nor the spreadsheet's address.
+                _current.Sheets.Google switch
+                {
+                    GoogleState.Unavailable => "not in this build",
+                    GoogleState.Connected => "connected" + (_settings.GoogleSheetId is null ? "" : ", a spreadsheet saved"),
+                    GoogleState.Connecting => "connecting",
+                    _ => "not connected",
                 });
         }
         var now = _clock();
