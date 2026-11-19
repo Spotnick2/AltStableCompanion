@@ -127,8 +127,12 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         return (string?)token["access_token"] ?? throw new GoogleApiException("Google: no access token came back");
     }
 
-    /// <summary>A new spreadsheet with the given tabs. Returns its id and its address.</summary>
-    public async Task<(string Id, string Url)> CreateAsync(string accessToken, string title, IEnumerable<string> tabs, CancellationToken ct)
+    /// <summary>
+    /// A new spreadsheet with one tab per title. Returns its id, its address, and each tab's id by
+    /// the title it was created with - the ids the app owns from then on.
+    /// </summary>
+    public async Task<(string Id, string Url, IReadOnlyDictionary<string, long> Tabs)> CreateAsync(
+        string accessToken, string title, IEnumerable<string> tabs, CancellationToken ct)
     {
         var body = new JsonObject
         {
@@ -139,33 +143,70 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
             }).ToArray()),
         };
         var answer = await SendAsync(HttpMethod.Post, SheetsUrl, accessToken, body, ct);
+        var ids = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (id, tab) in Tabs(answer)) ids[tab] = id;
         return ((string?)answer["spreadsheetId"] ?? throw new GoogleApiException("Google: no spreadsheet id came back"),
-            (string?)answer["spreadsheetUrl"] ?? "");
+            (string?)answer["spreadsheetUrl"] ?? "", ids);
     }
 
     /// <summary>
-    /// Rewrites the app's tabs whole, in one batch: a tab the player deleted is added back, and
-    /// every other tab is left alone.
+    /// Rewrites the app's tabs whole, in one atomic batch. The app's tabs are the ids in
+    /// <paramref name="owned"/>, never a title: a tab the player renamed is still ours, and a tab
+    /// of theirs that took one of our names is still theirs (Codex on #83). One of ours the
+    /// player deleted is added back in the same batch that fills it. Returns the ids owned now,
+    /// for the caller to keep.
     /// </summary>
-    public async Task WriteAsync(string accessToken, string spreadsheetId, IReadOnlyList<SheetTable> tables, CancellationToken ct)
+    public async Task<IReadOnlyDictionary<string, long>> WriteAsync(string accessToken, string spreadsheetId,
+        IReadOnlyList<SheetTable> tables, IReadOnlyDictionary<string, long> owned, CancellationToken ct)
     {
         var url = $"{SheetsUrl}/{Uri.EscapeDataString(spreadsheetId)}";
-        var ids = await SheetIdsAsync(accessToken, url, ct);
-        var missing = tables.Where(t => !ids.ContainsKey(t.Title)).ToList();
-        if (missing.Count > 0)
+        var existing = Tabs(await SendAsync(HttpMethod.Get, url + "?fields=sheets.properties(sheetId,title)", accessToken, null, ct))
+            .ToDictionary(p => p.Id, p => p.Title);
+        var (ids, adds) = PlanTabs(tables, owned, existing, () => Random.Shared.Next(1, int.MaxValue));
+        var requests = new JsonArray(adds.Select(a => (JsonNode)new JsonObject
         {
-            var add = new JsonObject
-            {
-                ["requests"] = new JsonArray(missing.Select(t => (JsonNode)new JsonObject
-                {
-                    ["addSheet"] = new JsonObject { ["properties"] = new JsonObject { ["title"] = t.Title } },
-                }).ToArray()),
-            };
-            await SendAsync(HttpMethod.Post, url + ":batchUpdate", accessToken, add, ct);
-            ids = await SheetIdsAsync(accessToken, url, ct);
+            ["addSheet"] = new JsonObject { ["properties"] = new JsonObject { ["sheetId"] = a.Id, ["title"] = a.Title } },
+        }).ToArray());
+        foreach (var r in BuildWriteRequests(tables, ids)) requests.Add(r!.DeepClone());
+        await SendAsync(HttpMethod.Post, url + ":batchUpdate", accessToken, new JsonObject { ["requests"] = requests }, ct);
+        return ids;
+    }
+
+    /// <summary>
+    /// Which tab each table goes to: its owned id while that tab exists, whatever it is called
+    /// now; otherwise a new tab, with a fresh id from <paramref name="nextId"/> and the table's
+    /// title - or, when a tab already has that title (names are unique, whatever the case),
+    /// "Title (AltStable)", "Title (AltStable 2)", ...
+    /// </summary>
+    internal static (Dictionary<string, long> Ids, List<(long Id, string Title)> Adds) PlanTabs(
+        IReadOnlyList<SheetTable> tables, IReadOnlyDictionary<string, long> owned,
+        IReadOnlyDictionary<long, string> existing, Func<int> nextId)
+    {
+        var ids = new Dictionary<string, long>(StringComparer.Ordinal);
+        var adds = new List<(long Id, string Title)>();
+        var titles = new HashSet<string>(existing.Values, StringComparer.OrdinalIgnoreCase);
+        var taken = new HashSet<long>(existing.Keys);
+        foreach (var t in tables)
+        {
+            if (owned.TryGetValue(t.Title, out var id) && existing.ContainsKey(id)) { ids[t.Title] = id; continue; }
+            long fresh;
+            do fresh = nextId(); while (!taken.Add(fresh));
+            var title = t.Title;
+            for (var n = 1; titles.Contains(title); n++) title = n == 1 ? $"{t.Title} (AltStable)" : $"{t.Title} (AltStable {n})";
+            titles.Add(title);
+            adds.Add((fresh, title));
+            ids[t.Title] = fresh;
         }
-        await SendAsync(HttpMethod.Post, url + ":batchUpdate", accessToken,
-            new JsonObject { ["requests"] = BuildWriteRequests(tables, ids) }, ct);
+        return (ids, adds);
+    }
+
+    private static IEnumerable<(long Id, string Title)> Tabs(JsonNode answer)
+    {
+        foreach (var s in answer["sheets"]?.AsArray() ?? [])
+        {
+            if ((string?)s?["properties"]?["title"] is { } title && s["properties"]?["sheetId"] is JsonNode id)
+                yield return ((long)id, title);
+        }
     }
 
     /// <summary>
@@ -258,18 +299,6 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         return new JsonObject { ["red"] = Part(0), ["green"] = Part(2), ["blue"] = Part(4) };
     }
 
-    private async Task<Dictionary<string, long>> SheetIdsAsync(string accessToken, string url, CancellationToken ct)
-    {
-        var answer = await SendAsync(HttpMethod.Get, url + "?fields=sheets.properties(sheetId,title)", accessToken, null, ct);
-        var ids = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (var s in answer["sheets"]?.AsArray() ?? [])
-        {
-            if ((string?)s?["properties"]?["title"] is { } title && s["properties"]?["sheetId"] is JsonNode id)
-                ids[title] = (long)id;
-        }
-        return ids;
-    }
-
     private async Task<JsonNode> SendAsync(HttpMethod method, string url, string accessToken, JsonNode? body, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(method, url);
@@ -318,15 +347,24 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
             var target = line?.Split(' ') is [_, var t, ..] ? t : "";
             var query = ParseQuery(target.Contains('?') ? target[(target.IndexOf('?') + 1)..] : "");
             var ours = query.TryGetValue("state", out var s) && s == state;
-            var page = ours
-                ? "<html><body style=\"font-family:sans-serif\"><h2>AltStable Companion is connected.</h2>You can close this tab.</body></html>"
-                : "";
+            var page = ours ? CallbackPage(query) : "";
             var bytes = Encoding.UTF8.GetBytes(
                 $"HTTP/1.1 {(ours ? "200 OK" : "404 Not Found")}\r\nContent-Type: text/html; charset=utf-8\r\n" +
                 $"Content-Length: {Encoding.UTF8.GetByteCount(page)}\r\nConnection: close\r\n\r\n{page}");
             await stream.WriteAsync(bytes, ct);
             if (ours) return query;
         }
+    }
+
+    // What the browser shows once Google sends it back. Not "connected": the code still has to
+    // become a token, and the scope still has to be checked - the app says how that went. An
+    // error (the player refused, or is not a test user) says so (Codex on #83).
+    internal static string CallbackPage(IReadOnlyDictionary<string, string> query)
+    {
+        var (title, text) = query.TryGetValue("error", out var error)
+            ? ("Google did not connect AltStable Companion", $"Google answered: {WebUtility.HtmlEncode(error)}. You can close this tab.")
+            : ("Received", "You can close this tab: AltStable Companion says whether the connection worked.");
+        return $"<html><body style=\"font-family:sans-serif\"><h2>{title}</h2>{text}</body></html>";
     }
 
     private static async Task<string?> ReadLineAsync(NetworkStream stream, CancellationToken ct)

@@ -22,7 +22,8 @@ public sealed class SheetExportTests : IDisposable
             ? $"[\"{f.Key}\"] = \"{s}\",\n"
             : $"[\"{f.Key}\"] = {Convert.ToString(f.Value, CultureInfo.InvariantCulture)},\n")) + "},\n";
 
-    private static string Db(params string[] records) => "AltStableDB = {\n" + string.Concat(records) + "}\n";
+    // A whole file: the addon always writes both tables.
+    private static string Db(params string[] records) => "AltStableDB = {\n" + string.Concat(records) + "}\nAltStableConfig = {\n}\n";
 
     private static Dictionary<object, object?> Char(params (string Key, object? Value)[] fields) =>
         fields.ToDictionary(f => (object)f.Key, f => f.Value is int i ? (double)i : f.Value);
@@ -45,7 +46,7 @@ public sealed class SheetExportTests : IDisposable
     public void A_character_hidden_in_any_account_is_left_out()
     {
         var a = Store("A", Db(Record("Player-1-01", ("name", "Shown")), Record("Player-1-02", ("name", "Hidden"))));
-        var b = Store("B", "AltStableConfig = {\n[\"hiddenCharacters\"] = {\n[\"Player-1-02\"] = true,\n},\n}\n");
+        var b = Store("B", "AltStableDB = {\n}\nAltStableConfig = {\n[\"hiddenCharacters\"] = {\n[\"Player-1-02\"] = true,\n},\n}\n");
 
         var roster = SheetExport.Load([a, b]);
 
@@ -61,6 +62,56 @@ public sealed class SheetExportTests : IDisposable
         var roster = SheetExport.Load([good, cut]);
 
         Assert.Equal([cut], roster.Skipped);
+    }
+
+    [Fact]
+    public void An_account_whose_file_is_only_its_bak_right_now_is_skipped_not_left_out()
+    {
+        Store("A", Db(Record("Player-1-01", ("name", "Karuzo"))));
+        var bak = Path.Combine(_dir, "B", "SavedVariables", "AltStable.lua.bak");
+        Directory.CreateDirectory(Path.GetDirectoryName(bak)!);
+        File.WriteAllText(bak, Db(Record("Player-1-02", ("name", "Elegia"))));
+        Directory.CreateDirectory(Path.Combine(_dir, "C", "SavedVariables"));      // an account that never ran AltStable
+
+        var roster = SheetExport.Load(_dir);
+
+        Assert.Equal([Path.Combine(_dir, "B", "SavedVariables", SavedVariablesReader.FileName)], roster.Skipped);
+    }
+
+    [Theory]
+    [InlineData("AltStableConfig = {\n}\n")]                                                  // no roster
+    [InlineData("AltStableDB = {\n[\"Player-1-02\"] = {\n[\"name\"] = \"Elegia\",\n},\n}\n")]  // no config: its hidden list unknown
+    [InlineData("")]
+    public void A_file_missing_either_table_is_skipped(string text)
+    {
+        Store("A", Db(Record("Player-1-01", ("name", "Karuzo"))));
+        var odd = Store("B", text);
+
+        Assert.Equal([odd], SheetExport.Load(_dir).Skipped);
+    }
+
+    [Theory]
+    [InlineData(40, "true", 8, 45)]          // 5% per 8 h in a rested area
+    [InlineData(40, null, 32, 45)]           // ... per 32 h outside
+    [InlineData(40, "false", 32, 45)]        // a synced alt's "false" is a string, not a rested area
+    [InlineData(140, "true", 100, 150)]      // the cap
+    [InlineData(0, "true", 0, 0)]
+    public void Rested_carries_forward_from_the_snapshot_as_the_addon_does(int stored, string? area, int hours, int expected)
+    {
+        var c = Char(("restPercent", stored), ("xpMax", 1000), ("restTimestamp", 1000));
+        if (area is not null) c["restedArea"] = area;
+
+        Assert.Equal(expected, SheetExport.RestedPercent(c, 1000 + hours * 3600L));
+    }
+
+    [Fact]
+    public void Rested_is_blank_without_a_snapshot_zero_at_the_level_cap_and_higher_with_well_rested()
+    {
+        Assert.Null(SheetExport.RestedPercent(Char(("level", 30)), 999_999));
+        Assert.Equal(0, SheetExport.RestedPercent(Char(("restPercent", 0), ("xpMax", 0), ("restTimestamp", 0)), 999_999));
+        Assert.Equal(180, SheetExport.RestedPercent(Char(("restPercent", 100), ("xpMax", 1000), ("restTimestamp", 0), ("wellRested", 1)), 10_000_000));
+        // A record from before xpMax was kept is still carried forward.
+        Assert.Equal(45, SheetExport.RestedPercent(Char(("restPercent", 40), ("restTimestamp", 0), ("restedArea", true)), 8 * 3600));
     }
 
     [Fact]
@@ -119,7 +170,7 @@ public sealed class SheetExportTests : IDisposable
     [Fact]
     public void Gold_is_copper_over_ten_thousand_and_the_name_takes_the_class_colour()
     {
-        var table = SheetExport.BuildCharacters([Char(("name", "K"), ("class", "SHAMAN"), ("money", 102690))]);
+        var table = SheetExport.BuildCharacters([Char(("name", "K"), ("class", "SHAMAN"), ("money", 102690))], 0);
         var header = table.Rows[0].Select(c => c.Value).ToList();
 
         Assert.Equal(10.269, (double)table.Rows[1][header.IndexOf("Gold")].Value!, 9);
@@ -156,6 +207,73 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(1.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["red"]!);
         Assert.Equal(124 / 255.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["green"]!, 9);
         Assert.Equal(30.0, (double)cells["rows"]![1]!["values"]![1]!["userEnteredValue"]!["numberValue"]!);
+    }
+
+    private static SheetTable Table(string title) => new(title, [[new SheetCell("Name")]]);
+
+    [Fact]
+    public void A_tab_the_player_renamed_is_still_ours_and_their_tab_with_our_old_name_is_not()
+    {
+        var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")], new Dictionary<string, long> { ["Gear"] = 5 },
+            new Dictionary<long, string> { [5] = "Gear export", [9] = "Gear" }, () => 77);
+
+        Assert.Equal(5, ids["Gear"]);
+        Assert.Empty(adds);
+    }
+
+    [Fact]
+    public void A_deleted_tab_comes_back_under_a_free_name_and_a_fresh_id()
+    {
+        var draws = new Queue<int>([9, 9, 12]);   // 9 is taken: drawn again
+        var (ids, adds) = GoogleSheets.PlanTabs([Table("Gear")], new Dictionary<string, long> { ["Gear"] = 5 },
+            new Dictionary<long, string> { [9] = "gear", [3] = "Gear (AltStable)" }, draws.Dequeue);
+
+        Assert.Equal(12, ids["Gear"]);
+        Assert.Equal([(12L, "Gear (AltStable 2)")], adds);
+    }
+
+    [Fact]
+    public async Task A_missing_tab_is_added_in_the_same_batch_that_fills_it()
+    {
+        var handler = new FakeGoogle("""{"sheets":[{"properties":{"sheetId":1,"title":"Characters"}}]}""");
+        var google = new GoogleSheets(new HttpClient(handler), new GoogleClient("id", "secret"));
+
+        var owned = await google.WriteAsync("token", "sheet", [Table("Characters"), Table("Skills")],
+            new Dictionary<string, long> { ["Characters"] = 1, ["Skills"] = 2 }, CancellationToken.None);
+
+        var post = Assert.Single(handler.Posts);
+        var requests = JsonNode.Parse(post)!["requests"]!.AsArray();
+        var added = requests[0]!["addSheet"]!["properties"]!;
+        Assert.Equal("Skills", (string)added["title"]!);
+        Assert.Equal(owned["Skills"], (long)added["sheetId"]!);
+        Assert.Contains(requests, r => r!["updateCells"]?["range"]?["sheetId"] is JsonNode id && (long)id == owned["Skills"]);
+        Assert.Equal(1, owned["Characters"]);
+    }
+
+    private sealed class FakeGoogle(string sheets) : HttpMessageHandler
+    {
+        public List<string> Posts { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.Method == HttpMethod.Post) Posts.Add(await request.Content!.ReadAsStringAsync(ct));
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(request.Method == HttpMethod.Get ? sheets : "{}"),
+            };
+        }
+    }
+
+    [Fact]
+    public void The_browser_is_told_of_a_refusal_and_never_told_connected_before_the_app_knows()
+    {
+        var refused = GoogleSheets.CallbackPage(new Dictionary<string, string> { ["state"] = "s", ["error"] = "access_denied<b>" });
+        var received = GoogleSheets.CallbackPage(new Dictionary<string, string> { ["state"] = "s", ["code"] = "c" });
+
+        Assert.Contains("did not connect", refused);
+        Assert.Contains("access_denied&lt;b&gt;", refused);
+        Assert.DoesNotContain("connected.", received);
+        Assert.Contains("Received", received);
     }
 
     [Fact]

@@ -74,12 +74,22 @@ public static class SheetExport
     private const string AllianceFill = "0047AB";
 
     /// <summary>
-    /// Every file's <c>AltStableDB</c>, one record per GUID: the newer <c>lastUpdate</c> wins when
-    /// two accounts hold the same character, and one hidden in any account is left out. A file
-    /// that cannot be read (WoW is writing it) is named in <see cref="ExportRoster.Skipped"/>;
-    /// the export must not be written then, since it would drop that account's rows.
+    /// The roster of every account that uses AltStable (<see cref="Leftovers.AccountFiles"/>):
+    /// one whose <c>AltStable.lua</c> is missing - only its <c>.bak</c> while the game replaces
+    /// it - is named in <see cref="ExportRoster.Skipped"/>, not left out (Codex on #83).
     /// </summary>
-    public static ExportRoster Load(IEnumerable<string> paths)
+    public static ExportRoster Load(string accountsDir) => Load(Leftovers.AccountFiles(accountsDir));
+
+    /// <summary>
+    /// These files' <c>AltStableDB</c>, one record per GUID: the newer <c>lastUpdate</c> wins when
+    /// two accounts hold the same character, and one hidden in any account is left out. A file
+    /// that cannot be read (missing, or WoW is writing it), or that lacks the roster or the
+    /// config table, is named in <see cref="ExportRoster.Skipped"/>; the export must not be
+    /// written then. It would drop that account's rows, and could show a character only that
+    /// account hides. The addon always writes both tables (<c>AltStableConfig or {}</c>), so a
+    /// file without one is not a whole one.
+    /// </summary>
+    internal static ExportRoster Load(IEnumerable<string> paths)
     {
         var newest = new Dictionary<string, Dictionary<object, object?>>(StringComparer.Ordinal);
         var hidden = new HashSet<string>(StringComparer.Ordinal);
@@ -90,9 +100,14 @@ public static class SheetExport
             try { text = SavedVariablesReader.ReadShared(path); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { skipped.Add(path); continue; }
             var roster = SavedVariablesReader.ParseRoster(text, path);
-            if (roster.Problem is not null) { skipped.Add(path); continue; }
+            if (roster.Problem is not null
+                || LuaTableScanner.ReadGlobal(text, SavedVariablesReader.RosterGlobal, out _) is not Dictionary<object, object?> db
+                || LuaTableScanner.ReadGlobal(text, SavedVariablesReader.ConfigGlobal, out _) is not Dictionary<object, object?>)
+            {
+                skipped.Add(path);
+                continue;
+            }
             hidden.UnionWith(roster.Hidden);
-            if (LuaTableScanner.ReadGlobal(text, SavedVariablesReader.RosterGlobal, out _) is not Dictionary<object, object?> db) continue;
             foreach (var (key, entry) in db)
             {
                 if (key is not string guid || entry is not Dictionary<object, object?> e) continue;
@@ -106,9 +121,9 @@ public static class SheetExport
         return new ExportRoster(chars, skipped);
     }
 
-    /// <summary>The three tabs, in the order they appear.</summary>
-    public static IReadOnlyList<SheetTable> Build(IReadOnlyList<Dictionary<object, object?>> chars) =>
-        [BuildCharacters(chars), BuildGear(chars), BuildSkills(chars)];
+    /// <summary>The three tabs, in the order they appear, as of <paramref name="now"/> (epoch seconds).</summary>
+    public static IReadOnlyList<SheetTable> Build(IReadOnlyList<Dictionary<object, object?>> chars, long now) =>
+        [BuildCharacters(chars, now), BuildGear(chars), BuildSkills(chars)];
 
     // Horde, then Alliance, then anything else; within a side, highest level, then ilvl, then name.
     internal static int Order(Dictionary<object, object?> a, Dictionary<object, object?> b)
@@ -122,11 +137,14 @@ public static class SheetExport
         return c != 0 ? c : string.CompareOrdinal(Str(a, "name"), Str(b, "name"));
     }
 
-    internal static SheetTable BuildCharacters(IReadOnlyList<Dictionary<object, object?>> chars)
+    internal static SheetTable BuildCharacters(IReadOnlyList<Dictionary<object, object?>> chars, long now)
     {
+        var header = Header("Name", "Realm", "Class", "Race", "Faction", "Level", "iLvl", "Rested", "Gold", "Guild", "Last seen");
         var rows = new List<IReadOnlyList<SheetCell>>
         {
-            Header("Name", "Realm", "Class", "Race", "Faction", "Level", "iLvl", "Gold", "Guild", "Last seen"),
+            header.Select(h => (string)h.Value! == "Rested"
+                ? h with { Note = "Rested XP as a % of the next level, carried forward to the export as AltStable's own column does" }
+                : h).ToList(),
         };
         foreach (var c in chars)
         {
@@ -144,12 +162,30 @@ public static class SheetExport
                     : Text(faction),
                 Number(Num(c, "level")),
                 Num(c, "ilvl") is double ilvl ? new SheetCell(Math.Round(ilvl, 1), NumberFormat: "0.0") : SheetCell.Empty,
+                RestedPercent(c, now) is double rested ? new SheetCell(rested, NumberFormat: "0\"%\"") : SheetCell.Empty,
                 money is double m ? new SheetCell(m / 10000.0, NumberFormat: "#,##0.00\" g\"") : SheetCell.Empty,
                 Text(Str(c, "guild")),
                 seen is double s and > 0 ? new SheetCell(SheetDate(s), NumberFormat: "yyyy-mm-dd hh:mm") : SheetCell.Empty,
             ]);
         }
         return new SheetTable(Characters, rows);
+    }
+
+    // The addon's ComputeLiveRestedPercent (RowRenderer.lua) for a character not logged in: the
+    // snapshot, plus what accrues since - 5% of a level per 8 h in a rested area, per 32 h
+    // outside, 1.2x with Well Rested - up to the cap (150%, or 180% with Well Rested). No
+    // snapshot is no value, not 0. At the level cap the scan stores xpMax = 0: nothing accrues.
+    internal static double? RestedPercent(Dictionary<object, object?> c, long now)
+    {
+        if (Num(c, "restPercent") is not double stored) return null;
+        if (Num(c, "xpMax") is double max && max <= 0) return 0;
+        var wellRested = Num(c, "wellRested") == 1 || stored > 150;
+        var inRestedArea = c.TryGetValue("restedArea", out var area) && area is true or "true";
+        var perHour = (inRestedArea ? 0.625 : 0.15625) * (wellRested ? 1.2 : 1);
+        var since = Num(c, "restTimestamp") ?? Num(c, "lastUpdate") ?? 0;
+        var live = stored + Math.Max(0, now - since) / 3600.0 * perHour;
+        var cap = wellRested ? Math.Max(180, stored) : 150;
+        return Math.Floor(Math.Min(live, cap) + 0.5);
     }
 
     internal static SheetTable BuildGear(IReadOnlyList<Dictionary<object, object?>> chars)
