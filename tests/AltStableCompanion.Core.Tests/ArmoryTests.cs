@@ -806,7 +806,9 @@ public class ArmoryWorkerTests
             Assert.Contains("Checking 1 of 2: Drucida Komakino...", seen);
             Assert.Contains("Checking 2 of 2: Karuzo Macphisto...", seen);
         }
-        Assert.Contains("armory: the check: ", File.ReadAllText(c.LogPath));
+        // The sweep is published before its log line is written: wait for the line, reading the
+        // log as the app may still be writing it (a sharing violation in CI, seen by Codex on #87).
+        Until(() => TestData.ReadShared(c.LogPath).Contains("armory: the check: "), "the check's log line");
 
         // Paused: it says so, rather than nothing.
         c.SetPaused(true);

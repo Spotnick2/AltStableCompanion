@@ -13,9 +13,9 @@ public sealed class SheetsControllerTests
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(20);
     private const string Karuzo = "Player-6796-000A598A";
 
-    private static string Data(TempInstall t) => Path.Combine(t.Root, "appdata");
+    internal static string Data(TempInstall t) => Path.Combine(t.Root, "appdata");
 
-    private static void Until(Func<bool> happened, string what)
+    internal static void Until(Func<bool> happened, string what)
     {
         var limit = DateTime.UtcNow + Limit;
         while (!happened())
@@ -25,7 +25,7 @@ public sealed class SheetsControllerTests
         }
     }
 
-    private static TempInstall Install(Func<Settings, Settings>? settings = null)
+    internal static TempInstall Install(Func<Settings, Settings>? settings = null)
     {
         var t = new TempInstall();
         t.WriteStore("ACCOUNT1", SheetExportTests.Db(
@@ -64,11 +64,11 @@ public sealed class SheetsControllerTests
         });
     };
 
-    private static string Exported(Controller c) =>
+    internal static string Exported(Controller c) =>
         Until2(() => c.Current.Sheets is { Exporting: false, Note: { } n } && !n.StartsWith("Exporting", StringComparison.Ordinal)
             ? c.Current.Sheets.Note : null, "the export's outcome");
 
-    private static T Until2<T>(Func<T?> got, string what) where T : class
+    internal static T Until2<T>(Func<T?> got, string what) where T : class
     {
         T? value = null;
         Until(() => (value = got()) is not null, what);
@@ -393,7 +393,7 @@ public sealed class SheetsControllerTests
 
         // The old one's answer comes back: it ends, and the new export is still the one running.
         google.HoldListing.Release();
-        Until(() => File.ReadAllText(Path.Combine(Data(t), "log.txt")).Contains("google: the export was stopped"), "the old export's end");
+        Until(() => TestData.ReadShared(Path.Combine(Data(t), "log.txt")).Contains("google: the export was stopped"), "the old export's end");
         Thread.Sleep(100);                                  // past its last word
         Assert.True(c.Current.Sheets.Exporting);
         Assert.Equal(GoogleState.Connected, c.Current.Sheets.Google);

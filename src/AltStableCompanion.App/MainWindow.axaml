@@ -298,6 +298,14 @@
               <Button Content="Disconnect" Command="{Binding DisconnectGoogle}" IsVisible="{Binding SheetsConnected}" Margin="0,0,8,6"
                       ToolTip.Tip="Forget the sign-in on this PC and ask Google to cancel it; the spreadsheet stays yours" />
             </WrapPanel>
+            <!-- M2: the export on its own, after the game has closed and stayed closed. -->
+            <Grid ColumnDefinitions="Auto,Auto,*" IsVisible="{Binding SheetsConnected}">
+              <CheckBox Grid.Column="0" IsChecked="{Binding SheetsAuto}" Content="Export on its own" VerticalAlignment="Center"
+                        ToolTip.Tip="After the game has closed and stayed closed: swapping between accounts does not export each time" />
+              <NumericUpDown Grid.Column="1" Value="{Binding SheetsAutoMinutes}" Minimum="5" Maximum="120" Increment="5" FormatString="0" Width="110"
+                             Margin="8,0" IsEnabled="{Binding SheetsAuto}" />
+              <TextBlock Grid.Column="2" Text="minutes after the game closes" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </Grid>
             <TextBlock Text="{Binding SheetsStatus}" TextWrapping="Wrap" IsVisible="{Binding SheetsFine}" />
             <TextBlock Classes="warn" Text="{Binding SheetsStatus}" TextWrapping="Wrap" IsVisible="{Binding SheetsProblem}" />
             <TextBlock Classes="dim" Text="{Binding SheetsExplanation}" TextWrapping="Wrap" />
