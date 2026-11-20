@@ -16,7 +16,7 @@ the cutouts the addon's Roster scene draws your characters with.
 | **AltStable Companion** (this app) | Turns your `/alts portrait` captures into Roster portraits | Only for portraits in the Roster |
 | **Portraits from the armory** (a setting in this app) | Takes each character's picture from Blizzard's armory website, with no capture | No: the app asks you once |
 | **Enhanced portraits** (a setting in this app) | Asks the Codex CLI on your PC for a nicer picture of each portrait | No: off by default, and it uses your ChatGPT account's usage |
-| **Google Sheet** (a setting in this app) | Writes your characters, their gear and their skills into a spreadsheet in your Google Drive | No: off until you connect |
+| **Google Sheet** (a setting in this app) | Writes your characters, their skills, reputations and gear into a spreadsheet in your Google Drive | No: off until you connect |
 
 ## Install
 
@@ -246,7 +246,7 @@ You can also quit the app and run a newer file from the releases page. Starting 
 copy only brings the running one's window forward.
 
 The running file keeps its name: if you kept the release's name
-(`AltStableCompanion-1.2.4-win-x64.exe`), it carries an older version in its name than
+(`AltStableCompanion-1.2.5-win-x64.exe`), it carries an older version in its name than
 the one it is. **Help → About** is the authority on what is running.
 
 ## What it touches

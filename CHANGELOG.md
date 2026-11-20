@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.3.0]
+
+Your characters in a Google Sheet, in your own Drive, kept up to date on its own after you
+play.
+
 ### Added
 
 - **Google Sheet** (#82): your characters in a spreadsheet in your own Google Drive, dark
