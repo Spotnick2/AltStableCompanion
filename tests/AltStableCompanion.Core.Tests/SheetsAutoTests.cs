@@ -182,15 +182,16 @@ public sealed class SheetsAutoTests
     public void An_automatic_export_found_due_is_not_started_once_it_no_longer_is()
     {
         using var w = new World();
+        // Paused before the clock passes the wait, so the timer itself never finds it due.
+        w.C.SetPaused(true);
         w.At(T0.AddMinutes(16));
         // The tick saw an export due; the player paused before it was started.
-        w.C.SetPaused(true);
         w.C.StartAutoForTest(T0.ToUniversalTime());
         World.Ticks();
         Assert.Equal(0, w.Exports);
-        // Or another install's, or a save already exported, or the setting turned off.
-        w.C.SetPaused(false);
+        // Or turned the setting off - while still paused, so the timer has no window either.
         w.C.SetSheetAuto(false, 15);
+        w.C.SetPaused(false);
         w.C.StartAutoForTest(T0.ToUniversalTime());
         Thread.Sleep(100);
         Assert.Equal(0, w.Exports);
@@ -199,6 +200,27 @@ public sealed class SheetsAutoTests
         w.C.SetPaused(true);
         w.C.ExportSheet();
         SheetsControllerTests.Until(() => w.Exports == 1, "Export now");
+    }
+
+    [Fact]
+    public void A_delay_raised_while_a_tick_looked_is_the_one_that_counts()
+    {
+        using var w = new World(s => s with { SheetAutoMinutes = 5 });
+        w.C.SetSheetAuto(true, 120);                      // raised before the tick's finding is claimed
+        w.At(T0.AddMinutes(16));
+
+        // The tick found it due by the old 5 minutes; by 120 it is not.
+        w.C.StartAutoForTest(T0.ToUniversalTime());
+        Thread.Sleep(100);
+        Assert.Equal(0, w.Exports);
+        // Nor when the game was seen again after the quiet the tick counted from.
+        w.C.SetSheetAuto(true, 5);
+        w.Running = true;
+        World.Ticks();
+        w.Running = false;
+        w.C.StartAutoForTest(T0.ToUniversalTime());
+        Thread.Sleep(100);
+        Assert.Equal(0, w.Exports);
     }
 
     [Fact]
