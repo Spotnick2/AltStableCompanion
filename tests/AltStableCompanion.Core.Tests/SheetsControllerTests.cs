@@ -123,12 +123,12 @@ public sealed class SheetsControllerTests
             Assert.Equal("sheet-1", saved.GoogleSheetId);
             Assert.Equal(GoogleSheets.UrlOf("sheet-1"), saved.GoogleSheetUrl);
             Assert.Equal(saved.GoogleSheetUrl, c.Current.Sheets.Url);
-            Assert.Equal(["Characters", "Gear", "Skills"], google.Sheets["sheet-1"].Select(x => x.Title));
+            Assert.Equal(["Characters", "Skills", "Reputations", "Gear"], google.Sheets["sheet-1"].Select(x => x.Title));
             // Portraits from the armory on: Karuzo's avatar, the silhouette for the level 5.
             var formulas = google.Batches.Single().ToJsonString();
             Assert.Contains(Armory.AvatarUrl(Karuzo, sd: false)!, formulas);
             Assert.Contains(Armory.PlaceholderUrl("Skyborne", "Alliance", female: false)!, formulas);
-            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(formulas, "=IMAGE").Count);
+            Assert.Equal(8, System.Text.RegularExpressions.Regex.Matches(formulas, "/forever-us/").Count);    // two pictures on each of the four tabs
 
             // Export now: the same spreadsheet, rewritten.
             c.ExportSheet();
@@ -160,8 +160,9 @@ public sealed class SheetsControllerTests
         c.ConnectGoogle(Browser());
         var note = Exported(c);
 
-        Assert.DoesNotContain("=IMAGE", google.Batches.Single().ToJsonString());
-        Assert.DoesNotContain(SheetText.AllowAccess, note);
+        Assert.DoesNotContain("/forever-us/", google.Batches.Single().ToJsonString());
+        Assert.Contains("classicon_mage", google.Batches.Single().ToJsonString());      // the icons are there
+        Assert.EndsWith(SheetText.AllowAccess, note);                                  // and need Allow access
     }
 
     [Fact]
@@ -268,7 +269,7 @@ public sealed class SheetsControllerTests
         Assert.Equal(0, google.Created);
         Assert.Equal("ours", Settings.Load(Data(t)).GoogleSheetId);
         Assert.Equal(GoogleSheets.UrlOf("ours"), c.Current.Sheets.Url);
-        Assert.Equal(["Characters", "Gear", "Skills"], google.Sheets["ours"].Select(x => x.Title));
+        Assert.Equal(["Characters", "Skills", "Reputations", "Gear"], google.Sheets["ours"].Select(x => x.Title));
     }
 
     [Fact]

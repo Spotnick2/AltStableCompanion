@@ -359,7 +359,7 @@ public sealed partial class Controller
                     _log?.Write(lost is null ? "google: a spreadsheet was made" : $"google: the saved spreadsheet {lost}; a new one was made");
                     added = await google.WriteAsync(access, id, tables, stop);
                 }
-                note = SheetText.Exported(roster.Characters.Count, now, made, lost, added, avatars: armory, found: found);
+                note = SheetText.Exported(roster.Characters.Count, now, made, lost, added, found: found);
                 problem = false;
                 _log?.Write($"google: exported {roster.Characters.Count} characters"
                     + (added.Count > 0 ? $"; added back {string.Join(", ", added)}" : ""));
@@ -468,13 +468,15 @@ public static class SheetText
     public const string Explanation =
         "Off until you connect. Connect opens Google's sign-in page in your browser, and the app asks for one permission: "
         + "the spreadsheets it creates itself. It cannot see anything else in your Google Drive. Export now writes every "
-        + "character AltStable has, except those you hid, into a spreadsheet named \"AltStable\" in your Drive: name, realm, "
-        + "class, race, faction, level, item level, rested XP, gold, guild, when it was last played, its gear and its skills. "
+        + "character AltStable has, except those you hid, into a spreadsheet named \"AltStable\" in your Drive, on four tabs: "
+        + "Characters (level, item level, rested XP, which account as 1, 2..., gold, hearthstone, guild, when it was last "
+        + "played, race, the realm's ruleset), Skills, Reputations and Gear. "
         + "The app talks to oauth2.googleapis.com to sign in, sheets.googleapis.com to write, and www.googleapis.com (Drive) "
         + "to find the spreadsheet it made before and whether it is in the trash, only when you press Connect, "
-        + "Export now or Disconnect.With portraits from the armory on, the Characters tab also shows each character's armory picture "
-        + "(its silhouette until the armory has drawn it): Google's servers fetch it from Blizzard's, once you open the spreadsheet and choose "
-        + "Allow access, which Google asks for once. The sign-in is kept for this Windows user only. "
+        + "Export now or Disconnect. The spreadsheet shows class, profession, coin and faction icons, and with portraits "
+        + "from the armory on each character's armory picture (its silhouette until the armory has drawn it): Google's "
+        + "servers fetch them from Blizzard's, once you open the spreadsheet and choose Allow access, which Google asks "
+        + "for once. The sign-in is kept for this Windows user only. "
         + "Disconnect deletes it and asks Google to cancel it; the spreadsheet stays yours. Tabs you add to the spreadsheet "
         + "are never touched.";
 
@@ -529,17 +531,17 @@ public static class SheetText
         $"Not exported: {string.Join(", ", accounts)} could not be read just now (the game may be writing it). Try again in a moment.";
 
     /// <summary>Measured 2026-11-19: an =IMAGE() of another site shows #REF! until the owner allows it, once per spreadsheet.</summary>
-    public const string AllowAccess = " For the armory pictures to show, open it and choose Allow access.";
+    public const string AllowAccess = " For its pictures and icons to show, open it and choose Allow access.";
 
     public static string Exported(int characters, DateTime at, bool made, string? lost, IReadOnlyList<string> added,
-        bool avatars = false, bool found = false)
+        bool found = false)
     {
         var text = string.Create(CultureInfo.InvariantCulture,
             $"Exported {characters} character{(characters == 1 ? "" : "s")} at {at:HH:mm}.");
         if (made) text += (lost is null ? " The spreadsheet was made in your Google Drive." : $" The saved spreadsheet {lost}, so a new one was made.")
-            + (avatars ? AllowAccess : "");
+            + AllowAccess;
         else if (found) text += (lost is null ? "" : $" The saved spreadsheet {lost}.") + Found;
-        if (added.Count > 0) text += $" Put back: {string.Join(", ", added)}.";
+        if (added.Count > 0) text += $" Tabs added: {string.Join(", ", added)}.";
         return text;
     }
 }

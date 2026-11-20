@@ -20,6 +20,7 @@ public sealed class SheetExportTests : IDisposable
     internal static string Record(string guid, params (string Key, object Value)[] fields) =>
         $"[\"{guid}\"] = {{\n" + string.Concat(fields.Select(f => f.Value is string s
             ? $"[\"{f.Key}\"] = \"{s}\",\n"
+            : f.Value is bool b ? $"[\"{f.Key}\"] = {(b ? "true" : "false")},\n"
             : $"[\"{f.Key}\"] = {Convert.ToString(f.Value, CultureInfo.InvariantCulture)},\n")) + "},\n";
 
     // A whole file: the addon always writes both tables.
@@ -153,53 +154,231 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(["H20", "H5", "A30", "A10"], chars.Select(c => c["name"]));
     }
 
+    // A character's row: the one whose first cell is its name.
+    private static IReadOnlyList<SheetCell> RowOf(SheetTable t, string name) => t.Rows.Single(r => r[0].Value as string == name);
+
+    // A column by its header: a label, or an icon's note.
+    private static int Col(SheetTable t, string label)
+    {
+        var header = t.Rows.First(r => r[0].Value as string == "Character");
+        var at = header.ToList().FindIndex(c => c.Value as string == label || c.Note == label || (c.Note?.StartsWith(label + ":", StringComparison.Ordinal) ?? false));
+        Assert.True(at >= 0, "no column " + label);
+        return at;
+    }
+
+    private static string? ImageOf(SheetCell c) => c.Value is SheetImage i ? i.Url : null;
+
+    [Fact]
+    public void A_tab_is_the_last_update_line_then_a_section_per_side()
+    {
+        var chars = new List<Dictionary<object, object?>>
+        {
+            Char(("name", "H1"), ("faction", "Horde"), ("class", "MAGE"), ("level", 20)),
+            Char(("name", "A1"), ("faction", "Alliance"), ("class", "PRIEST"), ("level", 10)),
+        };
+        var now = 1795044105L;
+
+        foreach (var t in SheetExport.Build(chars, now))
+        {
+            Assert.Equal("Last update: " + DateTimeOffset.FromUnixTimeSeconds(now).ToLocalTime().ToString("yyyy-MM-dd HH:mm"), t.Rows[0][0].Value);
+            Assert.Equal(["Horde", "Character", "H1", "Alliance", "Character", "A1"], t.Rows.Skip(1).Select(r => r[0].Value as string));
+            Assert.EndsWith("ui_hordeicon.jpg", ImageOf(t.Rows[1][1]));
+            Assert.EndsWith("ui_allianceicon.jpg", ImageOf(t.Rows[4][1]));
+            Assert.Equal(1, t.FrozenRows);
+            Assert.Equal(3, t.FrozenColumns);
+            Assert.Equal(SheetExport.AvatarSize, t.RowHeights![3]);
+            Assert.Equal(SheetExport.IconSize, t.RowHeights[1]);
+            // Every cell coloured, rows as long as the header: bands of colour, no gaps.
+            Assert.All(t.Rows, r => Assert.Equal(t.Columns, r.Count));
+            Assert.All(t.Rows.SelectMany(r => r), c => Assert.NotNull(c.Fill));
+            // Every column has a width: Sheets' own fit cuts bold text short.
+            Assert.All(t.ColumnWidths!, w => Assert.NotNull(w));
+            Assert.Equal(t.Columns, t.ColumnWidths!.Count);
+            // The "Last update" line runs on into the cells beside it: it widens Name only
+            // when the whole tab is narrower than it (Reputations here: nobody has met a faction).
+            Assert.True(t.ColumnWidths.Sum(w => w!.Value) >= SheetExport.TextWidth(t.Rows.Take(1), 0), t.Title);
+            if (t.Title == SheetExport.Characters)
+            {
+                Assert.Equal(SheetExport.TextWidth(t.Rows.Skip(1), 0), t.ColumnWidths[0]);
+                Assert.True(t.ColumnWidths[0] < SheetExport.TextWidth(t.Rows, 0));
+            }
+        }
+        Assert.Equal([SheetExport.Characters, SheetExport.Skills, SheetExport.Reputations, SheetExport.Gear],
+            SheetExport.Build(chars, now).Select(t => t.Title));
+    }
+
+    [Fact]
+    public void Characters_has_gold_in_coins_the_class_colour_and_icon_the_hearth_and_the_ruleset()
+    {
+        var table = SheetExport.BuildCharacters([
+            Char(("name", "K"), ("class", "SHAMAN"), ("faction", "Horde"), ("money", 102690), ("bind", "Booty Bay"),
+                ("realm", "CAMWOW US2 Realm 1 PvE"), ("accountNumber", 2)),
+            Char(("name", "L"), ("class", "MAGE"), ("faction", "Horde"), ("money", 9))], 0);
+
+        var k = RowOf(table, "K");
+        var gold = Col(table, "Gold");
+        Assert.Equal([10.0, 26.0, 90.0], new[] { k[gold].Value, k[gold + 2].Value, k[gold + 4].Value });
+        Assert.EndsWith("inv_misc_coin_01.jpg", ImageOf(k[gold + 1]));
+        Assert.EndsWith("inv_misc_coin_05.jpg", ImageOf(k[gold + 5]));
+        // The side's gold on its banner.
+        var banner = table.Rows[1];
+        Assert.Equal([10.0, 26.0, 99.0], new[] { banner[gold].Value, banner[gold + 2].Value, banner[gold + 4].Value });
+        Assert.Equal("0070DD", k[0].Fill);
+        Assert.Equal("0070DD", k[gold].Fill);
+        Assert.EndsWith("classicon_shaman.jpg", ImageOf(k[2]));
+        Assert.Equal("Shaman", k[2].Note);
+        Assert.Equal("Booty Bay", k[Col(table, "Hearthstone")].Value);
+        Assert.Equal(2.0, k[Col(table, "Acc")].Value);
+        var ruleset = k[Col(table, "Ruleset")];
+        Assert.Equal("PvE", ruleset.Value);
+        Assert.Equal("CAMWOW US2 Realm 1 PvE", ruleset.Note);
+    }
+
+    // AltStable 1.9.0's own cases (tests/test_warband.lua), as the badge its Ruleset column shows.
+    [Theory]
+    [InlineData("Classic Beta PvE", "PvE")]
+    [InlineData("Classic Beta PvP", "PvP")]
+    [InlineData("Classic Beta PvP 2", "PvP")]
+    [InlineData("CLASSIC BETA PVP", "PvP")]
+    [InlineData("Forever RP", "RP")]
+    [InlineData("Forever RP-PvP", "RP-PvP")]
+    [InlineData("Forever RPPvP", "RP-PvP")]
+    [InlineData("Forever RP PvP 2", "RP-PvP")]
+    [InlineData("Forever Roleplay PvP", "RP-PvP")]
+    [InlineData("CAMWOW US2 Realm 3 RP-PVP", "RP-PvP")]
+    [InlineData("CAMWOW US2 Realm 2 RP", "RP")]
+    [InlineData("CAMWOW US2 Realm 1 PvE", "PvE")]
+    [InlineData("Forever Hardcore", "HC")]
+    [InlineData("Forever HC", "HC")]
+    [InlineData("Carp Lake", "PvE")]                 // "rp" inside a word is not RP
+    [InlineData("Some Realm PvP2", "PvP")]           // but "pvp" counts anywhere, as the addon's find does
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    public void The_ruleset_is_read_from_the_realm_as_the_addon_reads_it(string? realm, string? expected) =>
+        Assert.Equal(expected, SheetExport.Ruleset(realm));
+
+    [Fact]
+    public void A_character_is_numbered_for_the_account_that_scans_it_whichever_copy_is_newest()
+    {
+        // Account 1 (ALPHA) holds a synced copy, as new as the scanning account's own (ZETA).
+        Store("ALPHA#1", Db(
+            Record("Player-1-01", ("name", "Mine"), ("lastUpdate", 100)),
+            Record("Player-1-09", ("name", "Friend"), ("lastUpdate", 100))));
+        Store("ZETA#1", Db(Record("Player-1-01", ("name", "Mine"), ("lastUpdate", 100), ("scannedHere", true))));
+
+        var chars = SheetExport.Load(_dir).Characters;
+
+        Assert.Equal(2.0, chars.Single(c => (string)c["name"]! == "Mine")["accountNumber"]);
+        Assert.False(chars.Single(c => (string)c["name"]! == "Friend").ContainsKey("accountNumber"));   // on neither account
+    }
+
+    [Fact]
+    public void Accounts_are_numbered_in_their_folders_order_never_named()
+    {
+        Store("ZETA#1", Db(Record("Player-1-01", ("name", "Late"), ("scannedHere", true))));
+        Store("ALPHA#1", Db(Record("Player-1-02", ("name", "Early"), ("scannedHere", true))));
+
+        var chars = SheetExport.Load(_dir).Characters;
+
+        Assert.Equal(1.0, chars.Single(c => (string)c["name"]! == "Early")["accountNumber"]);
+        Assert.Equal(2.0, chars.Single(c => (string)c["name"]! == "Late")["accountNumber"]);
+        Assert.DoesNotContain(SheetExport.Build(chars, 0).SelectMany(t => t.Rows).SelectMany(r => r),
+            c => (c.Value as string ?? c.Note ?? "").Contains('#'));
+    }
+
+    [Fact]
+    public void An_empty_tab_still_has_room_for_its_last_update_line()
+    {
+        foreach (var t in SheetExport.Build([], 1795044105L))
+        {
+            Assert.Single(t.Rows);
+            Assert.True(t.ColumnWidths!.Sum(w => w!.Value) >= SheetExport.TextWidth(t.Rows, 0), t.Title);
+        }
+    }
+
     [Fact]
     public void A_skill_at_its_cap_is_highlighted_one_below_is_not_and_zero_is_empty()
     {
-        var table = SheetExport.BuildSkills([Char(("name", "K"), ("level", 30),
+        var table = SheetExport.BuildSkills([Char(("name", "K"), ("class", "MAGE"), ("level", 30),
             ("prof_Enchanting", 150), ("profmax_Enchanting", 150),
             ("prof_Tailoring", 149), ("profmax_Tailoring", 150),
             ("fishing", 0), ("fishingMax", 75))]);
 
-        var header = table.Rows[0].Select(c => c.Value).ToList();
-        SheetCell Cell(string label) => table.Rows[1][header.IndexOf(label)];
-        Assert.Equal(150.0, Cell("Enchanting").Value);
-        Assert.NotNull(Cell("Enchanting").Fill);
-        Assert.Null(Cell("Tailoring").Fill);
-        Assert.Equal("149 / 150", Cell("Tailoring").Note);
-        Assert.Null(Cell("Fishing").Value);
-        Assert.True(table.Rows[0][header.IndexOf("Alchemy")].Vertical);
-        Assert.False(table.Rows[0][0].Vertical);
+        var k = RowOf(table, "K");
+        Assert.Equal(150.0, k[Col(table, "Enchanting")].Value);
+        Assert.Equal("FFF200", k[Col(table, "Enchanting")].Fill);
+        Assert.Equal("3FC7EB", k[Col(table, "Tailoring")].Fill);        // the row's class colour
+        Assert.Equal("149 / 150", k[Col(table, "Tailoring")].Note);
+        Assert.Null(k[Col(table, "Fishing")].Value);
+        var header = table.Rows.First(r => r[0].Value as string == "Character");
+        Assert.EndsWith("trade_engraving.jpg", ImageOf(header[Col(table, "Enchanting")]));
     }
 
     [Fact]
-    public void An_item_shows_its_name_in_its_quality_colour_with_ilvl_and_enchant_as_its_note()
+    public void Reputations_are_the_factions_met_as_letters_in_their_standing_colour_a_pair_in_one_column()
     {
-        var table = SheetExport.BuildGear([Char(("name", "K"),
+        var table = SheetExport.BuildReputations([
+            Char(("name", "K"), ("class", "MAGE"), ("faction", "Horde"), ("rep_76", 8), ("rep_2778", 5), ("rep_529", 9)),
+            Char(("name", "L"), ("class", "MAGE"), ("faction", "Horde"), ("rep_76", 1)),
+            Char(("name", "A"), ("class", "MAGE"), ("faction", "Alliance"), ("rep_72", 7)),
+            Char(("name", "B"), ("class", "MAGE"), ("faction", "Alliance"), ("rep_76", 5))]);   // only the other side's
+
+        // Stormwind/Orgrimmar and High Order/Windshapers: one column each. A standing out of range is none.
+        Assert.Equal(Lead + 2, table.Columns);
+        var headers = table.Rows.Where(r => r[0].Value as string == "Character").ToList();
+        Assert.EndsWith("inv_misc_tournaments_tabard_orc.jpg", ImageOf(headers[0][Lead]));        // the Horde section's
+        Assert.EndsWith("inv_misc_tournaments_tabard_human.jpg", ImageOf(headers[1][Lead]));      // the Alliance section's
+        Assert.Equal("Stormwind / Orgrimmar", headers[0][Lead].Note);
+        Assert.Equal("Windsh", headers[0][Lead + 1].Value);
+        Assert.Equal("HiOrdr", headers[1][Lead + 1].Value);
+
+        var k = RowOf(table, "K")[Lead];
+        Assert.Equal("E", k.Value);
+        Assert.Equal("00FFFF", k.Fill);
+        Assert.Equal("Orgrimmar: Exalted", k.Note);
+        Assert.Equal("Ha", RowOf(table, "L")[Lead].Value);
+        Assert.Equal("Stormwind: Revered", RowOf(table, "A")[Lead].Note);
+        Assert.Equal("Orgrimmar: Friendly", RowOf(table, "B")[Lead].Note);
+        Assert.Equal("Windshapers: Friendly", RowOf(table, "K")[Lead + 1].Note);
+        Assert.Null(RowOf(table, "A")[Lead + 1].Value);
+    }
+
+    [Fact]
+    public void Every_reputation_is_in_exactly_one_column_in_the_addons_order()
+    {
+        var columns = SheetExport.RepColumns();
+
+        Assert.Equal(SheetExport.AllReputations.Select(r => r.Id).Order(), columns.SelectMany(c => c.All).Select(r => r.Id).Order());
+        Assert.Equal(SheetExport.AllReputations.Length - SheetExport.RepPairs.Length, columns.Count);
+        Assert.Equal((72, 76), (columns[0].Alliance!.Id, columns[0].Horde!.Id));
+    }
+
+    private const int Lead = 3;
+
+    [Fact]
+    public void Gear_is_each_slots_item_level_in_its_quality_colour_then_the_enchants()
+    {
+        var table = SheetExport.BuildGear([Char(("name", "K"), ("class", "MAGE"), ("ilvl", 27.24),
             ("gearname_chest", "Civinad Robes"), ("gearq_chest", 3), ("gear_chest", 31), ("gearid_chest", 9623),
             ("gearench_chest", "Stamina +2"),
             ("gearname_feet", ""), ("gearid_feet", 9454), ("gearq_feet", 2),
             ("gearname_head", ""), ("gearid_head", 0))]);
 
-        var header = table.Rows[0].Select(c => c.Value).ToList();
-        SheetCell Cell(string label) => table.Rows[1][header.IndexOf(label)];
-        Assert.Equal("Civinad Robes", Cell("Chest").Value);
-        Assert.Equal("0070DD", Cell("Chest").Color);
-        Assert.Equal("Item level 31\nEnchanted: Stamina +2", Cell("Chest").Note);
-        Assert.Equal("item 9454", Cell("Feet").Value);       // worn, its name not cached at scan time
-        Assert.Equal("1EFF00", Cell("Feet").Color);
-        Assert.Null(Cell("Head").Value);                     // nothing worn
-    }
-
-    [Fact]
-    public void Gold_is_copper_over_ten_thousand_and_the_name_takes_the_class_colour()
-    {
-        var table = SheetExport.BuildCharacters([Char(("name", "K"), ("class", "SHAMAN"), ("money", 102690))], 0);
-        var header = table.Rows[0].Select(c => c.Value).ToList();
-
-        Assert.Equal(10.269, (double)table.Rows[1][header.IndexOf("Gold")].Value!, 9);
-        Assert.Equal("0070DD", table.Rows[1][header.IndexOf("Name")].Fill);
-        Assert.Equal("Shaman", table.Rows[1][header.IndexOf("Class")].Value);
+        var k = RowOf(table, "K");
+        Assert.Equal(27.2, k[Col(table, "iLvl")].Value);
+        Assert.Equal(31.0, k[Col(table, "Chest")].Value);
+        Assert.Equal("0070DD", k[Col(table, "Chest")].Color);
+        Assert.Equal("Civinad Robes\nEnchanted: Stamina +2", k[Col(table, "Chest")].Note);
+        Assert.Equal("?", k[Col(table, "Feet")].Value);          // worn, its level not known
+        Assert.Equal("item 9454", k[Col(table, "Feet")].Note);   // its name not cached at scan time
+        Assert.Null(k[Col(table, "Head")].Value);                // nothing worn
+        // Each item links to its Wowhead Forever page: its tooltip, a click away.
+        Assert.Equal("https://www.wowhead.com/forever/item=9623", k[Col(table, "Chest")].Link);
+        Assert.Equal("https://www.wowhead.com/forever/item=9454", k[Col(table, "Feet")].Link);
+        Assert.Null(k[Col(table, "Head")].Link);
+        Assert.Equal("Stamina +2", k[Col(table, "Chest enchant")].Value);
+        // Only the slots someone has an enchant on.
+        Assert.Equal(Lead + 1 + SheetExport.GearSlots.Length + 1, table.Columns);
     }
 
     [Fact]
@@ -212,16 +391,34 @@ public sealed class SheetExportTests : IDisposable
     }
 
     [Fact]
-    public void The_write_clears_the_whole_tab_sizes_its_grid_and_freezes_the_header()
+    public void A_text_column_is_as_wide_as_its_longest_text()
     {
-        var table = new SheetTable("Skills", [[new SheetCell("Name"), new SheetCell("Level")], [new SheetCell("K", "FF7C0A"), new SheetCell(30.0)]]);
+        List<IReadOnlyList<SheetCell>> rows =
+        [
+            [new SheetCell("Windshaper Skyborne")], [new SheetCell("Orc")], [new SheetCell(1234567.0)],
+            [new SheetCell(1.0, NumberFormat: "yyyy-mm-dd hh:mm")],
+        ];
+
+        Assert.Equal((int)Math.Ceiling(19 * 7.5) + 16, SheetExport.TextWidth(rows, 0));
+        Assert.Equal((int)Math.Ceiling(16 * 7.5) + 16, SheetExport.TextWidth(rows.Skip(3), 0));
+        Assert.Equal((int)Math.Ceiling(9 * 7.5) + 16, SheetExport.TextWidth(rows.Skip(2).Take(1), 0));   // 1,234,567
+        Assert.Equal(32, SheetExport.TextWidth([[SheetCell.Empty]], 0));
+    }
+
+    [Fact]
+    public void The_write_clears_the_whole_tab_sizes_its_grid_to_it_and_freezes_its_rows_and_columns()
+    {
+        var table = new SheetTable("Skills", [[new SheetCell("Name"), new SheetCell("Level")], [new SheetCell("K", "FF7C0A"), new SheetCell(30.0, Center: true)]],
+            FrozenColumns: 1, FrozenRows: 1);
 
         var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Skills"] = 7 });
 
         var grid = requests[0]!["updateSheetProperties"]!["properties"]!["gridProperties"]!;
-        Assert.Equal(3, (int)grid["rowCount"]!);          // two rows, one spare: the header is never every row
+        Assert.Equal(2, (int)grid["rowCount"]!);          // no spare row under the dark
         Assert.Equal(2, (int)grid["columnCount"]!);
         Assert.Equal(1, (int)grid["frozenRowCount"]!);
+        Assert.Equal(1, (int)grid["frozenColumnCount"]!);
+        Assert.True((bool)grid["hideGridlines"]!);
         var cells = requests[1]!["updateCells"]!;
         // The range is the whole tab, nothing narrower: a cell the table no longer has is cleared.
         Assert.Equal(["sheetId"], cells["range"]!.AsObject().Select(p => p.Key));
@@ -230,7 +427,46 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal("K", (string)name["userEnteredValue"]!["stringValue"]!);
         Assert.Equal(1.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["red"]!);
         Assert.Equal(124 / 255.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["green"]!, 9);
-        Assert.Equal(30.0, (double)cells["rows"]![1]!["values"]![1]!["userEnteredValue"]!["numberValue"]!);
+        Assert.Equal("MIDDLE", (string)name["userEnteredFormat"]!["verticalAlignment"]!);
+        Assert.Null(name["userEnteredFormat"]!["horizontalAlignment"]);
+        var level = cells["rows"]![1]!["values"]![1]!;
+        Assert.Equal(30.0, (double)level["userEnteredValue"]!["numberValue"]!);
+        Assert.Equal("CENTER", (string)level["userEnteredFormat"]!["horizontalAlignment"]!);
+        Assert.Null(level["userEnteredFormat"]!["textFormat"]);
+
+        var linked = GoogleSheets.BuildWriteRequests([new SheetTable("Gear", [[new SheetCell(31.0, Link: "https://x/item=1")]])],
+            new Dictionary<string, long> { ["Gear"] = 7 })[1]!["updateCells"]!["rows"]![0]!["values"]![0]!;
+        Assert.Equal(31.0, (double)linked["userEnteredValue"]!["numberValue"]!);       // still a number
+        Assert.Equal("https://x/item=1", (string)linked["userEnteredFormat"]!["textFormat"]!["link"]!["uri"]!);
+    }
+
+    [Fact]
+    public void One_row_is_frozen_never_all_of_them()
+    {
+        var requests = GoogleSheets.BuildWriteRequests([new SheetTable("Skills", [[new SheetCell("Last update")]], FrozenRows: 1)],
+            new Dictionary<string, long> { ["Skills"] = 7 });
+
+        Assert.Equal(0, (int)requests[0]!["updateSheetProperties"]!["properties"]!["gridProperties"]!["frozenRowCount"]!);
+    }
+
+    [Fact]
+    public void Rows_get_their_heights_and_columns_their_widths_in_runs()
+    {
+        var table = new SheetTable("Characters",
+            [[new SheetCell("a"), new SheetCell("b"), new SheetCell("c")], [SheetCell.Empty], [new SheetCell(new SheetImage("https://x/a.jpg"))], [SheetCell.Empty]],
+            RowHeights: [null, 36, 42, 42], ColumnWidths: [null, 42, 42]);
+
+        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Characters"] = 3 });
+
+        var image = requests[1]!["updateCells"]!["rows"]![2]!["values"]![0]!;
+        Assert.Equal("=IMAGE(\"https://x/a.jpg\")", (string)image["userEnteredValue"]!["formulaValue"]!);
+        var sizes = requests.Select(r => r!["updateDimensionProperties"]).OfType<JsonNode>()
+            .Select(d => ((string)d["range"]!["dimension"]!, (int)d["range"]!["startIndex"]!, (int)d["range"]!["endIndex"]!, (int)d["properties"]!["pixelSize"]!))
+            .ToList();
+        // The default where the table says none: a row that was tall is not left tall.
+        Assert.Equal([("ROWS", 0, 1, GoogleSheets.DefaultRowHeight), ("ROWS", 1, 2, 36), ("ROWS", 2, 4, 42), ("COLUMNS", 1, 3, 42)], sizes);
+        var fit = requests.Select(r => r!["autoResizeDimensions"]).OfType<JsonNode>().Single();
+        Assert.Equal((0, 1), ((int)fit["dimensions"]!["startIndex"]!, (int)fit["dimensions"]!["endIndex"]!));
     }
 
     [Fact]
@@ -261,7 +497,7 @@ public sealed class SheetExportTests : IDisposable
             var path = Store("S" + file + fields.Length, Db(Record("Player-1-01",
                 [("name", "Low"), ("level", 5), ("race", race), ("faction", faction), .. fields])));
             var table = SheetExport.BuildCharacters(SheetExport.Load([path]).Characters, 0, new AvatarSource(false, new HashSet<string>()));
-            Assert.Equal(expected, Assert.IsType<SheetImage>(table.Rows[1][0].Value).Url);
+            Assert.Equal(expected, ImageOf(RowOf(table, "Low")[1]));
         }
     }
 
@@ -284,66 +520,20 @@ public sealed class SheetExportTests : IDisposable
         // A render under level 10 is not one the armory makes: a leftover is not trusted.
         var drawn = new HashSet<string> { "Player-1-0000000A", "Player-1-00000009" };
 
-        var table = SheetExport.BuildCharacters(chars, 0, new AvatarSource(true, drawn));
-        string? Image(string name) => table.Rows.Single(r => r.Any(c => c.Value as string == name))[0].Value is SheetImage i ? i.Url : null;
-
-        // The record's key is the character's identity, and SD is the model asked for.
-        Assert.Equal(Armory.AvatarUrl("Player-1-0000000A", sd: true), Image("Drawn"));
-        Assert.Equal(Armory.PlaceholderUrl("Orc", null, female: false), Image("Undrawn"));
-        Assert.Equal(Armory.PlaceholderUrl("Troll", null, female: true), Image("Nine"));
-        Assert.Equal("Name", table.Rows[0][1].Value);
-        Assert.Equal(2, table.FrozenColumns);
-        Assert.Equal(SheetExport.AvatarSize, table.ImageSize);
+        foreach (var table in SheetExport.Build(chars, 0, new AvatarSource(true, drawn)))
+        {
+            // The record's key is the character's identity, and SD is the model asked for.
+            Assert.Equal(Armory.AvatarUrl("Player-1-0000000A", sd: true), ImageOf(RowOf(table, "Drawn")[1]));
+            Assert.Equal(Armory.PlaceholderUrl("Orc", null, female: false), ImageOf(RowOf(table, "Undrawn")[1]));
+            Assert.Equal(Armory.PlaceholderUrl("Troll", null, female: true), ImageOf(RowOf(table, "Nine")[1]));
+        }
 
         // Without pictures the column is still there, empty: a formula's address keeps its field.
-        var plain = SheetExport.BuildCharacters(chars, 0);
-        Assert.Equal("Name", plain.Rows[0][1].Value);
-        Assert.All(plain.Rows.Skip(1), r => Assert.Null(r[0].Value));
-        Assert.Equal(2, plain.FrozenColumns);
-        Assert.Null(plain.ImageSize);
-        Assert.DoesNotContain(plain.Rows.SelectMany(r => r), c => c.Value is SheetImage);
-    }
-
-    [Fact]
-    public void A_picture_column_is_an_image_formula_its_size_and_the_rows_its_height()
-    {
-        var table = new SheetTable("Characters",
-            [[SheetCell.Empty, new SheetCell("Name")], [new SheetCell(new SheetImage("https://x/a.jpg")), new SheetCell("K")]],
-            FrozenColumns: 2, ImageSize: 42);
-
-        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Characters"] = 3 });
-
-        var image = requests[1]!["updateCells"]!["rows"]![1]!["values"]![0]!;
-        Assert.Equal("=IMAGE(\"https://x/a.jpg\")", (string)image["userEnteredValue"]!["formulaValue"]!);
-        var sizes = requests.Select(r => r!["updateDimensionProperties"]).OfType<JsonNode>().ToList();
-        Assert.Contains(sizes, d => (string)d["range"]!["dimension"]! == "ROWS" && (int)d["range"]!["startIndex"]! == 1
-            && (int)d["range"]!["endIndex"]! == 2 && (int)d["properties"]!["pixelSize"]! == 42);
-        Assert.Contains(sizes, d => (string)d["range"]!["dimension"]! == "COLUMNS" && (int)d["range"]!["startIndex"]! == 0
-            && (int)d["range"]!["endIndex"]! == 1 && (int)d["properties"]!["pixelSize"]! == 42);
-        // After the cells, which write the whole format: the text in the middle of the tall rows.
-        var middle = requests.Select((r, i) => (r!["repeatCell"], i)).Single(x => x.Item1 is not null);
-        Assert.True(middle.i > 1);
-        Assert.Equal("MIDDLE", (string)middle.Item1!["cell"]!["userEnteredFormat"]!["verticalAlignment"]!);
-        Assert.Equal(1, (int)middle.Item1["range"]!["startRowIndex"]!);
-        Assert.Equal(2, (int)middle.Item1["range"]!["endRowIndex"]!);
-        // The fit leaves the pictures' column alone: it would shrink it to nothing.
-        var fit = requests.Select(r => r!["autoResizeDimensions"]).OfType<JsonNode>().Single();
-        Assert.Equal(1, (int)fit["dimensions"]!["startIndex"]!);
-    }
-
-    [Fact]
-    public void A_tab_of_text_gets_its_rows_back_to_the_default_height()
-    {
-        // Pictures turned off after an export with them: the rows were 42 px.
-        var table = new SheetTable("Characters", [[new SheetCell("Name")], [new SheetCell("K")], [new SheetCell("L")]]);
-
-        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Characters"] = 3 });
-
-        var size = requests.Select(r => r!["updateDimensionProperties"]).OfType<JsonNode>().Single();
-        Assert.Equal("ROWS", (string)size["range"]!["dimension"]!);
-        Assert.Equal(3, (int)size["range"]!["endIndex"]!);
-        Assert.Equal(GoogleSheets.DefaultRowHeight, (int)size["properties"]!["pixelSize"]!);
-        Assert.Equal(0, (int)requests.Select(r => r!["autoResizeDimensions"]).OfType<JsonNode>().Single()["dimensions"]!["startIndex"]!);
+        foreach (var plain in SheetExport.Build(chars, 0))
+        {
+            Assert.All(chars, c => Assert.Null(RowOf(plain, (string)c["name"]!)[1].Value));
+            Assert.DoesNotContain(plain.Rows.SelectMany(r => r), c => ImageOf(c) is { } url && url.Contains("/forever-us/", StringComparison.Ordinal));
+        }
     }
 
     private static SheetTable Table(string title) => new(title, [[new SheetCell("Name")]]);
