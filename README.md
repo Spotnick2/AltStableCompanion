@@ -16,7 +16,7 @@ the cutouts the addon's Roster scene draws your characters with.
 | **AltStable Companion** (this app) | Turns your `/alts portrait` captures into Roster portraits | Only for portraits in the Roster |
 | **Portraits from the armory** (a setting in this app) | Takes each character's picture from Blizzard's armory website, with no capture | No: the app asks you once |
 | **Enhanced portraits** (a setting in this app) | Asks the Codex CLI on your PC for a nicer picture of each portrait | No: off by default, and it uses your ChatGPT account's usage |
-| **Google Sheet** (a setting in this app) | Writes your characters, their gear and their skills into a spreadsheet in your Google Drive | No: off until you connect |
+| **Google Sheet** (a setting in this app) | Writes your characters, their skills, reputations and gear into a spreadsheet in your Google Drive | No: off until you connect |
 
 ## Install
 
@@ -173,6 +173,10 @@ reads it and never cleans it.
 Your alts as a spreadsheet in your own Google Drive, in place of one kept by hand. Off until
 you connect, in Settings → **Google Sheet**.
 
+![The Characters tab of the AltStable spreadsheet, dark: portraits, class-coloured names, levels, coin, hearthstones and each faction's totals](docs/images/sheet.png)
+
+*The Characters tab. Names and guilds are blurred here; yours show in full.*
+
 - **Connect…** opens Google's sign-in page in your browser. The app asks for one permission:
   the spreadsheets it creates itself (Google's `drive.file`). It cannot see anything else in
   your Drive. If nothing comes back, **Cancel** stops waiting; after 5 minutes it gives up.
@@ -246,7 +250,7 @@ You can also quit the app and run a newer file from the releases page. Starting 
 copy only brings the running one's window forward.
 
 The running file keeps its name: if you kept the release's name
-(`AltStableCompanion-1.2.4-win-x64.exe`), it carries an older version in its name than
+(`AltStableCompanion-1.2.5-win-x64.exe`), it carries an older version in its name than
 the one it is. **Help → About** is the authority on what is running.
 
 ## What it touches
@@ -254,7 +258,8 @@ the one it is. **Help → About** is the authority on what is running.
 No network access, except the four things you ask for: portraits from the armory,
 enhanced portraits and the Google Sheet, which you switch on, and the update check.
 
-It touches only:
+It touches only (the [privacy policy](PRIVACY.md) has what it sends where, and what it does
+with your Google data):
 - the screenshots it matched to a capture, and, when you clean up the character list and
   say yes, those of the characters you clean up;
 - the `AltStableCutouts` addon folder;
