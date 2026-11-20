@@ -217,7 +217,7 @@ public sealed class SheetsAutoTests
         // running, and the timer has seen it, before the delay is lowered, so the timer itself
         // never finds it due in between.
         w.Running = true;
-        World.Ticks();
+        SheetsControllerTests.Until(() => w.C.GameSeenForTest is not null, "the timer seeing the game");
         w.C.SetSheetAuto(true, 5);
         w.Running = false;
         w.C.StartAutoForTest(T0.ToUniversalTime());

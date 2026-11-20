@@ -65,6 +65,12 @@ public sealed partial class Controller
         if (Current.Shell.Install is { } install) StartExport(new AutoClaim(install, newestUtc, quietSinceUtc ?? newestUtc));
     }
 
+    /// <summary>When a tick last saw the game running (UTC), or null: tests.</summary>
+    internal DateTime? GameSeenForTest
+    {
+        get { lock (_gate) return _gameSeenAt; }
+    }
+
     // Under _gate: the tick's findings still hold - the same install, the setting on, not paused,
     // not held after a failure, the save it saw still newer than the last export, the game not
     // seen since, and the quiet long enough by the delay as it is NOW: raised while the tick
