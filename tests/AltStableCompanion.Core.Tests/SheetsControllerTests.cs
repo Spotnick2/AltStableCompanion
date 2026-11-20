@@ -128,7 +128,9 @@ public sealed class SheetsControllerTests
             var formulas = google.Batches.Single().ToJsonString();
             Assert.Contains(Armory.AvatarUrl(Karuzo, sd: false)!, formulas);
             Assert.Contains(Armory.PlaceholderUrl("Skyborne", "Alliance", female: false)!, formulas);
-            Assert.Equal(8, System.Text.RegularExpressions.Regex.Matches(formulas, "/forever-us/").Count);    // two pictures on each of the four tabs
+            // On each of the four tabs: Karuzo's picture and its link to the full one, Lowbie's silhouette.
+            Assert.Equal(8, System.Text.RegularExpressions.Regex.Matches(formulas, "/forever-us/character/").Count);
+            Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(formulas, "/forever-us/shadow/").Count);
 
             // Export now: the same spreadsheet, rewritten.
             c.ExportSheet();
@@ -161,7 +163,7 @@ public sealed class SheetsControllerTests
         var note = Exported(c);
 
         Assert.DoesNotContain("/forever-us/", google.Batches.Single().ToJsonString());
-        Assert.Contains("classicon_mage", google.Batches.Single().ToJsonString());      // the icons are there
+        Assert.Contains(SheetExport.IconBase, google.Batches.Single().ToJsonString());   // the masthead's icons are there
         Assert.EndsWith(SheetText.AllowAccess, note);                                  // and need Allow access
     }
 

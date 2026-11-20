@@ -306,6 +306,13 @@
                              Margin="8,0" IsEnabled="{Binding SheetsAuto}" />
               <TextBlock Grid.Column="2" Text="minutes after the game closes" VerticalAlignment="Center" TextWrapping="Wrap" />
             </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="14" IsVisible="{Binding SheetsAvailable}">
+              <TextBlock Text="Look" VerticalAlignment="Center" />
+              <RadioButton GroupName="sheettheme" Content="Dark" IsChecked="{Binding SheetsDark}"
+                           ToolTip.Tip="The next export's colours: charcoal and gold, like the game" />
+              <RadioButton GroupName="sheettheme" Content="Light" IsChecked="{Binding SheetsLight}"
+                           ToolTip.Tip="The next export's colours: on white, for printing or a light screen" />
+            </StackPanel>
             <TextBlock Text="{Binding SheetsStatus}" TextWrapping="Wrap" IsVisible="{Binding SheetsFine}" />
             <TextBlock Classes="warn" Text="{Binding SheetsStatus}" TextWrapping="Wrap" IsVisible="{Binding SheetsProblem}" />
             <TextBlock Classes="dim" Text="{Binding SheetsExplanation}" TextWrapping="Wrap" />

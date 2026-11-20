@@ -178,22 +178,26 @@ you connect, in Settings → **Google Sheet**.
   your Drive. If nothing comes back, **Cancel** stops waiting; after 5 minutes it gives up.
   Once connected, it exports at once.
 - **Export now** writes every character AltStable has, except those you hid, into a
-  spreadsheet named **AltStable**. It is dark, like the game: each tab has a "Last update"
-  line, then a section per faction (its crest, its own header row, then its characters, each
-  row in its class colour), and every tab starts with the name, the armory picture and the
-  class icon. Four tabs:
-  - **Characters**: level, item level, rested XP, which account plays it (1, 2, ... in the
-    order of the `WTF\Account` folders, whose names stay on your PC; blank for a friend's), gold in gold, silver and copper
-    (each faction's total on its banner), where the hearthstone is set, guild, when it was
-    last played, race, and the realm's ruleset (its name when you hover it);
-  - **Skills**: professions, cooking, fishing, first aid and riding, under their icons; a
-    skill at its current cap is yellow;
-  - **Reputations**: the factions any of your characters has met, under their tabard (or a
-    short name), as letters in the standing's colour: E Exalted, R Revered, H Honored,
-    F Friendly, N Neutral, U Unfriendly, Ho Hostile, Ha Hated;
-  - **Gear**: each slot's item level in its quality colour (the item and its enchant when you
-    hover it, and the item's Wowhead page when you click it), then the enchants, for the slots
-    any character has one on.
+  spreadsheet named **AltStable**, dark like AltStable (or light, your choice under Google
+  Sheet). Each tab is one table you can filter and sort: on top, the section's icon from
+  AltStable's sidebar, the view's name, when it was exported and a few figures; then short
+  group labels, the column names with their filter buttons, and a row per character, Horde
+  first, then Alliance, a fine line between them. Every tab starts with the same five
+  columns: Portrait, Character (in its class colour), Account (1, 2, ... in the order of the
+  `WTF\Account` folders, whose names stay on your PC; blank for a friend's), Class and
+  Faction. Four tabs:
+  - **Characters**: level, item level, rested XP, the coin purse (one sortable column,
+    1g 02s 69c), when it was last played, where the hearthstone is set, guild, race, and the
+    realm's ruleset (its name when you hover it); below the table, each faction's count,
+    levels and coin, and everyone's;
+  - **Skills**: the professions, then cooking, fishing, first aid and riding, each as
+    current / trained cap (79 / 150); a skill at its cap is gold;
+  - **Reputations**: the factions any of your characters has met, in words (Friendly,
+    Honored...). A faction of one side and its counterpart share a column, the Horde name
+    above the Alliance one, each character showing its own side's;
+  - **Gear**: each slot's item level in its quality colour (the item, its enchant and its
+    quality when you hover it, and the item's Wowhead page when you click it), then the
+    enchants, for the slots any character has one on.
 
   The app rewrites its own four tabs whole each time. Tabs you add are never touched, so
   your own formulas can point at its tabs. Renaming its tabs, or the spreadsheet, is fine. If
@@ -202,13 +206,13 @@ you connect, in Settings → **Google Sheet**.
   it. If that one is gone or in the trash, the next export makes a new one, and says so.
 - **Nothing is written unless every account was read.** If the game is writing an account's
   file at that moment, the export stops and says which account; try again a moment later.
-- **Pictures and icons.** The class, profession, coin and faction icons come from Blizzard's
-  icon server. With [portraits from the armory](#portraits-from-the-armory-optional) on, each
-  character's small armory picture shows too, or the armory's silhouette of its race until
-  the armory has drawn it (under level 10, or not played since it could); with it off, that
-  column stays empty. The spreadsheet asks Blizzard's servers for them, not the app, and
-  Google shows them only once you open the spreadsheet and choose **Allow access**, which it
-  asks for once.
+- **Pictures.** The section icons come from this project's page on GitHub. With
+  [portraits from the armory](#portraits-from-the-armory-optional) on, each character's small
+  armory picture shows in the Portrait column (a click opens the full one), or the armory's
+  silhouette of its race until the armory has drawn it (under level 10, or not played since
+  it could); with it off, that column stays empty. The spreadsheet asks GitHub and
+  Blizzard's servers for them, not the app, and Google shows them only once you open the
+  spreadsheet and choose **Allow access**, which it asks for once.
 - **Export on its own**, ticked once you connect: 15 minutes (5 to 120, your choice) after the
   game has closed and stayed closed, when AltStable has saved something new, the app exports
   by itself. Opening the game again starts the wait over, so swapping between accounts does

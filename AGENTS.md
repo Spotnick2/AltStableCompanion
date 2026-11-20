@@ -108,8 +108,9 @@ changes says `-dirty` in its version.
   the spreadsheet the app created and `www.googleapis.com` (Drive) to find it again and see
   whether it is in the trash - scope `drive.file` only - only on Connect, Export now or
   Disconnect, and on its own N minutes (15 by default) after the game has closed and stayed
-  closed with a new save, unless the player unticks it; the refresh token kept with DPAPI and never logged; the avatars are `=IMAGE()`
-  cells that Google fetches, not the app)
+  closed with a new save, unless the player unticks it; the refresh token kept with DPAPI and never logged; the avatars and the
+  masthead's section icons - pinned to a commit of `docs/sheet-icons` - are `=IMAGE()` cells
+  that Google fetches, not the app)
   and enhanced portraits (below). The app touches only screenshots it matched to a capture, the `AltStableCutouts`
   folder and `%APPDATA%\AltStableCompanion` - and, when the player presses Save diagnostics,
   one text file in the Downloads folder (not the Desktop, which OneDrive syncs by default). The published single-file exe also unpacks its

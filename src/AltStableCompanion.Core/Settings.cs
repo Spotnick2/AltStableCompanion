@@ -169,6 +169,13 @@ public sealed record Settings
     /// <summary>The newest save (an account's AltStable.lua, UTC) the last export read.</summary>
     public DateTime? SheetExportedThrough { get; init; }
 
+    /// <summary>The sheet's colours: <see cref="SheetPalette.DarkName"/> or <see cref="SheetPalette.LightName"/>; anything else is dark.</summary>
+    public string SheetTheme
+    {
+        get;
+        init => field = value == SheetPalette.LightName ? SheetPalette.LightName : SheetPalette.DarkName;
+    } = SheetPalette.DarkName;
+
     /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
@@ -225,6 +232,7 @@ public sealed record Settings
         && SheetAutoExport == other.SheetAutoExport
         && SheetAutoMinutes == other.SheetAutoMinutes
         && SheetExportedThrough == other.SheetExportedThrough
+        && SheetTheme == other.SheetTheme
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>

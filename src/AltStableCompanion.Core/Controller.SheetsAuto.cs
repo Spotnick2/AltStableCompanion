@@ -142,6 +142,18 @@ public sealed partial class Controller
         Save(s => s with { SheetAutoExport = on, SheetAutoMinutes = minutes });
     }
 
+    /// <summary>"Dark" or "Light": the next export's colours.</summary>
+    public void SetSheetTheme(string theme)
+    {
+        theme = theme == SheetPalette.LightName ? SheetPalette.LightName : SheetPalette.DarkName;
+        lock (_gate)
+        {
+            if (_current.Sheets.Theme == theme) return;
+            _current = _current with { Sheets = _current.Sheets with { Theme = theme } };
+        }
+        Save(s => s with { SheetTheme = theme });
+    }
+
     // The saves an export read, kept - while its session is the current one: the next
     // automatic export waits for a newer one.
     private void SaveExported(DateTime? through, int session)
