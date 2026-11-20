@@ -53,24 +53,29 @@ public sealed partial class Controller
     private DateTime _autoRetryAfter;       // under _gate, UTC: a failed automatic export waits until then
     private int _ticking;
 
-    // What a tick saw when it found an export due: the install it looked at and its newest save.
-    private sealed record AutoClaim(WowInstall Install, DateTime Newest);
+    // What a tick saw when it found an export due: the install it looked at, its newest save, and
+    // when the quiet began (the later of that save and the last time the game was seen).
+    private sealed record AutoClaim(WowInstall Install, DateTime Newest, DateTime QuietSince);
 
     private DateTime UtcNow() => _clock().ToUniversalTime();
 
     /// <summary>A tick's findings handed straight to the start, as if the player acted in between: tests.</summary>
-    internal void StartAutoForTest(DateTime newestUtc)
+    internal void StartAutoForTest(DateTime newestUtc, DateTime? quietSinceUtc = null)
     {
-        if (Current.Shell.Install is { } install) StartExport(new AutoClaim(install, newestUtc));
+        if (Current.Shell.Install is { } install) StartExport(new AutoClaim(install, newestUtc, quietSinceUtc ?? newestUtc));
     }
 
     // Under _gate: the tick's findings still hold - the same install, the setting on, not paused,
-    // not held after a failure, and the save it saw still newer than the last export.
+    // not held after a failure, the save it saw still newer than the last export, the game not
+    // seen since, and the quiet long enough by the delay as it is NOW: raised while the tick
+    // looked, the longer wait is the one that counts (Codex on #87).
     private bool StillDue(AutoClaim claim) =>
         _settings.SheetAutoExport && !_current.Shell.Paused && UtcNow() >= _autoRetryAfter
         && _current.Shell.Install is { } now
         && string.Equals(now.FlavorDir, claim.Install.FlavorDir, StringComparison.OrdinalIgnoreCase)
-        && (_settings.SheetExportedThrough is not { } done || claim.Newest > done);
+        && (_settings.SheetExportedThrough is not { } done || claim.Newest > done)
+        && (_gameSeenAt is not { } seen || seen <= claim.QuietSince)
+        && UtcNow() - claim.QuietSince >= TimeSpan.FromMinutes(_settings.SheetAutoMinutes);
 
     private void StartSheetsTimer(SheetHooks hooks) =>
         _sheetsTimer = new Timer(_ => SheetTick(), null, hooks.Tick, hooks.Tick);
@@ -113,7 +118,7 @@ public sealed partial class Controller
         var quietSince = seen is { } s && s > newest ? s : newest;
         if (now - quietSince < TimeSpan.FromMinutes(minutes)) return;
         _log?.Write($"google: exporting on its own, {minutes} minutes after the game closed");
-        StartExport(new AutoClaim(install, newest));
+        StartExport(new AutoClaim(install, newest, quietSince));
     }
 
     /// <summary>When an account's <c>AltStable.lua</c> was last written, UTC, or null for none.</summary>
