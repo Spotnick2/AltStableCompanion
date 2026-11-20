@@ -254,7 +254,8 @@ the one it is. **Help → About** is the authority on what is running.
 No network access, except the four things you ask for: portraits from the armory,
 enhanced portraits and the Google Sheet, which you switch on, and the update check.
 
-It touches only:
+It touches only (the [privacy policy](PRIVACY.md) has what it sends where, and what it does
+with your Google data):
 - the screenshots it matched to a capture, and, when you clean up the character list and
   say yes, those of the characters you clean up;
 - the `AltStableCutouts` addon folder;
