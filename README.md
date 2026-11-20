@@ -173,6 +173,10 @@ reads it and never cleans it.
 Your alts as a spreadsheet in your own Google Drive, in place of one kept by hand. Off until
 you connect, in Settings → **Google Sheet**.
 
+![The Characters tab of the AltStable spreadsheet, dark: portraits, class-coloured names, levels, coin, hearthstones and each faction's totals](docs/images/sheet.png)
+
+*The Characters tab. Names and guilds are blurred here; yours show in full.*
+
 - **Connect…** opens Google's sign-in page in your browser. The app asks for one permission:
   the spreadsheets it creates itself (Google's `drive.file`). It cannot see anything else in
   your Drive. If nothing comes back, **Cancel** stops waiting; after 5 minutes it gives up.
