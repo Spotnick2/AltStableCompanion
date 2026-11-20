@@ -39,7 +39,8 @@ public sealed partial class Controller
                 _current.Sheets.Google switch
                 {
                     GoogleState.Unavailable => "not in this build",
-                    GoogleState.Connected => "connected" + (_settings.GoogleSheetId is null ? "" : ", a spreadsheet saved"),
+                    GoogleState.Connected => "connected" + (_settings.GoogleSheetId is null ? "" : ", a spreadsheet saved")
+                        + (_settings.SheetAutoExport ? $", exports {_settings.SheetAutoMinutes} minutes after the game closes" : ", exports when asked"),
                     GoogleState.Connecting => "connecting",
                     _ => "not connected",
                 });

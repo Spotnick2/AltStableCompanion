@@ -151,6 +151,25 @@ public sealed record Settings
     public string? GoogleSheetUrl { get; init; }
 
     /// <summary>
+    /// The automatic export (#82, M2): on unless the player turns it off - connecting is their
+    /// yes to the sheet - this many minutes after the game has closed and stayed closed.
+    /// </summary>
+    public bool SheetAutoExport { get; init; } = true;
+
+    public const int DefaultSheetAutoMinutes = 15;
+    public const int MinSheetAutoMinutes = 5;
+    public const int MaxSheetAutoMinutes = 120;
+
+    public int SheetAutoMinutes
+    {
+        get;
+        init => field = Math.Clamp(value, MinSheetAutoMinutes, MaxSheetAutoMinutes);
+    } = DefaultSheetAutoMinutes;
+
+    /// <summary>The newest save (an account's AltStable.lua, this PC's time) the last export read.</summary>
+    public DateTime? SheetExportedThrough { get; init; }
+
+    /// <summary>
     /// Flavour folders that owe the player the "restart the game once" notice. A folder is
     /// added BEFORE the pass that may create its AltStableCutouts addon and removed when the
     /// notice is dismissed, so the notice survives the app being closed - or killed - in
@@ -203,6 +222,9 @@ public sealed record Settings
         && HideGoneCharacters == other.HideGoneCharacters
         && GoogleSheetId == other.GoogleSheetId
         && GoogleSheetUrl == other.GoogleSheetUrl
+        && SheetAutoExport == other.SheetAutoExport
+        && SheetAutoMinutes == other.SheetAutoMinutes
+        && SheetExportedThrough == other.SheetExportedThrough
         && RestartNoticeInstalls.SequenceEqual(other.RestartNoticeInstalls);
 
     public override int GetHashCode() =>

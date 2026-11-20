@@ -1,0 +1,143 @@
+using System.Diagnostics;
+
+namespace AltStableCompanion.Core;
+
+/// <summary>
+/// Whether the game of an install is running: a <c>Wow*.exe</c> process (how a flavour folder is
+/// recognised, <see cref="WowInstall"/>) whose executable is in its folder - either account's
+/// client. One whose path cannot be read counts as running: an export never starts in the
+/// middle of a session because a process could not be asked where it lives.
+/// </summary>
+public static class WowProcess
+{
+    public static bool Running(WowInstall install)
+    {
+        foreach (var p in Process.GetProcesses())
+        {
+            using (p)
+            {
+                if (!p.ProcessName.StartsWith("Wow", StringComparison.OrdinalIgnoreCase)) continue;
+                string? exe;
+                try { exe = p.MainModule?.FileName; }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+                {
+                    return true;
+                }
+                if (exe is null) return true;
+                if (string.Equals(Path.GetDirectoryName(exe), Path.GetFullPath(install.FlavorDir).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
+    }
+}
+
+/// <summary>
+/// The automatic export (#82, M2): <see cref="Settings.SheetAutoMinutes"/> after the game has
+/// closed and stayed closed - the owner swaps between two accounts' clients, so a write of the
+/// saved file is not the end of a session (2026-11-19) - when an account's
+/// <c>AltStable.lua</c> was written since the last export. Each tick:
+/// <list type="bullet">
+/// <item>the game running: noted, nothing else;</item>
+/// <item>closed: once the newest save, and the last time the game was seen, are both that long
+///   ago - the game writes the file as it closes, so a start of the app after a session counts
+///   too - one export, as Export now would. A failed one waits that long again.</item>
+/// </list>
+/// Not while paused, disconnected, or with the setting off.
+/// </summary>
+public sealed partial class Controller
+{
+    private Timer? _sheetsTimer;
+    private DateTime? _gameSeenAt;          // under _gate: the last tick that saw the game running
+    private DateTime _autoRetryAfter;       // under _gate: a failed automatic export waits until then
+    private int _ticking;
+
+    private void StartSheetsTimer(SheetHooks hooks) =>
+        _sheetsTimer = new Timer(_ => SheetTick(), null, hooks.Tick, hooks.Tick);
+
+    private void StopSheetsTimer() => _sheetsTimer?.Dispose();
+
+    // On a timer thread: nothing leaves it, and one tick at a time.
+    private void SheetTick()
+    {
+        if (Interlocked.Exchange(ref _ticking, 1) == 1) return;
+        try { TickOnce(); }
+        catch (Exception ex) { _log?.Write($"google: the automatic export's check failed: {ex.GetType().Name}: {ex.Message}"); }
+        finally { Interlocked.Exchange(ref _ticking, 0); }
+    }
+
+    private void TickOnce()
+    {
+        if (sheets is not { } hooks) return;
+        WowInstall install;
+        int minutes;
+        DateTime? through;
+        lock (_gate)
+        {
+            if (_stopping || _current.Shell.Install is not { } i) return;
+            (install, minutes, through) = (i, _settings.SheetAutoMinutes, _settings.SheetExportedThrough);
+        }
+        var now = _clock();
+        bool running;
+        try { running = hooks.GameRunning(install); }
+        catch (Exception) { running = true; }
+        DateTime? seen;
+        lock (_gate)
+        {
+            if (running) _gameSeenAt = now;
+            if (running || !_settings.SheetAutoExport || _current.Shell.Paused
+                || _current.Sheets is not { Google: GoogleState.Connected, Exporting: false } || now < _autoRetryAfter) return;
+            seen = _gameSeenAt;
+        }
+        if (NewestSave(install) is not { } newest || (through is { } done && newest <= done)) return;
+        var quietSince = seen is { } s && s > newest ? s : newest;
+        if (now - quietSince < TimeSpan.FromMinutes(minutes)) return;
+        _log?.Write($"google: exporting on its own, {minutes} minutes after the game closed");
+        StartExport(auto: true);
+    }
+
+    /// <summary>When an account's <c>AltStable.lua</c> was last written, or null for none.</summary>
+    internal static DateTime? NewestSave(WowInstall install)
+    {
+        DateTime? newest = null;
+        foreach (var path in Leftovers.AccountFiles(install.AccountsDir))
+        {
+            if (!File.Exists(path)) continue;
+            var at = File.GetLastWriteTime(path);
+            if (newest is not { } n || at > n) newest = at;
+        }
+        return newest;
+    }
+
+    /// <summary>"Export on its own, N minutes after the game closes": the box and the number.</summary>
+    public void SetSheetAuto(bool on, int minutes)
+    {
+        minutes = Math.Clamp(minutes, Settings.MinSheetAutoMinutes, Settings.MaxSheetAutoMinutes);
+        lock (_gate)
+        {
+            _current = _current with { Sheets = _current.Sheets with { Auto = on, AutoMinutes = minutes } };
+            // A setting changed: a held failure does not hold the next try.
+            _autoRetryAfter = default;
+        }
+        Save(s => s with { SheetAutoExport = on, SheetAutoMinutes = minutes });
+    }
+
+    // The saves an export read, kept - while its session is the current one: the next
+    // automatic export waits for a newer one.
+    private void SaveExported(DateTime? through, int session)
+    {
+        if (through is null) return;
+        lock (_gate)
+        {
+            if (session != _googleSession) return;
+            _settings = _settings with { SheetExportedThrough = through };
+            Write();
+        }
+    }
+
+    // An automatic export that failed: not again for one more wait.
+    private void HoldAuto()
+    {
+        lock (_gate) _autoRetryAfter = _clock() + TimeSpan.FromMinutes(_settings.SheetAutoMinutes);
+    }
+}

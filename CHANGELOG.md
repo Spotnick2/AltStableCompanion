@@ -16,7 +16,8 @@ version's section, as it stands here, for the notes of its GitHub Release.
   connect in Settings. The app asks only for the spreadsheets it creates, rewrites its own
   tabs on **Export now**, and never touches tabs you add. With portraits from the armory on,
   each character's armory picture shows too, or its race's silhouette until the armory has
-  drawn it.
+  drawn it. It exports on its own 15 minutes (your choice) after the game has closed and
+  stayed closed, when AltStable saved something new; untick it to export only when you ask.
 
 ## [1.2.5]
 

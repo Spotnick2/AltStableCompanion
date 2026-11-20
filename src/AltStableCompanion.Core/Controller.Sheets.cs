@@ -13,6 +13,12 @@ public sealed record SheetHooks(GoogleClient Client, Func<HttpMessageHandler> Ht
     /// <summary>How long Connect waits for the browser to come back before it gives up.</summary>
     public TimeSpan SignInLimit { get; init; } = TimeSpan.FromMinutes(5);
 
+    /// <summary>Whether the install's game is running (the automatic export waits for it to close).</summary>
+    public Func<WowInstall, bool> GameRunning { get; init; } = WowProcess.Running;
+
+    /// <summary>How often the automatic export looks.</summary>
+    public TimeSpan Tick { get; init; } = TimeSpan.FromSeconds(30);
+
     /// <summary>The real thing, or null for a build that carries no client.</summary>
     public static SheetHooks? Real() =>
         GoogleClient.Shipped is { } client ? new(client, () => new SocketsHttpHandler()) : null;
@@ -37,10 +43,12 @@ public enum GoogleState
 /// <summary>
 /// Where the sheet export stands. <see cref="Note"/> is what the last Connect, Export or
 /// Disconnect came to (null for nothing to say); <see cref="Problem"/> when it went wrong.
-/// <see cref="Url"/> is the saved spreadsheet's address, for "Open sheet".
+/// <see cref="Url"/> is the saved spreadsheet's address, for "Open sheet". <see cref="Auto"/>
+/// and <see cref="AutoMinutes"/>: the automatic export's setting.
 /// </summary>
 public sealed record SheetState(GoogleState Google = GoogleState.Unavailable, bool Exporting = false,
-    string? Url = null, string? Note = null, bool Problem = false);
+    string? Url = null, string? Note = null, bool Problem = false, bool Auto = true,
+    int AutoMinutes = Settings.DefaultSheetAutoMinutes);
 
 public sealed partial class Controller
 {
@@ -69,13 +77,16 @@ public sealed partial class Controller
             _googleToken = token;
             _current = _current with
             {
-                Sheets = new SheetState(token is null ? GoogleState.NotConnected : GoogleState.Connected, Url: _settings.GoogleSheetUrl),
+                Sheets = new SheetState(token is null ? GoogleState.NotConnected : GoogleState.Connected, Url: _settings.GoogleSheetUrl,
+                    Auto: _settings.SheetAutoExport, AutoMinutes: _settings.SheetAutoMinutes),
             };
         }
+        StartSheetsTimer(sheets);
     }
 
     private void StopSheets()
     {
+        StopSheetsTimer();
         try { _sheetsStop.Cancel(); } catch (ObjectDisposedException) { }
     }
 
@@ -265,7 +276,10 @@ public sealed partial class Controller
     /// when there is none yet, or the saved one is gone. Nothing is written unless every account
     /// was read: a missing one would drop its characters, and could show one it hides.
     /// </summary>
-    public void ExportSheet()
+    public void ExportSheet() => StartExport(auto: false);
+
+    // Export now, or the automatic one (Controller.SheetsAuto.cs): the same export.
+    private void StartExport(bool auto)
     {
         if (sheets is not { } hooks) return;
         string token;
@@ -290,19 +304,21 @@ public sealed partial class Controller
             session = _googleSession;
             cts = _exportCts = CancellationTokenSource.CreateLinkedTokenSource(_sheetsStop.Token);
             _current = _current with { Sheets = _current.Sheets with { Exporting = true, Note = null, Problem = false } };
-            _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, sheetId, session, cts));
+            _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, sheetId, session, cts, auto));
         }
         Changed?.Invoke();
     }
 
     private async Task ExportAsync(SheetHooks hooks, string token, WowInstall install, bool armory, bool sd, string? sheetId,
-        int session, CancellationTokenSource cts)
+        int session, CancellationTokenSource cts, bool auto)
     {
         string note;
         var problem = true;
         string? url = null;
         var signedOut = false;
         var stop = cts.Token;
+        // Before the files are read: a save written while this runs is newer, and is exported next time.
+        var through = NewestSave(install);
         try
         {
             var roster = SheetExport.Load(install.AccountsDir);
@@ -361,6 +377,7 @@ public sealed partial class Controller
                 }
                 note = SheetText.Exported(roster.Characters.Count, now, made, lost, added, found: found);
                 problem = false;
+                SaveExported(through, session);
                 _log?.Write($"google: exported {roster.Characters.Count} characters"
                     + (added.Count > 0 ? $"; added back {string.Join(", ", added)}" : ""));
             }
@@ -383,6 +400,7 @@ public sealed partial class Controller
             _log?.Write($"google: the export failed: {ex.GetType().Name}: {ex.Message}");
         }
 
+        if (problem && auto) HoldAuto();
         lock (_gate)
         {
             if (_exportCts == cts) _exportCts = null;
@@ -473,7 +491,8 @@ public static class SheetText
         + "played, race, the realm's ruleset), Skills, Reputations and Gear. "
         + "The app talks to oauth2.googleapis.com to sign in, sheets.googleapis.com to write, and www.googleapis.com (Drive) "
         + "to find the spreadsheet it made before and whether it is in the trash, only when you press Connect, "
-        + "Export now or Disconnect. The spreadsheet shows class, profession, coin and faction icons, and with portraits "
+        + "Export now or Disconnect - and, with \"Export on its own\" ticked (it is, once you connect), once the game has been "
+        + "closed that many minutes after AltStable saved something new. The spreadsheet shows class, profession, coin and faction icons, and with portraits "
         + "from the armory on each character's armory picture (its silhouette until the armory has drawn it): Google's "
         + "servers fetch them from Blizzard's, once you open the spreadsheet and choose Allow access, which Google asks "
         + "for once. The sign-in is kept for this Windows user only. "
@@ -502,6 +521,7 @@ public static class SheetText
         { Google: GoogleState.Disconnecting } => "Disconnecting...",
         { Exporting: true } => Exporting,
         { Google: GoogleState.Connected, Url: null } => "Connected. Export now makes the spreadsheet in your Google Drive.",
+        { Google: GoogleState.Connected, Auto: true } => $"Connected. It exports on its own {state.AutoMinutes} minutes after the game closes.",
         { Google: GoogleState.Connected } => "Connected.",
         _ => "Not connected.",
     };

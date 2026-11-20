@@ -209,13 +209,18 @@ you connect, in Settings → **Google Sheet**.
   column stays empty. The spreadsheet asks Blizzard's servers for them, not the app, and
   Google shows them only once you open the spreadsheet and choose **Allow access**, which it
   asks for once.
+- **Export on its own**, ticked once you connect: 15 minutes (5 to 120, your choice) after the
+  game has closed and stayed closed, when AltStable has saved something new, the app exports
+  by itself. Opening the game again starts the wait over, so swapping between accounts does
+  not export each time. **Pause** in the tray stops it too; **Export now** always works.
 - **Open sheet** opens it in your browser. **Disconnect** deletes the sign-in from this PC
   and asks Google to cancel it; the spreadsheet stays yours, and connecting the same Google
   account again goes on writing it.
 
 The sign-in is kept for this Windows user only (DPAPI, like the Blizzard API client), never
-logged, and never in diagnostics. What the app sends, and when: only when you press
-**Connect**, **Export now** or **Disconnect**, to `oauth2.googleapis.com` (the sign-in),
+logged, and never in diagnostics. What the app sends, and when: when you press **Connect**,
+**Export now** or **Disconnect**, and with **Export on its own** ticked, once the game has
+closed after a new save (see above), to `oauth2.googleapis.com` (the sign-in),
 `sheets.googleapis.com` (the spreadsheet) and `www.googleapis.com` (Drive: only to find the
 spreadsheet it made, and whether it is in the trash), carrying the fields listed above and
 nothing else.

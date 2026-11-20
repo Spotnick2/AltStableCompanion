@@ -268,6 +268,24 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
     public bool SheetsProblem => _sheets.Problem;
     public bool SheetsFine => !_sheets.Problem;
 
+    /// <summary>"Export on its own": the box, and its minutes after the game closes (5 to 120; anything else is put back).</summary>
+    public bool SheetsAuto
+    {
+        get => _sheets.Auto;
+        set { if (value != _sheets.Auto) _controller.SetSheetAuto(value, _sheets.AutoMinutes); }
+    }
+
+    public decimal? SheetsAutoMinutes
+    {
+        get => _sheets.AutoMinutes;
+        set
+        {
+            var minutes = (int)Math.Clamp(Math.Round(value ?? _sheets.AutoMinutes), Settings.MinSheetAutoMinutes, Settings.MaxSheetAutoMinutes);
+            if (minutes != _sheets.AutoMinutes) _controller.SetSheetAuto(_sheets.Auto, minutes);
+            else if (value != minutes) Raise(nameof(SheetsAutoMinutes));
+        }
+    }
+
     public bool ArmoryHd
     {
         get => !_armorySd;
@@ -1020,6 +1038,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
                      {
                          nameof(SheetsAvailable), nameof(SheetsNotConnected), nameof(SheetsConnecting), nameof(SheetsConnected),
                          nameof(SheetHasUrl), nameof(SheetsStatus), nameof(SheetsProblem), nameof(SheetsFine),
+                         nameof(SheetsAuto), nameof(SheetsAutoMinutes),
                      })
             {
                 Raise(name);
