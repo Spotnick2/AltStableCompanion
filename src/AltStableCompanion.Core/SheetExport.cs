@@ -5,10 +5,11 @@ namespace AltStableCompanion.Core;
 /// <summary>
 /// One cell of an exported tab: a string, a number or a <see cref="SheetImage"/>, and how it
 /// looks. Colours are "RRGGBB". <see cref="Link"/>: the cell's text links there (an item's
-/// Wowhead page), the value staying what it is.
+/// Wowhead page), the value staying what it is. <see cref="BorderTop"/>: a fine line above it.
 /// </summary>
 public sealed record SheetCell(object? Value, string? Fill = null, string? Color = null, bool Bold = false,
-    string? NumberFormat = null, string? Note = null, bool Vertical = false, bool Center = false, string? Link = null)
+    string? NumberFormat = null, string? Note = null, bool Vertical = false, bool Center = false, string? Link = null,
+    int? FontSize = null, bool Wrap = false, string? BorderTop = null, bool Left = false)
 {
     public static readonly SheetCell Empty = new((object?)null);
 }
@@ -17,12 +18,18 @@ public sealed record SheetCell(object? Value, string? Fill = null, string? Color
 public sealed record SheetImage(string Url);
 
 /// <summary>
-/// The Characters tab's pictures, with portraits from the armory on: the HD or SD model, and the
-/// characters whose render the app holds (<see cref="CutoutFolder.ArmoryRenders"/>). The others
-/// get the armory's silhouette: an <c>=IMAGE()</c> of a render that is not there is no error,
-/// just nothing (measured 2026-11-19), so the sheet cannot fall back on its own.
+/// The pictures, with portraits from the armory on: the HD or SD model, and the characters whose
+/// render the app holds (<see cref="CutoutFolder.ArmoryRenders"/>). The others get the armory's
+/// silhouette: an <c>=IMAGE()</c> of a render that is not there is no error, just nothing
+/// (measured 2026-11-19), so the sheet cannot fall back on its own.
 /// </summary>
 public sealed record AvatarSource(bool Sd, IReadOnlySet<string> Drawn);
+
+/// <summary>Cells merged into one: from (<see cref="Row"/>, <see cref="Column"/>), that many of each.</summary>
+public sealed record SheetMerge(int Row, int Column, int Rows, int Columns);
+
+/// <summary>The tab's filter: rows <see cref="FromRow"/> (its header) to <see cref="ToRow"/>, exclusive, every column.</summary>
+public sealed record SheetFilter(int FromRow, int ToRow);
 
 /// <summary>
 /// One tab the app owns: rewritten whole on every export. <see cref="RowHeights"/> and
@@ -30,7 +37,8 @@ public sealed record AvatarSource(bool Sd, IReadOnlySet<string> Drawn);
 /// height, and a column fitted to its contents.
 /// </summary>
 public sealed record SheetTable(string Title, IReadOnlyList<IReadOnlyList<SheetCell>> Rows, int FrozenColumns = 1,
-    int FrozenRows = 1, IReadOnlyList<int?>? RowHeights = null, IReadOnlyList<int?>? ColumnWidths = null)
+    int FrozenRows = 1, IReadOnlyList<int?>? RowHeights = null, IReadOnlyList<int?>? ColumnWidths = null,
+    IReadOnlyList<SheetMerge>? Merges = null, SheetFilter? Filter = null)
 {
     public int Columns => Rows.Count == 0 ? 0 : Rows.Max(r => r.Count);
 }
@@ -50,17 +58,65 @@ public sealed record ExportRoster(IReadOnlyList<Dictionary<object, object?>> Cha
     public bool Complete => Skipped.Count == 0 && !NoAccounts;
 }
 
-/// <summary>A reputation AltStable tracks (the addon's <c>Reputations.lua</c>); <see cref="Icon"/> its tabard, or null.</summary>
-public sealed record SheetReputation(int Id, string Label, string Short, string? Icon);
+/// <summary>A reputation AltStable tracks (the addon's <c>Reputations.lua</c>).</summary>
+public sealed record SheetReputation(int Id, string Label);
+
+/// <summary>
+/// The sheet's colours, one per theme (the owner's choice: dark or light, 2026-11-20). Dark is the
+/// redesign's (GPT-Astra's handoff, 2026-11-20: AltStable's own charcoal and gold); light is the
+/// same roles on paper. Class colours are tinted toward <see cref="ClassMixWith"/> to read on the
+/// rows; item quality and standings have their own readable sets.
+/// </summary>
+public sealed record SheetPalette(string Name,
+    string Masthead, string RowA, string RowB, string Band, string Header,
+    string Text, string Secondary, string Gold, string Cyan, string Horde, string Alliance, string Divider,
+    string CappedText, string CappedFill, double ClassMix, string ClassMixWith,
+    IReadOnlyList<string> Quality, IReadOnlyList<(string Text, string? Fill)> Standings)
+{
+    public const string DarkName = "dark";
+    public const string LightName = "light";
+
+    public static readonly SheetPalette Dark = new(DarkName,
+        "141414", "1A1A1A", "222222", "292929", "353535",
+        "F0EFED", "BDBAB4", "EAC675", "8FD1ED", "E8806E", "7FA7E6", "4A4A4A",
+        "EAC675", "3B3115", 0.2, "FFFFFF",
+        ["A8A8A8", "F0EFED", "7DDC6E", "6AA8F0", "C08AF5", "FFA54D", "E6CC80", "66D9F2"],
+        [("", null), ("E07A6A", null), ("E07A6A", null), ("E8A060", null), ("BDBAB4", null),
+         ("8FD18F", null), ("8FE3B0", "1D3A30"), ("8FE3D6", "1D3A3A"), ("8FD1ED", "1D3245")]);
+
+    public static readonly SheetPalette Light = new(LightName,
+        "F4F2EE", "FFFFFF", "F7F6F3", "ECE9E3", "E2DED7",
+        "1E1E1E", "5E5A54", "9A6B12", "1F78A8", "B23A2E", "2F5EA8", "9C978F",
+        "8A5A00", "FFF1C7", 0.45, "000000",
+        ["7A7A7A", "1E1E1E", "1A8C1A", "1F5FB8", "8A35C9", "C46A00", "9C7A2E", "0A89A8"],
+        [("", null), ("B23A2E", null), ("B23A2E", null), ("B86A1E", null), ("5E5A54", null),
+         ("2E8B3A", null), ("1F7A4A", "E3F4EA"), ("1A7A70", "E0F3F1"), ("1F6E99", "E2F0F8")]);
+
+    /// <summary>A theme by name; anything else is dark.</summary>
+    public static SheetPalette Of(string? name) => name == LightName ? Light : Dark;
+
+    /// <summary>A class colour, made readable on this theme's rows.</summary>
+    public string Tint(string rrggbb) => Mix(rrggbb, ClassMixWith, ClassMix);
+
+    internal static string Mix(string a, string b, double share)
+    {
+        int Part(string c, int at) => int.Parse(c.AsSpan(at, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        var parts = new[] { 0, 2, 4 }.Select(i => (int)Math.Round(Part(a, i) * (1 - share) + Part(b, i) * share));
+        return string.Concat(parts.Select(v => v.ToString("X2", CultureInfo.InvariantCulture)));
+    }
+}
 
 /// <summary>
 /// The Google Sheet export (#82): every account's <c>AltStableDB</c> as the Characters, Skills,
 /// Reputations and Gear tabs. Pure - no Google here; <see cref="GoogleSheets"/> writes what this builds.
 /// <para>
-/// The look (the owner's choice, 2026-11-19, after a friend's sheet): dark, one section per
-/// faction - its crest on a banner row, its own header row, then its characters, each row in
-/// its class colour - and a "Last update" line on top. Every tab starts Name, avatar, class
-/// icon, so a formula's column keeps its field whichever way the armory setting goes.
+/// The layout (GPT-Astra's handoff, the owner's, 2026-11-20): every tab is one table the player
+/// can filter and sort. Rows 1-2 a masthead (the section's icon from AltStable's sidebar, the
+/// view's title, the last export and a few figures), row 3 short group labels, row 4 the column
+/// names with the filter, then a row per character in the roster's order - Horde, Alliance,
+/// other - a fine line where the faction changes. Columns A-E are the same on every tab:
+/// Portrait, Character, Account, Class, Faction. Frozen: the four rows and A-C. The colours are
+/// a <see cref="SheetPalette"/>, dark or light.
 /// </para>
 /// </summary>
 public static class SheetExport
@@ -73,10 +129,15 @@ public static class SheetExport
     /// <summary>An item's Wowhead Forever page (the wowhead-forever skill's page prefix): its tooltip, a click away.</summary>
     public const string WowheadItem = "https://www.wowhead.com/forever/item=";
 
-    /// <summary>Blizzard's icon server, which the armory's site uses: <c>&lt;icon&gt;.jpg</c>, 56 px.</summary>
-    public const string IconHost = "https://render.worldofwarcraft.com/us/icons/56/";
+    /// <summary>
+    /// The commit the masthead's icons are read from (docs/sheet-icons): fixed, so a player's
+    /// sheet never changes under them. Google fetches them, not the app.
+    /// </summary>
+    public const string IconCommit = "08a276a6e0d57de11283820a44f7eb03e7b45570";
+    public const string IconBase = "https://raw.githubusercontent.com/Spotnick2/AltStableCompanion/" + IconCommit + "/docs/sheet-icons/";
 
-    // The paper doll's order (the addon's AltStable.GEAR_SLOTS).
+    // The paper doll's order (the addon's AltStable.GEAR_SLOTS): armour and neck, rings and
+    // trinkets, weapons - the Gear tab's groups.
     internal static readonly (string Key, string Label)[] GearSlots =
     [
         ("head", "Head"), ("neck", "Neck"), ("shoulder", "Shoulder"), ("back", "Back"), ("chest", "Chest"),
@@ -85,97 +146,86 @@ public static class SheetExport
         ("mainhand", "Main Hand"), ("offhand", "Off Hand"), ("ranged", "Ranged"),
     ];
 
-    // The slots an enchant goes on: bruk's template's "Enchants" columns, in the paper doll's order.
+    // The slots an enchant goes on, in the paper doll's order.
     internal static readonly string[] EnchantSlots = ["head", "shoulder", "back", "chest", "wrist", "hands", "legs", "feet", "mainhand", "offhand", "ranged"];
 
-    // Label, the skill's field, its cap's field, its icon. Primary professions are
-    // prof_<Name>/profmax_<Name> (each its own field since AltStable#177); the secondary ones
-    // and riding have their own. Icons measured on the icon server 2026-11-19.
-    internal static readonly (string Label, string Field, string MaxField, string Icon)[] SkillColumns =
+    // Label, the skill's field, its cap's field. Primary professions are prof_<Name>/profmax_<Name>
+    // (each its own field since AltStable#177); the secondary ones and riding have their own.
+    // Crafting, gathering, then the secondary skills and riding: the Skills tab's groups.
+    internal static readonly (string Label, string Field, string MaxField)[] SkillColumns =
     [
-        ("Alchemy", "prof_Alchemy", "profmax_Alchemy", "trade_alchemy"),
-        ("Blacksmithing", "prof_Blacksmithing", "profmax_Blacksmithing", "trade_blacksmithing"),
-        ("Enchanting", "prof_Enchanting", "profmax_Enchanting", "trade_engraving"),
-        ("Engineering", "prof_Engineering", "profmax_Engineering", "trade_engineering"),
-        ("Leatherworking", "prof_Leatherworking", "profmax_Leatherworking", "trade_leatherworking"),
-        ("Tailoring", "prof_Tailoring", "profmax_Tailoring", "trade_tailoring"),
-        ("Herbalism", "prof_Herbalism", "profmax_Herbalism", "spell_nature_naturetouchgrow"),
-        ("Mining", "prof_Mining", "profmax_Mining", "trade_mining"),
-        ("Skinning", "prof_Skinning", "profmax_Skinning", "inv_misc_pelt_wolf_01"),
-        ("Cooking", "cooking", "cookingMax", "inv_misc_food_15"),
-        ("Fishing", "fishing", "fishingMax", "trade_fishing"),
-        ("First Aid", "firstAid", "firstAidMax", "spell_holy_sealofsacrifice"),
-        ("Riding", "riding", "ridingMax", "ability_mount_ridinghorse"),
+        ("Alchemy", "prof_Alchemy", "profmax_Alchemy"),
+        ("Blacksmithing", "prof_Blacksmithing", "profmax_Blacksmithing"),
+        ("Enchanting", "prof_Enchanting", "profmax_Enchanting"),
+        ("Engineering", "prof_Engineering", "profmax_Engineering"),
+        ("Leatherworking", "prof_Leatherworking", "profmax_Leatherworking"),
+        ("Tailoring", "prof_Tailoring", "profmax_Tailoring"),
+        ("Herbalism", "prof_Herbalism", "profmax_Herbalism"),
+        ("Mining", "prof_Mining", "profmax_Mining"),
+        ("Skinning", "prof_Skinning", "profmax_Skinning"),
+        ("Cooking", "cooking", "cookingMax"),
+        ("Fishing", "fishing", "fishingMax"),
+        ("First Aid", "firstAid", "firstAidMax"),
+        ("Riding", "riding", "ridingMax"),
     ];
 
-    /// <summary>
-    /// The addon's <c>AltStable.REPUTATIONS</c> (Reputations.lua, AltStable 1.9.0), in its order.
-    /// A tabard is kept only where the icon server has it (measured 2026-11-19): Forever's own
-    /// (Theramore, Darkspear Raiders, Hyjal, the two merchant factions) answer 403 there, and
-    /// take the short label, as the addon does for a tabard its client cannot draw.
-    /// </summary>
+    /// <summary>The addon's <c>AltStable.REPUTATIONS</c> (Reputations.lua, AltStable 1.9.0), in its order.</summary>
     internal static readonly SheetReputation[] AllReputations =
     [
-        new(72, "Stormwind", "Stormw", "inv_misc_tournaments_tabard_human"),
-        new(47, "Ironforge", "Ironfg", "inv_misc_tournaments_tabard_dwarf"),
-        new(69, "Darnassus", "Darnas", "inv_misc_tournaments_tabard_nightelf"),
-        new(54, "Gnomeregan Exiles", "Gnome", "inv_misc_tournaments_tabard_gnome"),
-        new(2779, "High Order", "HiOrdr", null),
-        new(76, "Orgrimmar", "Orgrim", "inv_misc_tournaments_tabard_orc"),
-        new(81, "Thunder Bluff", "ThBluf", "inv_misc_tournaments_tabard_tauren"),
-        new(68, "Undercity", "UndCty", "inv_misc_tournaments_tabard_scourge"),
-        new(530, "Darkspear Trolls", "Dkspr", "inv_misc_tournaments_tabard_troll"),
-        new(2778, "Windshapers", "Windsh", null),
-        new(529, "Argent Dawn", "ArgDwn", null),
-        new(609, "Cenarion Circle", "CenCir", null),
-        new(59, "Thorium Brotherhood", "Thorim", null),
-        new(576, "Timbermaw Hold", "Timbmw", null),
-        new(749, "Hydraxian Waterlords", "Hydrax", null),
-        new(270, "Zandalar Tribe", "Zandlr", null),
-        new(910, "Brood of Nozdormu", "Nozdor", null),
-        new(589, "Wintersaber Trainers", "Wntsbr", null),
-        new(21, "Booty Bay", "BtyBay", null),
-        new(369, "Gadgetzan", "Gadgtz", null),
-        new(470, "Ratchet", "Ratcht", null),
-        new(577, "Everlook", "Evrlk", null),
-        new(87, "Bloodsail Buccaneers", "Bldsl", null),
-        new(349, "Ravenholdt", "Ravnhd", null),
-        new(809, "Shen'dralar", "Shndrl", null),
-        new(909, "Darkmoon Faire", "Dkmoon", null),
-        new(92, "Gelkis Clan Centaur", "Gelkis", null),
-        new(93, "Magram Clan Centaur", "Magram", null),
-        new(730, "Stormpike Guard", "Stmpke", null),
-        new(729, "Frostwolf Clan", "Frstwf", null),
-        new(890, "Silverwing Sentinels", "Slvwng", null),
-        new(889, "Warsong Outriders", "Warsng", null),
-        new(509, "League of Arathor", "LgArth", null),
-        new(510, "The Defilers", "Defilr", null),
-        new(2799, "Theramore Expeditionary Force", "Thrmor", null),
-        new(2798, "Darkspear Raiders", "DkRaid", null),
-        new(2719, "Cenarion Scouts", "CenSct", null),
-        new(2740, "Kirin Tor", "KirTor", null),
-        new(2747, "Barkskin Burrow", "Barksk", null),
-        new(2758, "Nightclaw Druids", "Nghtcl", null),
-        new(2765, "Guardians of Hyjal", "GdHyjl", null),
-        new(2782, "Bolder'ok Clan", "Bldrok", null),
-        new(2787, "Earthen Ring", "ErthRg", "inv_misc_tabard_earthenring"),
-        new(2819, "The Watchers", "Watchr", null),
-        new(2826, "Brotherhood of the Horse", "BroHrs", null),
-        new(2827, "Powderfuse", "Pwdrfs", null),
-        new(2586, "Azeroth Commerce Authority", "AzCmAu", null),
-        new(2587, "Durotar Supply and Logistics", "DuSupL", null),
+        new(72, "Stormwind"),
+        new(47, "Ironforge"),
+        new(69, "Darnassus"),
+        new(54, "Gnomeregan Exiles"),
+        new(2779, "High Order"),
+        new(76, "Orgrimmar"),
+        new(81, "Thunder Bluff"),
+        new(68, "Undercity"),
+        new(530, "Darkspear Trolls"),
+        new(2778, "Windshapers"),
+        new(529, "Argent Dawn"),
+        new(609, "Cenarion Circle"),
+        new(59, "Thorium Brotherhood"),
+        new(576, "Timbermaw Hold"),
+        new(749, "Hydraxian Waterlords"),
+        new(270, "Zandalar Tribe"),
+        new(910, "Brood of Nozdormu"),
+        new(589, "Wintersaber Trainers"),
+        new(21, "Booty Bay"),
+        new(369, "Gadgetzan"),
+        new(470, "Ratchet"),
+        new(577, "Everlook"),
+        new(87, "Bloodsail Buccaneers"),
+        new(349, "Ravenholdt"),
+        new(809, "Shen'dralar"),
+        new(909, "Darkmoon Faire"),
+        new(92, "Gelkis Clan Centaur"),
+        new(93, "Magram Clan Centaur"),
+        new(730, "Stormpike Guard"),
+        new(729, "Frostwolf Clan"),
+        new(890, "Silverwing Sentinels"),
+        new(889, "Warsong Outriders"),
+        new(509, "League of Arathor"),
+        new(510, "The Defilers"),
+        new(2799, "Theramore Expeditionary Force"),
+        new(2798, "Darkspear Raiders"),
+        new(2719, "Cenarion Scouts"),
+        new(2740, "Kirin Tor"),
+        new(2747, "Barkskin Burrow"),
+        new(2758, "Nightclaw Druids"),
+        new(2765, "Guardians of Hyjal"),
+        new(2782, "Bolder'ok Clan"),
+        new(2787, "Earthen Ring"),
+        new(2819, "The Watchers"),
+        new(2826, "Brotherhood of the Horse"),
+        new(2827, "Powderfuse"),
+        new(2586, "Azeroth Commerce Authority"),
+        new(2587, "Durotar Supply and Logistics"),
     ];
 
-    // A standing, rep_<id> = 1 Hated .. 8 Exalted: its letter (the owner's sheet's), its name,
-    // and the game's FACTION_BAR_COLORS.
-    private static readonly (string Letter, string Name, string Color)[] Standings =
-    [
-        ("", "", ""),
-        ("Ha", "Hated", "CC2222"), ("Ho", "Hostile", "FF0000"), ("U", "Unfriendly", "EE6622"), ("N", "Neutral", "FFFF00"),
-        ("F", "Friendly", "00FF00"), ("H", "Honored", "00FF88"), ("R", "Revered", "00FFCC"), ("E", "Exalted", "00FFFF"),
-    ];
+    // A standing, rep_<id> = 1 Hated .. 8 Exalted.
+    private static readonly string[] StandingNames = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
 
-    // RAID_CLASS_COLORS, as the game draws class names.
+    // RAID_CLASS_COLORS, as the game draws class names; tinted per theme.
     private static readonly Dictionary<string, string> ClassColors = new(StringComparer.Ordinal)
     {
         ["WARRIOR"] = "C69B6D", ["PALADIN"] = "F48CBA", ["HUNTER"] = "AAD372", ["ROGUE"] = "FFF468",
@@ -183,32 +233,18 @@ public static class SheetExport
         ["DRUID"] = "FF7C0A", ["DEATHKNIGHT"] = "C41E3A",
     };
 
-    // Item quality, as the game draws item names: poor .. heirloom.
-    private static readonly string[] QualityColors = ["9D9D9D", "FFFFFF", "1EFF00", "0070DD", "A335EE", "FF8000", "E6CC80", "00CCFF"];
+    // Item quality: poor .. heirloom, in words in the note, so the colour is extra.
+    private static readonly string[] QualityNames = ["Poor", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Artifact", "Heirloom"];
 
-    // The look.
-    internal const string PageFill = "1F2733";      // the sheet's dark
-    internal const string TitleFill = "151B24";     // the "Last update" line
-    internal const string HeaderFill = "2C3A4F";    // a section's header row
-    internal const string HeaderText = "E8EAED";
-    private const string RowText = "111111";         // dark, bold, on a class colour
-    private const string CappedFill = "FFF200";      // a skill at its current cap: time to train the next rank
-    private static readonly Dictionary<string, string> BannerFills = new(StringComparer.Ordinal)
-    {
-        ["Horde"] = "4A1C24", ["Alliance"] = "1B2C4A",
-    };
-    private static readonly Dictionary<string, string> Crests = new(StringComparer.Ordinal)
-    {
-        ["Horde"] = "ui_hordeicon", ["Alliance"] = "ui_allianceicon",
-    };
-
-    /// <summary>The avatars' cell: half their 84 px, so they are crisp on a 200% screen.</summary>
-    public const int AvatarSize = 42;
-    internal const int IconSize = 36;      // a header row of icons, a banner row
-    internal const int CoinSize = 18;      // a coin beside its number
-
-    // Every tab's first three columns.
-    private const int Lead = 3;
+    // The sizes, in pixels and points (the handoff's 25/31/24/33, a 45 px reputation header).
+    internal const int MastheadLabelHeight = 25, MastheadTitleHeight = 31, BandHeight = 24, HeaderHeight = 33, PairHeaderHeight = 45;
+    internal const int RowHeight = 31;
+    /// <summary>The portrait column: a 28-30 px picture in a 31 px row.</summary>
+    public const int AvatarSize = 36;
+    internal const int MastheadRows = 4;     // masthead (2), groups, column names
+    private const int Lead = 5;              // Portrait, Character, Account, Class, Faction
+    private const string CoinFormat = "0\"g \"00\"s \"00\"c\"";
+    private const string DateFormat = "d mmm yyyy  hh:mm";
 
     /// <summary>
     /// The roster of every account that uses AltStable (<see cref="Leftovers.AccountFiles"/>):
@@ -291,11 +327,12 @@ public static class SheetExport
     /// <summary>
     /// The four tabs, in the order they appear, as of <paramref name="now"/> (epoch seconds).
     /// <paramref name="avatar"/>: the armory's pictures (portraits from the armory on); null
-    /// leaves the picture column empty.
+    /// leaves the Portrait column empty. <paramref name="palette"/>: dark unless named.
     /// </summary>
     public static IReadOnlyList<SheetTable> Build(IReadOnlyList<Dictionary<object, object?>> chars, long now,
-        AvatarSource? avatar = null) =>
-        [BuildCharacters(chars, now, avatar), BuildSkills(chars, now, avatar), BuildReputations(chars, now, avatar), BuildGear(chars, now, avatar)];
+        AvatarSource? avatar = null, SheetPalette? palette = null) =>
+        [BuildCharacters(chars, now, avatar, palette), BuildSkills(chars, now, avatar, palette),
+         BuildReputations(chars, now, avatar, palette), BuildGear(chars, now, avatar, palette)];
 
     // Horde, then Alliance, then anything else; within a side, highest level, then ilvl, then name.
     internal static int Order(Dictionary<object, object?> a, Dictionary<object, object?> b)
@@ -310,75 +347,122 @@ public static class SheetExport
 
     private static int Side(Dictionary<object, object?> c) => Str(c, "faction") switch { "Horde" => 0, "Alliance" => 1, _ => 2 };
 
-    /// <summary>
-    /// A tab of sections: the "Last update" line, then for each side with characters, a banner
-    /// row (its crest, and what <paramref name="banner"/> adds), the header row, and a row per
-    /// character - the first three cells Name, avatar, class icon, then <paramref name="cells"/>.
-    /// </summary>
-    private sealed class Layout(string title, long now, AvatarSource? avatar)
+    private sealed record Group(string Label, int Columns);
+    private sealed record Metric(string Label, SheetCell Value);
+
+    /// <summary>The shared layout: a tab is its own columns after A-E, its metrics, its groups.</summary>
+    private sealed class View(string title, string icon, long now, AvatarSource? avatar, SheetPalette p)
     {
-        private readonly List<IReadOnlyList<SheetCell>> _rows = [];
-        private readonly List<int?> _heights = [];
-
-        public SheetTable Build(IReadOnlyList<Dictionary<object, object?>> chars, IReadOnlyList<SheetCell> header,
+        public SheetTable Build(IReadOnlyList<Dictionary<object, object?>> chars, IReadOnlyList<Metric> metrics,
+            IReadOnlyList<Group> groups, IReadOnlyList<SheetCell> headers,
             Func<Dictionary<object, object?>, string, IEnumerable<SheetCell>> cells,
-            Func<IReadOnlyList<Dictionary<object, object?>>, string, IEnumerable<SheetCell>>? banner,
-            IReadOnlyList<int?> widths, bool iconHeader) =>
-            Build(chars, _ => header, header.Count, cells, banner, widths, iconHeader);
-
-        /// <summary>As above, with each section's own header: <paramref name="header"/> of its faction.</summary>
-        public SheetTable Build(IReadOnlyList<Dictionary<object, object?>> chars, Func<string, IReadOnlyList<SheetCell>> header, int headerCount,
-            Func<Dictionary<object, object?>, string, IEnumerable<SheetCell>> cells,
-            Func<IReadOnlyList<Dictionary<object, object?>>, string, IEnumerable<SheetCell>>? banner,
-            IReadOnlyList<int?> widths, bool iconHeader)
+            int headerHeight = HeaderHeight, Func<IReadOnlyList<List<SheetCell>>>? footer = null)
         {
-            var columns = Lead + headerCount;
-            Add(Pad([new SheetCell("Last update: " + LocalTime(now), TitleFill, HeaderText, Bold: true)], columns, TitleFill), null);
-            foreach (var side in chars.GroupBy(Side).OrderBy(g => g.Key))
+            // Text, not a date: only text runs on into the empty cells beside it (measured
+            // 2026-11-20: a date there was cut at its column's edge).
+            var allMetrics = new List<Metric> { new("LAST EXPORT", new SheetCell(LocalTime(now))) };
+            allMetrics.AddRange(metrics);
+            // Each metric takes two columns from D; a narrow tab gets empty ones to hold them.
+            var columns = Math.Max(Lead + headers.Count, 3 + 2 * allMetrics.Count);
+            var rows = new List<List<SheetCell>>();
+            var heights = new List<int?>();
+            void Add(List<SheetCell> row, string fill, int? height)
             {
-                var faction = Str(side.First(), "faction") ?? "";
-                var fill = BannerFills.GetValueOrDefault(faction, HeaderFill);
-                var crest = Crests.TryGetValue(faction, out var icon) ? new SheetCell(new SheetImage(IconHost + icon + ".jpg"), fill) : new SheetCell(null, fill);
-                var bannerRow = new List<SheetCell> { new(faction.Length > 0 ? faction : "Other", fill, HeaderText, Bold: true), crest, new(null, fill) };
-                if (banner is not null) bannerRow.AddRange(banner([.. side], fill));
-                Add(Pad(bannerRow, columns, fill), IconSize);
-                Add(Pad([new("Character", HeaderFill, HeaderText, Bold: true), new(null, HeaderFill), new(null, HeaderFill), .. header(faction)], columns, HeaderFill),
-                    iconHeader ? IconSize : null);
-                foreach (var c in side)
-                {
-                    var rowFill = ClassFill(c);
-                    Add(Pad([NameCell(c), AvatarCell(c, avatar, rowFill), ClassIcon(c, rowFill), .. cells(c, rowFill)], columns, rowFill), AvatarSize);
-                }
+                while (row.Count < columns) row.Add(new SheetCell(null, fill));
+                rows.Add(row);
+                heights.Add(height);
             }
-            List<int?> fixedWidths = [null, AvatarSize, AvatarSize, .. widths];
-            var sized = Enumerable.Range(0, columns).Select(i => fixedWidths.ElementAtOrDefault(i) ?? TextWidth(_rows.Skip(1), i)).ToList();
-            // The "Last update" line runs on across the row, but a tab can be narrower than it -
-            // an empty roster, a tab with no columns of its own (Codex on #85): Name takes the rest.
-            var line = TextWidth(_rows.Take(1), 0);
-            if (sized.Sum() < line) sized[0] += line - sized.Sum();
-            return new SheetTable(title, _rows, FrozenColumns: Lead, FrozenRows: 1, RowHeights: _heights,
-                ColumnWidths: [.. sized.Select(w => (int?)w)]);
+
+            // Rows 1-2: the masthead.
+            var labels = new List<SheetCell>
+            {
+                new(new SheetImage(IconBase + icon + ".png"), p.Masthead),
+                new("ALTSTABLE / COMPANION", p.Masthead, p.Gold, Bold: true, FontSize: 9),
+                new(null, p.Masthead),
+            };
+            var values = new List<SheetCell> { new(null, p.Masthead), new(title, p.Masthead, p.Text, Bold: true, FontSize: 18), new(null, p.Masthead) };
+            foreach (var m in allMetrics)
+            {
+                labels.Add(new SheetCell(m.Label, p.Masthead, p.Secondary, FontSize: 8));
+                labels.Add(new SheetCell(null, p.Masthead));
+                values.Add(m.Value with { Fill = p.Masthead, Color = m.Value.Color ?? p.Text, FontSize = m.Value.FontSize ?? 12, Left = true });
+                values.Add(new SheetCell(null, p.Masthead));
+            }
+            Add(labels, p.Masthead, MastheadLabelHeight);
+            Add(values, p.Masthead, MastheadTitleHeight);
+
+            // Row 3: the groups' labels, each over its first column; row 4: the column names.
+            var band = new List<SheetCell>();
+            foreach (var g in (Group[])[new("CHARACTER", 3), new("AFFILIATION", 2), .. groups])
+            {
+                band.Add(new SheetCell(g.Label, p.Band, p.Gold, Bold: true, FontSize: 9));
+                for (var i = 1; i < g.Columns; i++) band.Add(new SheetCell(null, p.Band));
+            }
+            Add(band, p.Band, BandHeight);
+            // The portrait's column is too narrow for its name beside a filter button: the name is its note.
+            Add([HeaderCell("", "Portrait"), .. ((string[])["Character", "Account", "Class", "Faction"]).Select(h => HeaderCell(h)), .. headers],
+                p.Header, headerHeight);
+
+            // A row per character: shades in turn, a fine line where the faction changes.
+            for (var i = 0; i < chars.Count; i++)
+            {
+                var c = chars[i];
+                var fill = i % 2 == 0 ? p.RowA : p.RowB;
+                List<SheetCell> row =
+                [
+                    AvatarCell(c, avatar, fill),
+                    new(Str(c, "name"), fill, Str(c, "class") is { } cls && ClassColors.TryGetValue(cls, out var cc) ? p.Tint(cc) : p.Text, Bold: true),
+                    new(Num(c, "accountNumber"), fill, p.Secondary, Center: true),
+                    new(Title(Str(c, "class")), fill, p.Secondary),
+                    new(Str(c, "faction"), fill, Str(c, "faction") switch { "Horde" => p.Horde, "Alliance" => p.Alliance, _ => p.Secondary }),
+                    .. cells(c, fill),
+                ];
+                Add(row, fill, RowHeight);
+                if (i > 0 && Side(c) != Side(chars[i - 1]))
+                    rows[^1] = [.. rows[^1].Select(x => x with { BorderTop = p.Divider })];
+            }
+            var body = rows.Count;
+            if (footer is not null && chars.Count > 0)
+                foreach (var f in footer()) Add(f, f.FirstOrDefault()?.Fill ?? p.RowA, RowHeight - 7);
+
+            // Widths: the portrait's, else the longest text below the masthead (a column name
+            // needs room for its filter button too).
+            var widths = Enumerable.Range(0, columns).Select(i => i == 0 ? AvatarSize
+                : Math.Max(TextWidth(rows.Skip(MastheadRows), i), TextWidth([rows[MastheadRows - 1]], i) + 20)).ToList();
+            return new SheetTable(title, rows, FrozenColumns: 3, FrozenRows: MastheadRows, RowHeights: heights,
+                ColumnWidths: [.. widths.Select(w => (int?)w)], Merges: [new SheetMerge(0, 0, 2, 1)],
+                Filter: new SheetFilter(MastheadRows - 1, body));
         }
 
-        private void Add(IReadOnlyList<SheetCell> row, int? height)
+        private SheetCell HeaderCell(string label, string? note = null) =>
+            new(label, p.Header, p.Text, Bold: true, Note: note, Center: true, Wrap: true);
+
+        public SheetCell Header(string label, string? note = null) => HeaderCell(label, note);
+
+        // The render the app holds, else the race's silhouette: under level 10 the armory has
+        // none. Its own picture links to the armory's full one: Sheets cannot enlarge a picture
+        // on hover, so the link card shows on hover and a click opens it full size. Without
+        // portraits from the armory, the column is there, empty.
+        private SheetCell AvatarCell(Dictionary<object, object?> c, AvatarSource? avatar, string fill)
         {
-            _rows.Add(row);
-            _heights.Add(height);
+            if (avatar is null) return new SheetCell(null, fill);
+            var guid = Str(c, "guid");
+            var drawn = Num(c, "level") >= Armory.MinLevel && guid is not null && avatar.Drawn.Contains(guid);
+            var url = drawn ? Armory.AvatarUrl(guid!, avatar.Sd) : null;
+            url ??= Armory.PlaceholderUrl(Str(c, "race"), Str(c, "faction"), Female(c));
+            return new SheetCell(url is null ? null : new SheetImage(url), fill,
+                Link: drawn ? Armory.Url(guid!, avatar.Sd) : null,
+                Note: drawn ? "The armory's picture: click it for the full one" : null);
         }
 
-        // As long as the header, in the row's colour: a row is a band of colour, not cells with gaps.
-        private static List<SheetCell> Pad(List<SheetCell> row, int columns, string fill)
-        {
-            while (row.Count < columns) row.Add(new SheetCell(null, fill));
-            return row;
-        }
+        public SheetPalette Palette => p;
     }
 
     /// <summary>
-    /// A column's width from its longest text, bold 10 pt (about 7.5 px a character, and room
-    /// either side). Measured 2026-11-19: Sheets' own fit cuts bold text short (a realm, a race,
-    /// an enchant header), so the export sizes text columns itself. The "Last update" line is
-    /// left out: it runs on into the empty cells beside it.
+    /// A column's width from its longest text, 10 pt (about 7.5 px a character, bold or not, and
+    /// room either side). Measured 2026-11-19: Sheets' own fit cuts bold text short (a realm, a
+    /// race, an enchant header), so the export sizes text columns itself. A wrapped label counts
+    /// its longest line.
     /// </summary>
     internal static int TextWidth(IEnumerable<IReadOnlyList<SheetCell>> rows, int column)
     {
@@ -386,67 +470,94 @@ public static class SheetExport
         return Math.Clamp((int)Math.Ceiling(longest * 7.5) + 16, 32, 360);
     }
 
-    // How many characters a cell shows: a date as its format, a number as written.
+    // How many characters a cell shows: a date or a coin purse as its format, a number as written.
     private static int Shown(SheetCell c) => c.Value switch
     {
-        string s => s.Length,
-        double when c.NumberFormat is { } f && f.Contains('y') => f.Length,
+        string s => s.Split('\n').Max(l => l.Length),
+        double when c.NumberFormat == CoinFormat => "00g 00s 00c".Length,
+        double when c.NumberFormat is { } f && f.Contains('y') => "19 Nov 2026  18:39".Length,
+        double d when c.NumberFormat is { } f && f.Contains('/') => d.ToString("0", CultureInfo.InvariantCulture).Length + f.Length - 5,
         double d => (c.NumberFormat == "0.0" ? Math.Round(d, 1).ToString("0.0", CultureInfo.InvariantCulture)
+            : c.NumberFormat == "0%" ? Math.Round(d * 100).ToString("0'%'", CultureInfo.InvariantCulture)
             : d.ToString("#,##0", CultureInfo.InvariantCulture)).Length,
         _ => 0,
     };
 
-    private static SheetCell Header(string label, string? note = null) =>
-        new(label, HeaderFill, HeaderText, Bold: true, Note: note, Center: true);
-
-    private static SheetCell HeaderIcon(string icon, string note) =>
-        new(new SheetImage(IconHost + icon + ".jpg"), HeaderFill, Note: note);
-
+    /// <summary>
+    /// Characters: Level, iLvl, Rested XP, the coin purse, Last seen, Hearthstone, Guild, Race,
+    /// Ruleset; at the end, each faction's count, levels and coin, and everyone's.
+    /// </summary>
     internal static SheetTable BuildCharacters(IReadOnlyList<Dictionary<object, object?>> chars, long now,
-        AvatarSource? avatar = null)
+        AvatarSource? avatar = null, SheetPalette? palette = null)
     {
-        SheetCell Coin(string fill, string icon) => new(new SheetImage(IconHost + icon + ".jpg"), fill);
-        var header = new List<SheetCell>
-        {
-            Header("Level"), Header("iLvl"),
-            Header("Rested", "Rested XP as a % of the next level, carried forward to the export as AltStable's own column does"),
-            Header("Acc", "Which account: 1, 2, ... in the order of the WTF\\Account folders"),
-            Header("Gold"), HeaderIcon("inv_misc_coin_01", "Gold"), Header(""), HeaderIcon("inv_misc_coin_03", "Silver"),
-            Header(""), HeaderIcon("inv_misc_coin_05", "Copper"),
-            HeaderIcon("inv_misc_rune_01", "Hearthstone: where it is set"), Header("Guild"), Header("Last seen"),
-            Header("Race"), Header("Ruleset", "The realm's ruleset; its name is the cell's note"),
-        };
-        IEnumerable<SheetCell> Money(double copper, string fill, string text, bool bold)
-        {
-            var c = (long)copper;
-            yield return new SheetCell((double)(c / 10000), fill, text, bold, "#,##0");
-            yield return Coin(fill, "inv_misc_coin_01");
-            yield return new SheetCell((double)(c / 100 % 100), fill, text, bold);
-            yield return Coin(fill, "inv_misc_coin_03");
-            yield return new SheetCell((double)(c % 100), fill, text, bold);
-            yield return Coin(fill, "inv_misc_coin_05");
-        }
+        var p = palette ?? SheetPalette.Dark;
+        var view = new View(Characters, "account-summary", now, avatar, p);
+        // The coin purse is the copper balance, shown 1g 02s 69c: one column that sorts and adds.
+        SheetCell Coin(double copper, string? fill, bool bold = false) =>
+            new(copper, fill, p.Gold, Bold: bold, NumberFormat: CoinFormat, Center: true);
+        var ilvls = chars.Select(c => Num(c, "ilvl")).OfType<double>().ToList();
+        List<Metric> metrics =
+        [
+            new("CHARACTERS", new SheetCell((double)chars.Count, Bold: true)),
+            new("TOTAL COIN", Coin(chars.Sum(c => Num(c, "money") ?? 0), null, true)),
+            new("TOTAL LEVELS", new SheetCell(chars.Sum(c => Num(c, "level") ?? 0), Bold: true)),
+            new("AVERAGE iLVL", ilvls.Count > 0 ? new SheetCell(Math.Round(ilvls.Average(), 1), Color: p.Cyan, Bold: true, NumberFormat: "0.0")
+                : new SheetCell(null)),
+        ];
+        List<SheetCell> headers =
+        [
+            view.Header("Level"), view.Header("iLvl"),
+            view.Header("Rested XP", "Rested XP as a share of a level, carried forward to the export as AltStable's own column does"),
+            view.Header("Coin purse"), view.Header("Last seen"), view.Header("Hearthstone"), view.Header("Guild"),
+            view.Header("Race"), view.Header("Ruleset", "The realm's ruleset; its name is the cell's note"),
+        ];
         IEnumerable<SheetCell> Row(Dictionary<object, object?> c, string fill)
         {
             var seen = Num(c, "lastUpdate");
-            yield return Number(Num(c, "level"), fill);
-            yield return Num(c, "ilvl") is double ilvl ? new SheetCell(Math.Round(ilvl, 1), fill, RowText, true, "0.0") : new SheetCell(null, fill);
-            yield return RestedPercent(c, now) is double rested ? new SheetCell(rested, fill, RowText, true, "0\"%\"") : new SheetCell(null, fill);
-            yield return Number(Num(c, "accountNumber"), fill);
-            foreach (var m in Num(c, "money") is double money ? Money(money, fill, RowText, true)
-                         : Enumerable.Repeat(new SheetCell(null, fill), 6)) yield return m;
-            yield return Text(Str(c, "bind"), fill);
-            yield return Text(Str(c, "guild"), fill);
-            yield return seen is double s and > 0 ? new SheetCell(SheetDate(s), fill, RowText, true, "yyyy-mm-dd hh:mm") : new SheetCell(null, fill);
-            yield return Text(Str(c, "raceName") ?? Str(c, "race"), fill);
-            yield return Str(c, "realm") is { Length: > 0 } realm ? Text(Ruleset(realm), fill) with { Note = realm } : new SheetCell(null, fill);
+            yield return new SheetCell(Num(c, "level"), fill, p.Text, Bold: true, Center: true);
+            yield return Num(c, "ilvl") is double ilvl ? new SheetCell(Math.Round(ilvl, 1), fill, p.Cyan, NumberFormat: "0.0", Center: true) : new SheetCell(null, fill);
+            // Percentage points to a share, once: 150 is 1.5, shown 150%.
+            yield return RestedPercent(c, now) is double rested ? new SheetCell(rested / 100, fill, p.Text, NumberFormat: "0%", Center: true) : new SheetCell(null, fill);
+            yield return Num(c, "money") is double money ? Coin(money, fill) : new SheetCell(null, fill);
+            yield return seen is double s and > 0 ? new SheetCell(SheetDate(s), fill, p.Text, NumberFormat: DateFormat) : new SheetCell(null, fill);
+            yield return new SheetCell(Str(c, "bind"), fill, p.Text);
+            yield return new SheetCell(Str(c, "guild"), fill, p.Text);
+            yield return new SheetCell(Str(c, "raceName") ?? Str(c, "race"), fill, p.Text);
+            yield return Str(c, "realm") is { Length: > 0 } realm ? new SheetCell(Ruleset(realm), fill, p.Text, Note: realm) : new SheetCell(null, fill);
         }
-        // The side's gold, on its banner.
-        IEnumerable<SheetCell> Banner(IReadOnlyList<Dictionary<object, object?>> side, string fill) =>
-            [new(null, fill), new(null, fill), new(null, fill), new(null, fill),
-             .. Money(side.Sum(c => Num(c, "money") ?? 0), fill, HeaderText, true)];
-        return new Layout(Characters, now, avatar).Build(chars, header, Row, Banner,
-            [null, null, null, null, null, CoinSize, null, CoinSize, null, CoinSize, null, null, null, null, null], iconHeader: true);
+        // Below the table, outside its filter: each faction's figures, then everyone's - the whole
+        // export, whatever the filter hides.
+        IReadOnlyList<List<SheetCell>> Footer()
+        {
+            const int count = Lead, levels = Lead + 1, coin = Lead + 3;
+            List<SheetCell> Line(string? label, string fill, string color, bool bold, params (int At, SheetCell Cell)[] at)
+            {
+                var row = new List<SheetCell> { new(label, fill, color, Bold: bold) };
+                foreach (var (col, cell) in at)
+                {
+                    while (row.Count < col) row.Add(new SheetCell(null, fill));
+                    row.Add(cell with { Fill = fill });
+                }
+                return row;
+            }
+            SheetCell N(double v, bool bold = false) => new(v, null, p.Text, Bold: bold, Center: true);
+            var lines = new List<List<SheetCell>>
+            {
+                Line(null, p.Masthead, p.Text, false),
+                Line("FACTION TOTALS", p.Band, p.Gold, true, (count, view.Header("Characters") with { Fill = p.Band }),
+                    (levels, view.Header("Levels") with { Fill = p.Band }), (coin, view.Header("Coin purse") with { Fill = p.Band })),
+            };
+            foreach (var side in chars.GroupBy(Side).OrderBy(g => g.Key))
+            {
+                var name = Str(side.First(), "faction") is { Length: > 0 } f && side.Key < 2 ? f : "Other";
+                lines.Add(Line(name, p.RowA, side.Key switch { 0 => p.Horde, 1 => p.Alliance, _ => p.Secondary }, false,
+                    (count, N(side.Count())), (levels, N(side.Sum(c => Num(c, "level") ?? 0))), (coin, Coin(side.Sum(c => Num(c, "money") ?? 0), null))));
+            }
+            lines.Add(Line("All characters", p.Band, p.Text, true,
+                (count, N(chars.Count, true)), (levels, N(chars.Sum(c => Num(c, "level") ?? 0), true)), (coin, Coin(chars.Sum(c => Num(c, "money") ?? 0), null, true))));
+            return lines;
+        }
+        return view.Build(chars, metrics, [new("PROGRESSION", 3), new("CURRENCY", 1), new("CHARACTER DETAILS", 5)], headers, Row, footer: Footer);
     }
 
     // The addon's ComputeLiveRestedPercent (RowRenderer.lua) for a character not logged in: the
@@ -466,25 +577,39 @@ public static class SheetExport
         return Math.Floor(Math.Min(live, cap) + 0.5);
     }
 
+    /// <summary>
+    /// Skills: Level, then the 13 skills - crafting, gathering, the secondary skills and riding -
+    /// as "current / trained cap", the current rank the cell's number. Reaching the cap is gold
+    /// on amber: time to train the next rank.
+    /// </summary>
     internal static SheetTable BuildSkills(IReadOnlyList<Dictionary<object, object?>> chars, long now = 0,
-        AvatarSource? avatar = null)
+        AvatarSource? avatar = null, SheetPalette? palette = null)
     {
-        List<SheetCell> header = [Header("Level"), .. SkillColumns.Select(s => HeaderIcon(s.Icon, s.Label))];
+        var p = palette ?? SheetPalette.Dark;
+        var view = new View(Skills, "skills", now, avatar, p);
+        var learned = chars.Sum(c => SkillColumns.Count(s => Num(c, s.Field) is > 0));
+        List<Metric> metrics =
+        [
+            new("LEARNED SKILL ENTRIES", new SheetCell((double)learned, Bold: true)),
+            new("SKILL RANKS", new SheetCell("Current / trained cap. Gold marks a capped skill.", FontSize: 10)),
+        ];
+        List<SheetCell> headers = [view.Header("Level"), .. SkillColumns.Select(s => view.Header(s.Label))];
         IEnumerable<SheetCell> Row(Dictionary<object, object?> c, string fill)
         {
-            yield return Number(Num(c, "level"), fill);
-            foreach (var (_, field, maxField, _) in SkillColumns)
+            yield return new SheetCell(Num(c, "level"), fill, p.Text, Bold: true, Center: true);
+            foreach (var (_, field, maxField) in SkillColumns)
             {
                 // 0 is "not learned": an empty cell, as in the hand-kept sheet.
                 if (Num(c, field) is not double v || v <= 0) { yield return new SheetCell(null, fill); continue; }
-                var max = Num(c, maxField);
-                var capped = max is double mx && mx > 0 && v >= mx;
-                yield return new SheetCell(v, capped ? CappedFill : fill, RowText, Bold: true, Center: true,
-                    Note: max is double cap && cap > 0 ? $"{v.ToString(CultureInfo.InvariantCulture)} / {cap.ToString(CultureInfo.InvariantCulture)}" : null);
+                var cap = Num(c, maxField) is double mx && mx > 0 ? mx : (double?)null;
+                var capped = cap is double m && v >= m;
+                yield return new SheetCell(v, capped ? p.CappedFill : fill, capped ? p.CappedText : p.Text, Bold: capped, Center: true,
+                    NumberFormat: cap is double k ? "0\" / " + k.ToString(CultureInfo.InvariantCulture) + "\"" : null,
+                    Note: cap is double n ? $"{v.ToString(CultureInfo.InvariantCulture)} / {n.ToString(CultureInfo.InvariantCulture)}" : null);
             }
         }
-        return new Layout(Skills, now, avatar).Build(chars, header, Row, null,
-            [null, .. SkillColumns.Select(_ => (int?)IconSize + 8)], iconHeader: true);
+        return view.Build(chars, metrics,
+            [new("PROGRESS", 1), new("CRAFTING", 6), new("GATHERING", 3), new("SECONDARY SKILLS & RIDING", 4)], headers, Row);
     }
 
     /// <summary>
@@ -535,27 +660,34 @@ public static class SheetExport
     }
 
     /// <summary>
-    /// The reputations any character has met (the addon's <c>RepFieldsInUse</c>: a column no
-    /// character has would only ever be blank), as the owner's sheet had them: a letter, here in
-    /// its standing's colour. A pair of one side's faction and the other's is one column, as in
-    /// bruk's template: each section's header shows its own side's tabard (or short name), and
-    /// each character its own side's standing.
+    /// The reputations any character has met (the addon's <c>RepFieldsInUse</c>), the pairs of one
+    /// side's faction and the other's first, then the shared ones, each in the addon's order. A
+    /// pair's heading is the Horde name over the Alliance one, and each character's cell is its
+    /// own side's standing, by its Faction. A standing in full; its faction and standing in the note.
     /// </summary>
     internal static SheetTable BuildReputations(IReadOnlyList<Dictionary<object, object?>> chars, long now = 0,
-        AvatarSource? avatar = null)
+        AvatarSource? avatar = null, SheetPalette? palette = null)
     {
+        var p = palette ?? SheetPalette.Dark;
+        var view = new View(Reputations, "reputations", now, avatar, p);
         static double? Standing(Dictionary<object, object?> c, SheetReputation r) =>
             Num(c, "rep_" + r.Id.ToString(CultureInfo.InvariantCulture)) is double v && v is >= 1 and <= 8 ? v : null;
         var used = RepColumns().Where(col => col.All.Any(r => chars.Any(c => Standing(c, r) is not null))).ToList();
-        IReadOnlyList<SheetCell> Header(string faction) =>
-            [.. used.Select(col => col.For(faction) is var r && r.Icon is { } icon
-                ? HeaderIcon(icon, string.Join(" / ", col.All.Select(x => x.Label)))
-                : SheetExport.Header(r.Short, string.Join(" / ", col.All.Select(x => x.Label))))];
+        var pairs = used.Where(col => col.Neutral is null).ToList();
+        var shared = used.Where(col => col.Neutral is not null).ToList();
+        List<RepColumn> ordered = [.. pairs, .. shared];
+        var recorded = chars.Sum(c => AllReputations.Count(r => Standing(c, r) is not null));
+        List<Metric> metrics = [new("RECORDED STANDINGS", new SheetCell((double)recorded, Bold: true))];
+        if (pairs.Count > 0)
+            metrics.Add(new("PAIRED HEADINGS", new SheetCell("Read the upper name for Horde and the lower name for Alliance.", FontSize: 10)));
+        List<SheetCell> headers = [.. ordered.Select(col => col.Neutral is { } n ? view.Header(n.Label)
+            : view.Header($"{col.Horde!.Label}\n{col.Alliance!.Label}", "Horde above, Alliance below: each character's own side"))];
         IEnumerable<SheetCell> Row(Dictionary<object, object?> c, string fill)
         {
-            foreach (var col in used)
+            foreach (var col in ordered)
             {
-                // Its own side's; a character that somehow has only the other side's still shows it.
+                // Its own side's; a character that somehow has only the other side's still shows
+                // it, marked, the note naming which.
                 var mine = col.For(Str(c, "faction"));
                 var r = Standing(c, mine) is not null ? mine : col.All.FirstOrDefault(x => Standing(c, x) is not null);
                 if (r is null || Standing(c, r) is not double v)
@@ -563,59 +695,73 @@ public static class SheetExport
                     yield return new SheetCell(null, fill);
                     continue;
                 }
-                var (letter, name, color) = Standings[(int)v];
-                yield return new SheetCell(letter, color, RowText, Bold: true, Note: $"{r.Label}: {name}", Center: true);
+                var (text, tint) = p.Standings[(int)v];
+                var other = r != mine;
+                yield return new SheetCell(StandingNames[(int)v] + (other ? " *" : ""), tint ?? fill, text, Bold: tint is not null, Center: true,
+                    Note: $"{r.Label}: {StandingNames[(int)v]}" + (other ? " (the other side's faction)" : ""));
             }
         }
-        return new Layout(Reputations, now, avatar).Build(chars, Header, used.Count, Row, null,
-            [.. used.Select(col => (int?)(col.All.Any(r => r.Icon is not null) ? IconSize + 8 : null))],
-            iconHeader: used.Any(col => col.All.Any(r => r.Icon is not null)));
+        List<Group> groups = [];
+        if (pairs.Count > 0) groups.Add(new("FACTION PAIRS / HORDE ABOVE ALLIANCE", pairs.Count));
+        if (shared.Count > 0) groups.Add(new("SHARED FACTIONS", shared.Count));
+        return view.Build(chars, metrics, groups, headers, Row, headerHeight: pairs.Count > 0 ? PairHeaderHeight : HeaderHeight);
     }
 
     /// <summary>
-    /// Bruk's template's gear view: the average item level, each slot's item level in its
-    /// quality's colour (the item's name and enchant are the cell's note), then the enchant on
-    /// each slot that takes one. On dark, not the class colour: quality colours need it.
+    /// Gear: the character's item level, the 17 slots in the paper doll's order - armour and
+    /// neck, rings and trinkets, weapons - each its item level in its quality's colour (the item,
+    /// its enchant and its quality in words as the note, its Wowhead page as the link), then the
+    /// enchants, for the slots any character has one on.
     /// </summary>
     internal static SheetTable BuildGear(IReadOnlyList<Dictionary<object, object?>> chars, long now = 0,
-        AvatarSource? avatar = null)
+        AvatarSource? avatar = null, SheetPalette? palette = null)
     {
+        var p = palette ?? SheetPalette.Dark;
+        var view = new View(Gear, "gear-progression", now, avatar, p);
         var labels = GearSlots.ToDictionary(s => s.Key, s => s.Label, StringComparer.Ordinal);
-        // Only the slots some character has an enchant on, as reputations only those met.
         var enchants = EnchantSlots.Where(s => chars.Any(c => Str(c, "gearench_" + s) is { Length: > 0 })).ToList();
-        List<SheetCell> header =
+        var equipped = chars.Sum(c => GearSlots.Count(s => Occupied(c, s.Key)));
+        List<Metric> metrics =
         [
-            Header("iLvl"), .. GearSlots.Select(s => Header(s.Label)),
-            .. enchants.Select(s => Header(labels[s] + " enchant")),
+            new("EQUIPPED ITEMS", new SheetCell((double)equipped, Bold: true)),
+            new("ITEM DETAILS", new SheetCell("Hover for item and enchant. Click for Wowhead.", FontSize: 10)),
+        ];
+        List<SheetCell> headers =
+        [
+            view.Header("iLvl"), .. GearSlots.Select(s => view.Header(s.Label)),
+            .. enchants.Select(s => view.Header(labels[s] + " enchant")),
         ];
         IEnumerable<SheetCell> Row(Dictionary<object, object?> c, string fill)
         {
-            yield return Num(c, "ilvl") is double ilvl ? new SheetCell(Math.Round(ilvl, 1), PageFill, HeaderText, true, "0.0", Center: true) : new SheetCell(null, PageFill);
-            foreach (var (key, _) in GearSlots) yield return ItemCell(c, key);
+            yield return Num(c, "ilvl") is double ilvl ? new SheetCell(Math.Round(ilvl, 1), fill, p.Cyan, Bold: true, NumberFormat: "0.0", Center: true) : new SheetCell(null, fill);
+            foreach (var (key, _) in GearSlots) yield return ItemCell(c, key, fill, p);
             foreach (var key in enchants)
-                yield return Str(c, "gearench_" + key) is { Length: > 0 } ench ? new SheetCell(ench, PageFill, HeaderText) : new SheetCell(null, PageFill);
+                yield return new SheetCell(Str(c, "gearench_" + key) is { Length: > 0 } ench ? ench : null, fill, p.Secondary);
         }
-        return new Layout(Gear, now, avatar).Build(chars, header, Row, null,
-            [], iconHeader: false);
+        List<Group> groups = [new("GEAR", 1), new("ARMOUR & NECK", 10), new("RINGS & TRINKETS", 4), new("WEAPONS", 3)];
+        if (enchants.Count > 0) groups.Add(new("ENCHANTS", enchants.Count));
+        return view.Build(chars, metrics, groups, headers, Row);
     }
 
-    // The item's level in its quality's colour, its name and enchant as the cell's note. A slot
-    // whose name the client had not cached at scan time still shows that something is there.
-    private static SheetCell ItemCell(Dictionary<object, object?> c, string key)
+    // Something worn there: an item id, or a name.
+    private static bool Occupied(Dictionary<object, object?> c, string key) =>
+        (Num(c, "gearid_" + key) ?? 0) > 0 || Str(c, "gearname_" + key) is { Length: > 0 };
+
+    // The item's level in its quality's colour, its name, enchant and quality as the note. A slot
+    // whose name the client had not cached at scan time, or whose level is unknown, still shows
+    // that something is there.
+    private static SheetCell ItemCell(Dictionary<object, object?> c, string key, string fill, SheetPalette p)
     {
+        if (!Occupied(c, key)) return new SheetCell(null, fill);
         var id = Num(c, "gearid_" + key) ?? 0;
-        var name = Str(c, "gearname_" + key);
-        if (string.IsNullOrEmpty(name))
-        {
-            if (id <= 0) return new SheetCell(null, PageFill);
-            name = "item " + id.ToString(CultureInfo.InvariantCulture);
-        }
+        var name = Str(c, "gearname_" + key) is { Length: > 0 } n ? n : "item " + id.ToString(CultureInfo.InvariantCulture);
         var q = (int)(Num(c, "gearq_" + key) ?? 1);
-        var color = q >= 0 && q < QualityColors.Length ? QualityColors[q] : QualityColors[1];
+        if (q < 0 || q >= p.Quality.Count) q = 1;
         var note = new List<string> { name };
         if (Str(c, "gearench_" + key) is { Length: > 0 } ench) note.Add("Enchanted: " + ench);
+        note.Add("Quality: " + QualityNames[q]);
         object value = Num(c, "gear_" + key) is double ilvl and > 0 ? ilvl : "?";
-        return new SheetCell(value, PageFill, color, Bold: true, Note: string.Join('\n', note), Center: true,
+        return new SheetCell(value, fill, p.Quality[q], Note: string.Join('\n', note), Center: true,
             Link: id > 0 ? WowheadItem + id.ToString(CultureInfo.InvariantCulture) : null);
     }
 
@@ -639,45 +785,17 @@ public static class SheetExport
         return pvp ? "PvP" : "PvE";
     }
 
-    private static string ClassFill(Dictionary<object, object?> c) =>
-        Str(c, "class") is { } cls && ClassColors.TryGetValue(cls, out var fill) ? fill : HeaderFill;
-
-    private static SheetCell NameCell(Dictionary<object, object?> c) =>
-        new(Str(c, "name"), ClassFill(c), ClassColors.ContainsKey(Str(c, "class") ?? "") ? RowText : HeaderText, Bold: true);
-
-    private static SheetCell ClassIcon(Dictionary<object, object?> c, string fill) =>
-        Str(c, "class") is { Length: > 0 } cls && ClassColors.ContainsKey(cls)
-            ? new SheetCell(new SheetImage(IconHost + "classicon_" + cls.ToLowerInvariant() + ".jpg"), fill, Note: Title(cls))
-            : new SheetCell(null, fill);
-
-    // The render the app holds, else the race's silhouette: under level 10 the armory has none.
-    // Without portraits from the armory, the column is there, empty.
-    private static SheetCell AvatarCell(Dictionary<object, object?> c, AvatarSource? avatar, string fill)
-    {
-        if (avatar is null) return new SheetCell(null, fill);
-        var url = Num(c, "level") >= Armory.MinLevel && Str(c, "guid") is { } guid && avatar.Drawn.Contains(guid)
-            ? Armory.AvatarUrl(guid, avatar.Sd)
-            : null;
-        url ??= Armory.PlaceholderUrl(Str(c, "race"), Str(c, "faction"), Female(c));
-        return new SheetCell(url is null ? null : new SheetImage(url), fill);
-    }
+    // The export's time, as the masthead says it: this PC's wall clock.
+    private static string LocalTime(long epoch) =>
+        DateTimeOffset.FromUnixTimeSeconds(epoch).ToLocalTime().ToString("d MMM yyyy  HH:mm", CultureInfo.InvariantCulture);
 
     // sexID is 0 male, 1 female; an older record has only the word.
     private static bool Female(Dictionary<object, object?> c) =>
         Num(c, "sexID") is double id ? id == 1 : Str(c, "gender") == "Female";
 
-    private static SheetCell Text(string? s, string fill) =>
-        new(string.IsNullOrEmpty(s) ? null : s, fill, RowText, Bold: true);
-
-    private static SheetCell Number(double? d, string fill) =>
-        new(d, fill, RowText, Bold: true, Center: true);
-
     // "DRUID" -> "Druid", "DEATHKNIGHT" -> "Deathknight": the class token, readable.
     private static string? Title(string? token) =>
         string.IsNullOrEmpty(token) ? token : token[..1].ToUpperInvariant() + token[1..].ToLowerInvariant();
-
-    private static string LocalTime(long epoch) =>
-        DateTimeOffset.FromUnixTimeSeconds(epoch).ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Epoch seconds as a Sheets date serial (days since 1899-12-30), in this PC's local time:

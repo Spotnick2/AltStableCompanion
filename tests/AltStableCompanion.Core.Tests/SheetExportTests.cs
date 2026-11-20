@@ -154,84 +154,449 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(["H20", "H5", "A30", "A10"], chars.Select(c => c["name"]));
     }
 
-    // A character's row: the one whose first cell is its name.
-    private static IReadOnlyList<SheetCell> RowOf(SheetTable t, string name) => t.Rows.Single(r => r[0].Value as string == name);
+    // The layout's rows: the masthead (0-1), the groups (2), the column names (3), then characters.
+    private const int Names = 3, First = 4, Lead = 5;
 
-    // A column by its header: a label, or an icon's note.
+    // A character's row: the one whose Character cell is its name.
+    private static IReadOnlyList<SheetCell> RowOf(SheetTable t, string name) => t.Rows.Skip(First).First(r => r[1].Value as string == name);
+
+    // A column by its name, or its note.
     private static int Col(SheetTable t, string label)
     {
-        var header = t.Rows.First(r => r[0].Value as string == "Character");
-        var at = header.ToList().FindIndex(c => c.Value as string == label || c.Note == label || (c.Note?.StartsWith(label + ":", StringComparison.Ordinal) ?? false));
+        var at = t.Rows[Names].ToList().FindIndex(c => c.Value as string == label || c.Note == label);
         Assert.True(at >= 0, "no column " + label);
         return at;
     }
 
     private static string? ImageOf(SheetCell c) => c.Value is SheetImage i ? i.Url : null;
 
-    [Fact]
-    public void A_tab_is_the_last_update_line_then_a_section_per_side()
-    {
-        var chars = new List<Dictionary<object, object?>>
-        {
-            Char(("name", "H1"), ("faction", "Horde"), ("class", "MAGE"), ("level", 20)),
-            Char(("name", "A1"), ("faction", "Alliance"), ("class", "PRIEST"), ("level", 10)),
-        };
-        var now = 1795044105L;
+    private static List<Dictionary<object, object?>> TwoSides() =>
+    [
+        Char(("name", "H1"), ("faction", "Horde"), ("class", "MAGE"), ("level", 20), ("guid", "Player-1-01")),
+        Char(("name", "H2"), ("faction", "Horde"), ("class", "SHAMAN"), ("level", 12), ("guid", "Player-1-03")),
+        Char(("name", "A1"), ("faction", "Alliance"), ("class", "PRIEST"), ("level", 10), ("guid", "Player-1-02")),
+    ];
 
-        foreach (var t in SheetExport.Build(chars, now))
+    [Fact]
+    public void Every_tab_is_one_table_under_a_masthead_its_groups_and_its_column_names()
+    {
+        var now = 1795044105L;
+        var p = SheetPalette.Dark;
+        var icons = new Dictionary<string, string>
         {
-            Assert.Equal("Last update: " + DateTimeOffset.FromUnixTimeSeconds(now).ToLocalTime().ToString("yyyy-MM-dd HH:mm"), t.Rows[0][0].Value);
-            Assert.Equal(["Horde", "Character", "H1", "Alliance", "Character", "A1"], t.Rows.Skip(1).Select(r => r[0].Value as string));
-            Assert.EndsWith("ui_hordeicon.jpg", ImageOf(t.Rows[1][1]));
-            Assert.EndsWith("ui_allianceicon.jpg", ImageOf(t.Rows[4][1]));
-            Assert.Equal(1, t.FrozenRows);
+            [SheetExport.Characters] = "account-summary", [SheetExport.Skills] = "skills",
+            [SheetExport.Reputations] = "reputations", [SheetExport.Gear] = "gear-progression",
+        };
+
+        var tabs = SheetExport.Build(TwoSides(), now);
+
+        Assert.Equal([SheetExport.Characters, SheetExport.Skills, SheetExport.Reputations, SheetExport.Gear], tabs.Select(t => t.Title));
+        foreach (var t in tabs)
+        {
+            // The masthead: the section's icon (by a fixed commit), the wordmark, the title, the time.
+            Assert.Equal(SheetExport.IconBase + icons[t.Title] + ".png", ImageOf(t.Rows[0][0]));
+            Assert.StartsWith("https://raw.githubusercontent.com/Spotnick2/AltStableCompanion/" + SheetExport.IconCommit, SheetExport.IconBase);
+            Assert.Equal("ALTSTABLE / COMPANION", t.Rows[0][1].Value);
+            Assert.Equal(t.Title, t.Rows[1][1].Value);
+            Assert.Equal("LAST EXPORT", t.Rows[0][3].Value);
+            Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(now).ToLocalTime().ToString("d MMM yyyy  HH:mm", CultureInfo.InvariantCulture), t.Rows[1][3].Value);
+            Assert.Contains(new SheetMerge(0, 0, 2, 1), t.Merges!);
+            // The groups, then the same five columns first on every tab.
+            Assert.Equal("CHARACTER", t.Rows[2][0].Value);
+            Assert.Equal("AFFILIATION", t.Rows[2][3].Value);
+            Assert.Equal("Portrait", t.Rows[Names][0].Note);
+            Assert.Equal(["Character", "Account", "Class", "Faction"], t.Rows[Names].Skip(1).Take(4).Select(c => c.Value));
+            // A row per character in the roster's order; the filter over the names and them.
+            Assert.Equal(["H1", "H2", "A1"], t.Rows.Skip(First).Take(3).Select(r => r[1].Value));
+            Assert.Equal(new SheetFilter(Names, First + 3), t.Filter);
+            Assert.Equal(4, t.FrozenRows);
             Assert.Equal(3, t.FrozenColumns);
-            Assert.Equal(SheetExport.AvatarSize, t.RowHeights![3]);
-            Assert.Equal(SheetExport.IconSize, t.RowHeights[1]);
-            // Every cell coloured, rows as long as the header: bands of colour, no gaps.
+            // Shades in turn, and a fine line where the faction changes - only there.
+            Assert.Equal([p.RowA, p.RowB, p.RowA], t.Rows.Skip(First).Take(3).Select(r => r[1].Fill));
+            Assert.All(t.Rows[First + 2], c => Assert.Equal(p.Divider, c.BorderTop));
+            Assert.All(t.Rows[First + 1], c => Assert.Null(c.BorderTop));
+            // Every row as long as the table, every cell coloured, every column a width.
             Assert.All(t.Rows, r => Assert.Equal(t.Columns, r.Count));
             Assert.All(t.Rows.SelectMany(r => r), c => Assert.NotNull(c.Fill));
-            // Every column has a width: Sheets' own fit cuts bold text short.
             Assert.All(t.ColumnWidths!, w => Assert.NotNull(w));
-            Assert.Equal(t.Columns, t.ColumnWidths!.Count);
-            // The "Last update" line runs on into the cells beside it: it widens Name only
-            // when the whole tab is narrower than it (Reputations here: nobody has met a faction).
-            Assert.True(t.ColumnWidths.Sum(w => w!.Value) >= SheetExport.TextWidth(t.Rows.Take(1), 0), t.Title);
-            if (t.Title == SheetExport.Characters)
-            {
-                Assert.Equal(SheetExport.TextWidth(t.Rows.Skip(1), 0), t.ColumnWidths[0]);
-                Assert.True(t.ColumnWidths[0] < SheetExport.TextWidth(t.Rows, 0));
-            }
+            Assert.Equal(SheetExport.AvatarSize, t.ColumnWidths![0]);
+            Assert.Equal(t.Rows.Count, t.RowHeights!.Count);
+            Assert.Equal(SheetExport.RowHeight, t.RowHeights[First]);
         }
-        Assert.Equal([SheetExport.Characters, SheetExport.Skills, SheetExport.Reputations, SheetExport.Gear],
-            SheetExport.Build(chars, now).Select(t => t.Title));
+        var ch = tabs[0];
+        Assert.Equal(p.Tint("3FC7EB"), RowOf(ch, "H1")[1].Color);                // the class colour, tinted
+        Assert.Equal("Mage", RowOf(ch, "H1")[3].Value);                           // and its name, plain
+        Assert.Equal(p.Horde, RowOf(ch, "H1")[4].Color);
+        Assert.Equal(p.Alliance, RowOf(ch, "A1")[4].Color);
     }
 
     [Fact]
-    public void Characters_has_gold_in_coins_the_class_colour_and_icon_the_hearth_and_the_ruleset()
+    public void The_light_theme_is_the_same_layout_in_its_own_colours()
+    {
+        var dark = SheetExport.Build(TwoSides(), 0);
+        var light = SheetExport.Build(TwoSides(), 0, palette: SheetPalette.Light);
+
+        Assert.Equal(dark.Select(t => t.Rows.Count), light.Select(t => t.Rows.Count));
+        Assert.Equal(dark.Select(t => t.Columns), light.Select(t => t.Columns));
+        Assert.Equal(SheetPalette.Light.Masthead, light[0].Rows[0][1].Fill);
+        Assert.Equal(SheetPalette.Light.RowA, RowOf(light[0], "H1")[1].Fill);
+        Assert.Equal(SheetPalette.Light.Tint("FFFFFF"), RowOf(light[0], "A1")[1].Color);
+        Assert.NotEqual(SheetPalette.Dark.Tint("FFFFFF"), SheetPalette.Light.Tint("FFFFFF"));
+        Assert.Same(SheetPalette.Light, SheetPalette.Of("light"));
+        Assert.Same(SheetPalette.Dark, SheetPalette.Of("anything"));
+    }
+
+    [Fact]
+    public void Characters_has_the_coin_purse_rested_as_a_share_and_each_factions_totals_below()
     {
         var table = SheetExport.BuildCharacters([
-            Char(("name", "K"), ("class", "SHAMAN"), ("faction", "Horde"), ("money", 102690), ("bind", "Booty Bay"),
-                ("realm", "CAMWOW US2 Realm 1 PvE"), ("accountNumber", 2)),
-            Char(("name", "L"), ("class", "MAGE"), ("faction", "Horde"), ("money", 9))], 0);
+            Char(("name", "K"), ("class", "SHAMAN"), ("faction", "Horde"), ("level", 16), ("ilvl", 7.5), ("money", 10269), ("bind", "Booty Bay"),
+                ("realm", "CAMWOW US2 Realm 1 PvE"), ("accountNumber", 2), ("restPercent", 150), ("xpMax", 1000), ("restTimestamp", 0)),
+            Char(("name", "L"), ("class", "MAGE"), ("faction", "Horde"), ("level", 1), ("ilvl", 0.0), ("money", 69)),
+            Char(("name", "Z"), ("class", "PRIEST"), ("faction", "Alliance"), ("level", 1), ("money", 0)),
+            Char(("name", "U"), ("class", "PRIEST"), ("faction", "Alliance"), ("level", 1))], 0);
 
         var k = RowOf(table, "K");
-        var gold = Col(table, "Gold");
-        Assert.Equal([10.0, 26.0, 90.0], new[] { k[gold].Value, k[gold + 2].Value, k[gold + 4].Value });
-        Assert.EndsWith("inv_misc_coin_01.jpg", ImageOf(k[gold + 1]));
-        Assert.EndsWith("inv_misc_coin_05.jpg", ImageOf(k[gold + 5]));
-        // The side's gold on its banner.
-        var banner = table.Rows[1];
-        Assert.Equal([10.0, 26.0, 99.0], new[] { banner[gold].Value, banner[gold + 2].Value, banner[gold + 4].Value });
-        Assert.Equal("0070DD", k[0].Fill);
-        Assert.Equal("0070DD", k[gold].Fill);
-        Assert.EndsWith("classicon_shaman.jpg", ImageOf(k[2]));
-        Assert.Equal("Shaman", k[2].Note);
+        var coin = Col(table, "Coin purse");
+        // The copper balance, shown 1g 02s 69c: one column that sorts and adds.
+        Assert.Equal(10269.0, k[coin].Value);
+        Assert.Equal("0\"g \"00\"s \"00\"c\"", k[coin].NumberFormat);
+        Assert.Equal(0.0, RowOf(table, "Z")[coin].Value);        // a recorded zero is zero
+        Assert.Null(RowOf(table, "U")[coin].Value);              // an unknown balance is blank
+        // 150% is 1.5, shown 150%; no snapshot is blank.
+        Assert.Equal(1.5, k[Col(table, "Rested XP")].Value);
+        Assert.Equal("0%", k[Col(table, "Rested XP")].NumberFormat);
+        Assert.Null(RowOf(table, "U")[Col(table, "Rested XP")].Value);
+        Assert.Equal(2.0, k[2].Value);
         Assert.Equal("Booty Bay", k[Col(table, "Hearthstone")].Value);
-        Assert.Equal(2.0, k[Col(table, "Acc")].Value);
-        var ruleset = k[Col(table, "Ruleset")];
-        Assert.Equal("PvE", ruleset.Value);
-        Assert.Equal("CAMWOW US2 Realm 1 PvE", ruleset.Note);
+        Assert.Equal("PvE", k[Col(table, "Ruleset")].Value);
+        Assert.Equal("CAMWOW US2 Realm 1 PvE", k[Col(table, "Ruleset")].Note);
+
+        // The masthead's figures: the whole roster; the average iLvl of those recorded, zero included.
+        string? Metric(string label) => table.Rows[1][table.Rows[0].ToList().FindIndex(c => c.Value as string == label)].Value?.ToString();
+        Assert.Equal("4", Metric("CHARACTERS"));
+        Assert.Equal("10338", Metric("TOTAL COIN"));
+        Assert.Equal("19", Metric("TOTAL LEVELS"));
+        Assert.Equal("3.8", Metric("AVERAGE iLVL"));
+
+        // Below the table, outside the filter: each faction, then everyone.
+        Assert.Equal(new SheetFilter(Names, First + 4), table.Filter);
+        var footer = table.Rows.Skip(First + 4).ToList();
+        Assert.Equal("FACTION TOTALS", footer[1][0].Value);
+        IReadOnlyList<SheetCell> Line(string name) => footer.Single(r => r[0].Value as string == name);
+        Assert.Equal([2.0, 17.0, 10338.0], new[] { Line("Horde")[Lead].Value, Line("Horde")[Lead + 1].Value, Line("Horde")[coin].Value });
+        Assert.Equal([2.0, 2.0, 0.0], new[] { Line("Alliance")[Lead].Value, Line("Alliance")[Lead + 1].Value, Line("Alliance")[coin].Value });
+        Assert.Equal([4.0, 19.0, 10338.0], new[] { Line("All characters")[Lead].Value, Line("All characters")[Lead + 1].Value, Line("All characters")[coin].Value });
+    }
+
+    [Fact]
+    public void A_skill_reads_current_over_cap_capped_in_gold_unlearned_empty()
+    {
+        var p = SheetPalette.Dark;
+        var table = SheetExport.BuildSkills([Char(("name", "K"), ("class", "MAGE"), ("level", 30),
+            ("prof_Enchanting", 150), ("profmax_Enchanting", 150),
+            ("prof_Tailoring", 149), ("profmax_Tailoring", 150),
+            ("prof_Mining", 12),
+            ("fishing", 0), ("fishingMax", 75))]);
+
+        var k = RowOf(table, "K");
+        var ench = k[Col(table, "Enchanting")];
+        Assert.Equal(150.0, ench.Value);
+        Assert.Equal("0\" / 150\"", ench.NumberFormat);
+        Assert.Equal((p.CappedFill, p.CappedText), (ench.Fill, ench.Color));
+        var tail = k[Col(table, "Tailoring")];
+        Assert.Equal("0\" / 150\"", tail.NumberFormat);
+        Assert.Equal(p.RowA, tail.Fill);
+        Assert.Equal("149 / 150", tail.Note);
+        Assert.Null(k[Col(table, "Mining")].NumberFormat);     // no cap recorded: the rank alone
+        Assert.Null(k[Col(table, "Fishing")].Value);
+        // Crafting, gathering, the secondary skills and riding.
+        Assert.Equal("CRAFTING", table.Rows[2][Col(table, "Alchemy")].Value);
+        Assert.Equal("GATHERING", table.Rows[2][Col(table, "Herbalism")].Value);
+        Assert.Equal("SECONDARY SKILLS & RIDING", table.Rows[2][Col(table, "Cooking")].Value);
+        Assert.Equal(Lead + 1 + 13, table.Columns);
+    }
+
+    [Fact]
+    public void Reputations_are_pairs_then_shared_factions_in_full_words_each_row_its_own_side()
+    {
+        var p = SheetPalette.Dark;
+        var table = SheetExport.BuildReputations([
+            Char(("name", "K"), ("class", "MAGE"), ("faction", "Horde"), ("rep_76", 6), ("rep_529", 4), ("rep_609", 9), ("rep_889", 5)),
+            Char(("name", "A"), ("class", "MAGE"), ("faction", "Alliance"), ("rep_72", 7)),
+            Char(("name", "B"), ("class", "MAGE"), ("faction", "Alliance"), ("rep_76", 5))]);   // only the other side's
+
+        // The pairs first - Stormwind/Orgrimmar, and Warsong Gulch's, which the addon lists after Argent
+        // Dawn - then Argent Dawn (shared); a standing out of range is none.
+        // (A narrow tab has empty columns after its own, to hold the masthead's figures.)
+        Assert.Equal(3, table.Rows[Names].Skip(Lead).Count(c => c.Value is string { Length: > 0 }));
+        Assert.Equal("Orgrimmar\nStormwind", table.Rows[Names][Lead].Value);    // Horde above, Alliance below
+        Assert.True(table.Rows[Names][Lead].Wrap);
+        Assert.Equal("Warsong Outriders\nSilverwing Sentinels", table.Rows[Names][Lead + 1].Value);
+        Assert.Equal("Argent Dawn", table.Rows[Names][Lead + 2].Value);
+        Assert.Equal("FACTION PAIRS / HORDE ABOVE ALLIANCE", table.Rows[2][Lead].Value);
+        Assert.Equal("SHARED FACTIONS", table.Rows[2][Lead + 2].Value);
+        Assert.Equal(SheetExport.PairHeaderHeight, table.RowHeights![Names]);
+
+        var k = RowOf(table, "K")[Lead];
+        Assert.Equal("Honored", k.Value);
+        Assert.Equal(p.Standings[6].Fill, k.Fill);
+        Assert.Equal("Orgrimmar: Honored", k.Note);
+        Assert.Equal("Neutral", RowOf(table, "K")[Lead + 2].Value);
+        Assert.Equal("Stormwind: Revered", RowOf(table, "A")[Lead].Note);
+        Assert.Equal("Friendly *", RowOf(table, "B")[Lead].Value);
+        Assert.Equal("Orgrimmar: Friendly (the other side's faction)", RowOf(table, "B")[Lead].Note);
+        Assert.Null(RowOf(table, "A")[Lead + 2].Value);
+    }
+
+    [Fact]
+    public void Every_reputation_is_in_exactly_one_column_in_the_addons_order()
+    {
+        var columns = SheetExport.RepColumns();
+
+        Assert.Equal(SheetExport.AllReputations.Select(r => r.Id).Order(), columns.SelectMany(c => c.All).Select(r => r.Id).Order());
+        Assert.Equal(SheetExport.AllReputations.Length - SheetExport.RepPairs.Length, columns.Count);
+        Assert.Equal((72, 76), (columns[0].Alliance!.Id, columns[0].Horde!.Id));
+    }
+
+    [Fact]
+    public void Gear_is_each_slots_item_level_in_its_quality_colour_its_item_a_note_and_a_link_then_the_enchants()
+    {
+        var p = SheetPalette.Dark;
+        var table = SheetExport.BuildGear([Char(("name", "K"), ("class", "MAGE"), ("ilvl", 27.24),
+            ("gearname_chest", "Civinad Robes"), ("gearq_chest", 3), ("gear_chest", 31), ("gearid_chest", 9623),
+            ("gearench_chest", "Stamina +2"),
+            ("gearname_feet", ""), ("gearid_feet", 9454), ("gearq_feet", 2),
+            ("gearname_head", ""), ("gearid_head", 0))]);
+
+        var k = RowOf(table, "K");
+        Assert.Equal(27.2, k[Col(table, "iLvl")].Value);
+        var chest = k[Col(table, "Chest")];
+        Assert.Equal(31.0, chest.Value);
+        Assert.Equal(p.Quality[3], chest.Color);
+        Assert.Equal("Civinad Robes\nEnchanted: Stamina +2\nQuality: Rare", chest.Note);
+        Assert.Equal("https://www.wowhead.com/forever/item=9623", chest.Link);
+        Assert.Equal("?", k[Col(table, "Feet")].Value);          // worn, its level not known
+        Assert.Equal("item 9454\nQuality: Uncommon", k[Col(table, "Feet")].Note);
+        Assert.Null(k[Col(table, "Head")].Value);                // nothing worn
+        Assert.Null(k[Col(table, "Head")].Link);
+        Assert.Equal("Stamina +2", k[Col(table, "Chest enchant")].Value);
+        // Only the slots someone has an enchant on; the groups of the paper doll.
+        Assert.Equal(Lead + 1 + SheetExport.GearSlots.Length + 1, table.Columns);
+        Assert.Equal("ARMOUR & NECK", table.Rows[2][Col(table, "Head")].Value);
+        Assert.Equal("RINGS & TRINKETS", table.Rows[2][Col(table, "Ring 1")].Value);
+        Assert.Equal("WEAPONS", table.Rows[2][Col(table, "Main Hand")].Value);
+        Assert.Equal("ENCHANTS", table.Rows[2][Col(table, "Chest enchant")].Value);
+        // Equipped items: both occupied slots, the one with an unknown level too.
+        Assert.Equal(2.0, table.Rows[1][table.Rows[0].ToList().FindIndex(c => c.Value as string == "EQUIPPED ITEMS")].Value);
+    }
+
+    [Fact]
+    public void An_empty_roster_is_still_a_readable_masthead_and_column_names()
+    {
+        foreach (var t in SheetExport.Build([], 1795044105L))
+        {
+            Assert.Equal(4, t.Rows.Count);
+            Assert.Equal(t.Title, t.Rows[1][1].Value);
+            Assert.NotNull(t.Rows[1][3].Value);                          // the last export
+            Assert.Equal(new SheetFilter(Names, First), t.Filter);
+            Assert.True(t.Columns >= 7, t.Title);                         // room for the masthead's figures
+        }
+    }
+
+    [Fact]
+    public void A_sheet_date_is_days_since_1899_12_30_in_local_time()
+    {
+        var epoch = 1795044105L;
+        var local = DateTimeOffset.FromUnixTimeSeconds(epoch).ToLocalTime().DateTime;
+
+        Assert.Equal(local, DateTime.FromOADate(SheetExport.SheetDate(epoch)), TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void A_text_column_is_as_wide_as_its_longest_text_or_line()
+    {
+        List<IReadOnlyList<SheetCell>> rows =
+        [
+            [new SheetCell("Windshaper Skyborne")], [new SheetCell("Orc")], [new SheetCell(1234567.0)],
+            [new SheetCell("Orgrimmar\nGnomeregan Exiles")],
+        ];
+
+        Assert.Equal((int)Math.Ceiling(19 * 7.5) + 16, SheetExport.TextWidth(rows.Take(2), 0));
+        Assert.Equal((int)Math.Ceiling(9 * 7.5) + 16, SheetExport.TextWidth(rows.Skip(2).Take(1), 0));   // 1,234,567
+        Assert.Equal((int)Math.Ceiling(17 * 7.5) + 16, SheetExport.TextWidth(rows.Skip(3), 0));          // its longest line
+        Assert.Equal(32, SheetExport.TextWidth([[SheetCell.Empty]], 0));
+    }
+
+    private static JsonNode Request(JsonArray requests, string kind) => requests.Select(r => r![kind]).OfType<JsonNode>().Single();
+
+    [Fact]
+    public void The_write_clears_the_last_layout_first_then_the_whole_tab_its_merges_and_its_filter()
+    {
+        var table = new SheetTable("Skills",
+            [[new SheetCell("Name"), new SheetCell("Level")], [new SheetCell("K", "FF7C0A"), new SheetCell(30.0, Center: true)], [SheetCell.Empty]],
+            FrozenColumns: 1, FrozenRows: 1, Merges: [new SheetMerge(0, 0, 2, 1)], Filter: new SheetFilter(0, 2));
+
+        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Skills"] = 7 });
+
+        // The last export's merges and filter go before the grid can shrink under them...
+        var kinds = requests.Select(r => r!.AsObject().Single().Key).ToList();
+        Assert.Equal(["unmergeCells", "clearBasicFilter", "updateSheetProperties", "updateCells"], kinds.Take(4));
+        Assert.Equal(["sheetId"], Request(requests, "unmergeCells")["range"]!.AsObject().Select(p => p.Key));
+        // ...and this export's come back last, on the grid it sized.
+        Assert.Equal(["mergeCells", "setBasicFilter"], kinds.TakeLast(2));
+        var merge = Request(requests, "mergeCells")["range"]!;
+        Assert.Equal((0, 2, 0, 1), ((int)merge["startRowIndex"]!, (int)merge["endRowIndex"]!, (int)merge["startColumnIndex"]!, (int)merge["endColumnIndex"]!));
+        var filter = Request(requests, "setBasicFilter")["filter"]!["range"]!;
+        Assert.Equal((0, 2, 0, 2), ((int)filter["startRowIndex"]!, (int)filter["endRowIndex"]!, (int)filter["startColumnIndex"]!, (int)filter["endColumnIndex"]!));
+
+        var grid = Request(requests, "updateSheetProperties")["properties"]!["gridProperties"]!;
+        Assert.Equal(3, (int)grid["rowCount"]!);          // no spare row under the colour
+        Assert.Equal(2, (int)grid["columnCount"]!);
+        Assert.Equal(1, (int)grid["frozenRowCount"]!);
+        Assert.Equal(1, (int)grid["frozenColumnCount"]!);
+        Assert.True((bool)grid["hideGridlines"]!);
+        var cells = Request(requests, "updateCells");
+        // The range is the whole tab, nothing narrower: a cell the table no longer has is cleared.
+        Assert.Equal(["sheetId"], cells["range"]!.AsObject().Select(p => p.Key));
+        var name = cells["rows"]![1]!["values"]![0]!;
+        Assert.Equal("K", (string)name["userEnteredValue"]!["stringValue"]!);
+        Assert.Equal(124 / 255.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["green"]!, 9);
+        Assert.Equal("MIDDLE", (string)name["userEnteredFormat"]!["verticalAlignment"]!);
+        Assert.Null(name["userEnteredFormat"]!["horizontalAlignment"]);
+        var level = cells["rows"]![1]!["values"]![1]!;
+        Assert.Equal("CENTER", (string)level["userEnteredFormat"]!["horizontalAlignment"]!);
+    }
+
+    [Fact]
+    public void No_filter_or_merge_is_set_where_the_table_has_none()
+    {
+        var requests = GoogleSheets.BuildWriteRequests([new SheetTable("Skills", [[new SheetCell("x")]])],
+            new Dictionary<string, long> { ["Skills"] = 7 });
+
+        Assert.DoesNotContain(requests, r => r!["mergeCells"] is not null || r["setBasicFilter"] is not null);
+        Assert.Contains(requests, r => r!["clearBasicFilter"] is not null);    // the last one's still goes
+    }
+
+    [Fact]
+    public void A_cell_carries_its_size_wrap_line_alignment_link_and_number_format()
+    {
+        var cell = new SheetCell(31.0, Color: "112233", NumberFormat: "0\" / 150\"", Link: "https://x/item=1",
+            FontSize: 18, Wrap: true, BorderTop: "4A4A4A", Left: true);
+
+        var json = GoogleSheets.BuildWriteRequests([new SheetTable("Gear", [[cell]])], new Dictionary<string, long> { ["Gear"] = 7 })
+            .Select(r => r!["updateCells"]).OfType<JsonNode>().Single()["rows"]![0]!["values"]![0]!;
+
+        var format = json["userEnteredFormat"]!;
+        Assert.Equal(31.0, (double)json["userEnteredValue"]!["numberValue"]!);       // still a number
+        Assert.Equal(18, (int)format["textFormat"]!["fontSize"]!);
+        Assert.Equal("https://x/item=1", (string)format["textFormat"]!["link"]!["uri"]!);
+        Assert.Equal("WRAP", (string)format["wrapStrategy"]!);
+        Assert.Equal("SOLID", (string)format["borders"]!["top"]!["style"]!);
+        Assert.Equal(0x4A / 255.0, (double)format["borders"]!["top"]!["color"]!["red"]!, 9);
+        Assert.Equal("LEFT", (string)format["horizontalAlignment"]!);
+        Assert.Equal("0\" / 150\"", (string)format["numberFormat"]!["pattern"]!);
+    }
+
+    [Fact]
+    public void One_row_is_frozen_never_all_of_them()
+    {
+        var requests = GoogleSheets.BuildWriteRequests([new SheetTable("Skills", [[new SheetCell("Last update")]], FrozenRows: 4)],
+            new Dictionary<string, long> { ["Skills"] = 7 });
+
+        Assert.Equal(0, (int)Request(requests, "updateSheetProperties")["properties"]!["gridProperties"]!["frozenRowCount"]!);
+    }
+
+    [Fact]
+    public void Rows_get_their_heights_and_columns_their_widths_in_runs()
+    {
+        var table = new SheetTable("Characters",
+            [[new SheetCell("a"), new SheetCell("b"), new SheetCell("c")], [SheetCell.Empty], [new SheetCell(new SheetImage("https://x/a.jpg"))], [SheetCell.Empty]],
+            RowHeights: [null, 36, 42, 42], ColumnWidths: [null, 42, 42]);
+
+        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Characters"] = 3 });
+
+        var image = Request(requests, "updateCells")["rows"]![2]!["values"]![0]!;
+        Assert.Equal("=IMAGE(\"https://x/a.jpg\")", (string)image["userEnteredValue"]!["formulaValue"]!);
+        var sizes = requests.Select(r => r!["updateDimensionProperties"]).OfType<JsonNode>()
+            .Select(d => ((string)d["range"]!["dimension"]!, (int)d["range"]!["startIndex"]!, (int)d["range"]!["endIndex"]!, (int)d["properties"]!["pixelSize"]!))
+            .ToList();
+        // The default where the table says none: a row that was tall is not left tall.
+        Assert.Equal([("ROWS", 0, 1, GoogleSheets.DefaultRowHeight), ("ROWS", 1, 2, 36), ("ROWS", 2, 4, 42), ("COLUMNS", 1, 3, 42)], sizes);
+        var fit = Request(requests, "autoResizeDimensions");
+        Assert.Equal((0, 1), ((int)fit["dimensions"]!["startIndex"]!, (int)fit["dimensions"]!["endIndex"]!));
+    }
+
+    [Fact]
+    public void The_avatar_is_the_armory_one_by_player_number_hd_or_sd()
+    {
+        // Measured 2026-11-19: 678282 (0x000A598A) has both, 84x84 JPEGs.
+        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-avatar.jpg",
+            Armory.AvatarUrl("Player-6796-000A598A", sd: false));
+        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-avatar-sd.jpg",
+            Armory.AvatarUrl("Player-6796-000A598A", sd: true));
+        Assert.Null(Armory.AvatarUrl("Creature-0-1-2", sd: false));
+    }
+
+    [Theory]
+    [InlineData("Orc", "Horde", "Male", 0, "2-0")]
+    [InlineData("Scourge", "Horde", "Female", 1, "5-1")]
+    [InlineData("Skyborne", "Alliance", "Female", 1, "95-1")]     // High Order
+    [InlineData("Skyborne", "Horde", "Male", 0, "96-0")]          // Windshaper
+    public void The_placeholder_is_the_armory_silhouette_of_the_race_and_sex(string race, string faction, string gender, int sexId, string file)
+    {
+        // Measured 2026-11-19: forever-us/shadow/avatar/<ChrRaces id>-<0 male, 1 female>.jpg, all ten.
+        var expected = "https://render.worldofwarcraft.com/forever-us/shadow/avatar/" + file + ".jpg";
+        Assert.Equal(expected, Armory.PlaceholderUrl(race, faction, female: sexId == 1));
+
+        // sexID first; an older record has only the word.
+        foreach (var fields in new[] { new (string, object)[] { ("sexID", sexId), ("gender", "nonsense") }, [("gender", gender)] })
+        {
+            var path = Store("S" + file + fields.Length, Db(Record("Player-1-01",
+                [("name", "Low"), ("level", 5), ("race", race), ("faction", faction), .. fields])));
+            var table = SheetExport.BuildCharacters(SheetExport.Load([path]).Characters, 0, new AvatarSource(false, new HashSet<string>()));
+            Assert.Equal(expected, ImageOf(RowOf(table, "Low")[0]));
+        }
+    }
+
+    [Fact]
+    public void A_race_the_armory_has_no_silhouette_for_gets_no_picture()
+    {
+        Assert.Null(Armory.PlaceholderUrl("Skyborne", "Neutral", female: false));
+        Assert.Null(Armory.PlaceholderUrl("Vulpera", "Horde", female: false));
+        Assert.Null(Armory.PlaceholderUrl(null, "Horde", female: false));
+    }
+
+    [Fact]
+    public void A_drawn_character_gets_its_own_picture_linked_to_the_full_one_everyone_else_the_silhouette()
+    {
+        var path = Store("A", Db(
+            Record("Player-1-0000000A", ("name", "Drawn"), ("level", 10), ("race", "Orc"), ("sexID", 1)),
+            Record("Player-1-0000000B", ("name", "Undrawn"), ("level", 30), ("race", "Orc"), ("sexID", 0)),
+            Record("Player-1-00000009", ("name", "Nine"), ("level", 9), ("race", "Troll"), ("sexID", 1))));
+        var chars = SheetExport.Load([path]).Characters;
+        // A render under level 10 is not one the armory makes: a leftover is not trusted.
+        var drawn = new HashSet<string> { "Player-1-0000000A", "Player-1-00000009" };
+
+        foreach (var table in SheetExport.Build(chars, 0, new AvatarSource(true, drawn)))
+        {
+            // The record's key is the character's identity, and SD is the model asked for.
+            var own = RowOf(table, "Drawn")[0];
+            Assert.Equal(Armory.AvatarUrl("Player-1-0000000A", sd: true), ImageOf(own));
+            // Sheets cannot enlarge a picture on hover: it links to the armory's full one.
+            Assert.Equal(Armory.Url("Player-1-0000000A", sd: true), own.Link);
+            Assert.NotNull(own.Note);
+            Assert.Equal(Armory.PlaceholderUrl("Orc", null, female: false), ImageOf(RowOf(table, "Undrawn")[0]));
+            Assert.Null(RowOf(table, "Undrawn")[0].Link);
+            Assert.Equal(Armory.PlaceholderUrl("Troll", null, female: true), ImageOf(RowOf(table, "Nine")[0]));
+        }
+
+        // Without pictures the column is still there, empty: a formula's address keeps its field.
+        foreach (var plain in SheetExport.Build(chars, 0))
+        {
+            Assert.All(chars, c => Assert.Null(RowOf(plain, (string)c["name"]!)[0].Value));
+            Assert.DoesNotContain(plain.Rows.SelectMany(r => r), c => ImageOf(c) is { } url && url.Contains("/forever-us/", StringComparison.Ordinal));
+        }
     }
 
     // AltStable 1.9.0's own cases (tests/test_warband.lua), as the badge its Ruleset column shows.
@@ -284,256 +649,6 @@ public sealed class SheetExportTests : IDisposable
         Assert.Equal(2.0, chars.Single(c => (string)c["name"]! == "Late")["accountNumber"]);
         Assert.DoesNotContain(SheetExport.Build(chars, 0).SelectMany(t => t.Rows).SelectMany(r => r),
             c => (c.Value as string ?? c.Note ?? "").Contains('#'));
-    }
-
-    [Fact]
-    public void An_empty_tab_still_has_room_for_its_last_update_line()
-    {
-        foreach (var t in SheetExport.Build([], 1795044105L))
-        {
-            Assert.Single(t.Rows);
-            Assert.True(t.ColumnWidths!.Sum(w => w!.Value) >= SheetExport.TextWidth(t.Rows, 0), t.Title);
-        }
-    }
-
-    [Fact]
-    public void A_skill_at_its_cap_is_highlighted_one_below_is_not_and_zero_is_empty()
-    {
-        var table = SheetExport.BuildSkills([Char(("name", "K"), ("class", "MAGE"), ("level", 30),
-            ("prof_Enchanting", 150), ("profmax_Enchanting", 150),
-            ("prof_Tailoring", 149), ("profmax_Tailoring", 150),
-            ("fishing", 0), ("fishingMax", 75))]);
-
-        var k = RowOf(table, "K");
-        Assert.Equal(150.0, k[Col(table, "Enchanting")].Value);
-        Assert.Equal("FFF200", k[Col(table, "Enchanting")].Fill);
-        Assert.Equal("3FC7EB", k[Col(table, "Tailoring")].Fill);        // the row's class colour
-        Assert.Equal("149 / 150", k[Col(table, "Tailoring")].Note);
-        Assert.Null(k[Col(table, "Fishing")].Value);
-        var header = table.Rows.First(r => r[0].Value as string == "Character");
-        Assert.EndsWith("trade_engraving.jpg", ImageOf(header[Col(table, "Enchanting")]));
-    }
-
-    [Fact]
-    public void Reputations_are_the_factions_met_as_letters_in_their_standing_colour_a_pair_in_one_column()
-    {
-        var table = SheetExport.BuildReputations([
-            Char(("name", "K"), ("class", "MAGE"), ("faction", "Horde"), ("rep_76", 8), ("rep_2778", 5), ("rep_529", 9)),
-            Char(("name", "L"), ("class", "MAGE"), ("faction", "Horde"), ("rep_76", 1)),
-            Char(("name", "A"), ("class", "MAGE"), ("faction", "Alliance"), ("rep_72", 7)),
-            Char(("name", "B"), ("class", "MAGE"), ("faction", "Alliance"), ("rep_76", 5))]);   // only the other side's
-
-        // Stormwind/Orgrimmar and High Order/Windshapers: one column each. A standing out of range is none.
-        Assert.Equal(Lead + 2, table.Columns);
-        var headers = table.Rows.Where(r => r[0].Value as string == "Character").ToList();
-        Assert.EndsWith("inv_misc_tournaments_tabard_orc.jpg", ImageOf(headers[0][Lead]));        // the Horde section's
-        Assert.EndsWith("inv_misc_tournaments_tabard_human.jpg", ImageOf(headers[1][Lead]));      // the Alliance section's
-        Assert.Equal("Stormwind / Orgrimmar", headers[0][Lead].Note);
-        Assert.Equal("Windsh", headers[0][Lead + 1].Value);
-        Assert.Equal("HiOrdr", headers[1][Lead + 1].Value);
-
-        var k = RowOf(table, "K")[Lead];
-        Assert.Equal("E", k.Value);
-        Assert.Equal("00FFFF", k.Fill);
-        Assert.Equal("Orgrimmar: Exalted", k.Note);
-        Assert.Equal("Ha", RowOf(table, "L")[Lead].Value);
-        Assert.Equal("Stormwind: Revered", RowOf(table, "A")[Lead].Note);
-        Assert.Equal("Orgrimmar: Friendly", RowOf(table, "B")[Lead].Note);
-        Assert.Equal("Windshapers: Friendly", RowOf(table, "K")[Lead + 1].Note);
-        Assert.Null(RowOf(table, "A")[Lead + 1].Value);
-    }
-
-    [Fact]
-    public void Every_reputation_is_in_exactly_one_column_in_the_addons_order()
-    {
-        var columns = SheetExport.RepColumns();
-
-        Assert.Equal(SheetExport.AllReputations.Select(r => r.Id).Order(), columns.SelectMany(c => c.All).Select(r => r.Id).Order());
-        Assert.Equal(SheetExport.AllReputations.Length - SheetExport.RepPairs.Length, columns.Count);
-        Assert.Equal((72, 76), (columns[0].Alliance!.Id, columns[0].Horde!.Id));
-    }
-
-    private const int Lead = 3;
-
-    [Fact]
-    public void Gear_is_each_slots_item_level_in_its_quality_colour_then_the_enchants()
-    {
-        var table = SheetExport.BuildGear([Char(("name", "K"), ("class", "MAGE"), ("ilvl", 27.24),
-            ("gearname_chest", "Civinad Robes"), ("gearq_chest", 3), ("gear_chest", 31), ("gearid_chest", 9623),
-            ("gearench_chest", "Stamina +2"),
-            ("gearname_feet", ""), ("gearid_feet", 9454), ("gearq_feet", 2),
-            ("gearname_head", ""), ("gearid_head", 0))]);
-
-        var k = RowOf(table, "K");
-        Assert.Equal(27.2, k[Col(table, "iLvl")].Value);
-        Assert.Equal(31.0, k[Col(table, "Chest")].Value);
-        Assert.Equal("0070DD", k[Col(table, "Chest")].Color);
-        Assert.Equal("Civinad Robes\nEnchanted: Stamina +2", k[Col(table, "Chest")].Note);
-        Assert.Equal("?", k[Col(table, "Feet")].Value);          // worn, its level not known
-        Assert.Equal("item 9454", k[Col(table, "Feet")].Note);   // its name not cached at scan time
-        Assert.Null(k[Col(table, "Head")].Value);                // nothing worn
-        // Each item links to its Wowhead Forever page: its tooltip, a click away.
-        Assert.Equal("https://www.wowhead.com/forever/item=9623", k[Col(table, "Chest")].Link);
-        Assert.Equal("https://www.wowhead.com/forever/item=9454", k[Col(table, "Feet")].Link);
-        Assert.Null(k[Col(table, "Head")].Link);
-        Assert.Equal("Stamina +2", k[Col(table, "Chest enchant")].Value);
-        // Only the slots someone has an enchant on.
-        Assert.Equal(Lead + 1 + SheetExport.GearSlots.Length + 1, table.Columns);
-    }
-
-    [Fact]
-    public void A_sheet_date_is_days_since_1899_12_30_in_local_time()
-    {
-        var epoch = 1795044105L;
-        var local = DateTimeOffset.FromUnixTimeSeconds(epoch).ToLocalTime().DateTime;
-
-        Assert.Equal(local, DateTime.FromOADate(SheetExport.SheetDate(epoch)), TimeSpan.FromSeconds(1));
-    }
-
-    [Fact]
-    public void A_text_column_is_as_wide_as_its_longest_text()
-    {
-        List<IReadOnlyList<SheetCell>> rows =
-        [
-            [new SheetCell("Windshaper Skyborne")], [new SheetCell("Orc")], [new SheetCell(1234567.0)],
-            [new SheetCell(1.0, NumberFormat: "yyyy-mm-dd hh:mm")],
-        ];
-
-        Assert.Equal((int)Math.Ceiling(19 * 7.5) + 16, SheetExport.TextWidth(rows, 0));
-        Assert.Equal((int)Math.Ceiling(16 * 7.5) + 16, SheetExport.TextWidth(rows.Skip(3), 0));
-        Assert.Equal((int)Math.Ceiling(9 * 7.5) + 16, SheetExport.TextWidth(rows.Skip(2).Take(1), 0));   // 1,234,567
-        Assert.Equal(32, SheetExport.TextWidth([[SheetCell.Empty]], 0));
-    }
-
-    [Fact]
-    public void The_write_clears_the_whole_tab_sizes_its_grid_to_it_and_freezes_its_rows_and_columns()
-    {
-        var table = new SheetTable("Skills", [[new SheetCell("Name"), new SheetCell("Level")], [new SheetCell("K", "FF7C0A"), new SheetCell(30.0, Center: true)]],
-            FrozenColumns: 1, FrozenRows: 1);
-
-        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Skills"] = 7 });
-
-        var grid = requests[0]!["updateSheetProperties"]!["properties"]!["gridProperties"]!;
-        Assert.Equal(2, (int)grid["rowCount"]!);          // no spare row under the dark
-        Assert.Equal(2, (int)grid["columnCount"]!);
-        Assert.Equal(1, (int)grid["frozenRowCount"]!);
-        Assert.Equal(1, (int)grid["frozenColumnCount"]!);
-        Assert.True((bool)grid["hideGridlines"]!);
-        var cells = requests[1]!["updateCells"]!;
-        // The range is the whole tab, nothing narrower: a cell the table no longer has is cleared.
-        Assert.Equal(["sheetId"], cells["range"]!.AsObject().Select(p => p.Key));
-        Assert.Equal(7, (long)cells["range"]!["sheetId"]!);
-        var name = cells["rows"]![1]!["values"]![0]!;
-        Assert.Equal("K", (string)name["userEnteredValue"]!["stringValue"]!);
-        Assert.Equal(1.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["red"]!);
-        Assert.Equal(124 / 255.0, (double)name["userEnteredFormat"]!["backgroundColor"]!["green"]!, 9);
-        Assert.Equal("MIDDLE", (string)name["userEnteredFormat"]!["verticalAlignment"]!);
-        Assert.Null(name["userEnteredFormat"]!["horizontalAlignment"]);
-        var level = cells["rows"]![1]!["values"]![1]!;
-        Assert.Equal(30.0, (double)level["userEnteredValue"]!["numberValue"]!);
-        Assert.Equal("CENTER", (string)level["userEnteredFormat"]!["horizontalAlignment"]!);
-        Assert.Null(level["userEnteredFormat"]!["textFormat"]);
-
-        var linked = GoogleSheets.BuildWriteRequests([new SheetTable("Gear", [[new SheetCell(31.0, Link: "https://x/item=1")]])],
-            new Dictionary<string, long> { ["Gear"] = 7 })[1]!["updateCells"]!["rows"]![0]!["values"]![0]!;
-        Assert.Equal(31.0, (double)linked["userEnteredValue"]!["numberValue"]!);       // still a number
-        Assert.Equal("https://x/item=1", (string)linked["userEnteredFormat"]!["textFormat"]!["link"]!["uri"]!);
-    }
-
-    [Fact]
-    public void One_row_is_frozen_never_all_of_them()
-    {
-        var requests = GoogleSheets.BuildWriteRequests([new SheetTable("Skills", [[new SheetCell("Last update")]], FrozenRows: 1)],
-            new Dictionary<string, long> { ["Skills"] = 7 });
-
-        Assert.Equal(0, (int)requests[0]!["updateSheetProperties"]!["properties"]!["gridProperties"]!["frozenRowCount"]!);
-    }
-
-    [Fact]
-    public void Rows_get_their_heights_and_columns_their_widths_in_runs()
-    {
-        var table = new SheetTable("Characters",
-            [[new SheetCell("a"), new SheetCell("b"), new SheetCell("c")], [SheetCell.Empty], [new SheetCell(new SheetImage("https://x/a.jpg"))], [SheetCell.Empty]],
-            RowHeights: [null, 36, 42, 42], ColumnWidths: [null, 42, 42]);
-
-        var requests = GoogleSheets.BuildWriteRequests([table], new Dictionary<string, long> { ["Characters"] = 3 });
-
-        var image = requests[1]!["updateCells"]!["rows"]![2]!["values"]![0]!;
-        Assert.Equal("=IMAGE(\"https://x/a.jpg\")", (string)image["userEnteredValue"]!["formulaValue"]!);
-        var sizes = requests.Select(r => r!["updateDimensionProperties"]).OfType<JsonNode>()
-            .Select(d => ((string)d["range"]!["dimension"]!, (int)d["range"]!["startIndex"]!, (int)d["range"]!["endIndex"]!, (int)d["properties"]!["pixelSize"]!))
-            .ToList();
-        // The default where the table says none: a row that was tall is not left tall.
-        Assert.Equal([("ROWS", 0, 1, GoogleSheets.DefaultRowHeight), ("ROWS", 1, 2, 36), ("ROWS", 2, 4, 42), ("COLUMNS", 1, 3, 42)], sizes);
-        var fit = requests.Select(r => r!["autoResizeDimensions"]).OfType<JsonNode>().Single();
-        Assert.Equal((0, 1), ((int)fit["dimensions"]!["startIndex"]!, (int)fit["dimensions"]!["endIndex"]!));
-    }
-
-    [Fact]
-    public void The_avatar_is_the_armory_one_by_player_number_hd_or_sd()
-    {
-        // Measured 2026-11-19: 678282 (0x000A598A) has both, 84x84 JPEGs.
-        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-avatar.jpg",
-            Armory.AvatarUrl("Player-6796-000A598A", sd: false));
-        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-avatar-sd.jpg",
-            Armory.AvatarUrl("Player-6796-000A598A", sd: true));
-        Assert.Null(Armory.AvatarUrl("Creature-0-1-2", sd: false));
-    }
-
-    [Theory]
-    [InlineData("Orc", "Horde", "Male", 0, "2-0")]
-    [InlineData("Scourge", "Horde", "Female", 1, "5-1")]
-    [InlineData("Skyborne", "Alliance", "Female", 1, "95-1")]     // High Order
-    [InlineData("Skyborne", "Horde", "Male", 0, "96-0")]          // Windshaper
-    public void The_placeholder_is_the_armory_silhouette_of_the_race_and_sex(string race, string faction, string gender, int sexId, string file)
-    {
-        // Measured 2026-11-19: forever-us/shadow/avatar/<ChrRaces id>-<0 male, 1 female>.jpg, all ten.
-        var expected = "https://render.worldofwarcraft.com/forever-us/shadow/avatar/" + file + ".jpg";
-        Assert.Equal(expected, Armory.PlaceholderUrl(race, faction, female: sexId == 1));
-
-        // sexID first; an older record has only the word.
-        foreach (var fields in new[] { new (string, object)[] { ("sexID", sexId), ("gender", "nonsense") }, [("gender", gender)] })
-        {
-            var path = Store("S" + file + fields.Length, Db(Record("Player-1-01",
-                [("name", "Low"), ("level", 5), ("race", race), ("faction", faction), .. fields])));
-            var table = SheetExport.BuildCharacters(SheetExport.Load([path]).Characters, 0, new AvatarSource(false, new HashSet<string>()));
-            Assert.Equal(expected, ImageOf(RowOf(table, "Low")[1]));
-        }
-    }
-
-    [Fact]
-    public void A_race_the_armory_has_no_silhouette_for_gets_no_picture()
-    {
-        Assert.Null(Armory.PlaceholderUrl("Skyborne", "Neutral", female: false));
-        Assert.Null(Armory.PlaceholderUrl("Vulpera", "Horde", female: false));
-        Assert.Null(Armory.PlaceholderUrl(null, "Horde", female: false));
-    }
-
-    [Fact]
-    public void With_avatars_a_drawn_character_gets_its_own_and_everyone_else_the_silhouette()
-    {
-        var path = Store("A", Db(
-            Record("Player-1-0000000A", ("name", "Drawn"), ("level", 10), ("race", "Orc"), ("sexID", 1)),
-            Record("Player-1-0000000B", ("name", "Undrawn"), ("level", 30), ("race", "Orc"), ("sexID", 0)),
-            Record("Player-1-00000009", ("name", "Nine"), ("level", 9), ("race", "Troll"), ("sexID", 1))));
-        var chars = SheetExport.Load([path]).Characters;
-        // A render under level 10 is not one the armory makes: a leftover is not trusted.
-        var drawn = new HashSet<string> { "Player-1-0000000A", "Player-1-00000009" };
-
-        foreach (var table in SheetExport.Build(chars, 0, new AvatarSource(true, drawn)))
-        {
-            // The record's key is the character's identity, and SD is the model asked for.
-            Assert.Equal(Armory.AvatarUrl("Player-1-0000000A", sd: true), ImageOf(RowOf(table, "Drawn")[1]));
-            Assert.Equal(Armory.PlaceholderUrl("Orc", null, female: false), ImageOf(RowOf(table, "Undrawn")[1]));
-            Assert.Equal(Armory.PlaceholderUrl("Troll", null, female: true), ImageOf(RowOf(table, "Nine")[1]));
-        }
-
-        // Without pictures the column is still there, empty: a formula's address keeps its field.
-        foreach (var plain in SheetExport.Build(chars, 0))
-        {
-            Assert.All(chars, c => Assert.Null(RowOf(plain, (string)c["name"]!)[1].Value));
-            Assert.DoesNotContain(plain.Rows.SelectMany(r => r), c => ImageOf(c) is { } url && url.Contains("/forever-us/", StringComparison.Ordinal));
-        }
     }
 
     private static SheetTable Table(string title) => new(title, [[new SheetCell("Name")]]);

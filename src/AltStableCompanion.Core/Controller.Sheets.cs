@@ -48,7 +48,7 @@ public enum GoogleState
 /// </summary>
 public sealed record SheetState(GoogleState Google = GoogleState.Unavailable, bool Exporting = false,
     string? Url = null, string? Note = null, bool Problem = false, bool Auto = true,
-    int AutoMinutes = Settings.DefaultSheetAutoMinutes);
+    int AutoMinutes = Settings.DefaultSheetAutoMinutes, string Theme = SheetPalette.DarkName);
 
 public sealed partial class Controller
 {
@@ -78,7 +78,7 @@ public sealed partial class Controller
             _current = _current with
             {
                 Sheets = new SheetState(token is null ? GoogleState.NotConnected : GoogleState.Connected, Url: _settings.GoogleSheetUrl,
-                    Auto: _settings.SheetAutoExport, AutoMinutes: _settings.SheetAutoMinutes),
+                    Auto: _settings.SheetAutoExport, AutoMinutes: _settings.SheetAutoMinutes, Theme: _settings.SheetTheme),
             };
         }
         StartSheetsTimer(sheets);
@@ -288,6 +288,7 @@ public sealed partial class Controller
         string token;
         WowInstall install;
         bool armory, sd;
+        SheetPalette palette;
         string? sheetId;
         int session;
         CancellationTokenSource cts;
@@ -304,17 +305,18 @@ public sealed partial class Controller
             (token, install) = (held, i);
             armory = _settings.Armory == true;
             sd = _settings.ArmorySd;
+            palette = SheetPalette.Of(_settings.SheetTheme);
             sheetId = _settings.GoogleSheetId;
             session = _googleSession;
             cts = _exportCts = CancellationTokenSource.CreateLinkedTokenSource(_sheetsStop.Token);
             _current = _current with { Sheets = _current.Sheets with { Exporting = true, Note = null, Problem = false } };
             var isAuto = auto is not null;
-            _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, sheetId, session, cts, isAuto));
+            _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, palette, sheetId, session, cts, isAuto));
         }
         Changed?.Invoke();
     }
 
-    private async Task ExportAsync(SheetHooks hooks, string token, WowInstall install, bool armory, bool sd, string? sheetId,
+    private async Task ExportAsync(SheetHooks hooks, string token, WowInstall install, bool armory, bool sd, SheetPalette palette, string? sheetId,
         int session, CancellationTokenSource cts, bool auto)
     {
         string note;
@@ -344,7 +346,7 @@ public sealed partial class Controller
                 // The renders the app holds: an avatar for those, the silhouette for everyone else.
                 var avatars = armory ? new AvatarSource(sd, new HashSet<string>(
                     new CutoutFolder(install.CutoutAddonDir).ArmoryRenders().Keys, StringComparer.Ordinal)) : null;
-                var tables = SheetExport.Build(roster.Characters, new DateTimeOffset(now).ToUnixTimeSeconds(), avatars);
+                var tables = SheetExport.Build(roster.Characters, new DateTimeOffset(now).ToUnixTimeSeconds(), avatars, palette);
                 using var http = new HttpClient(hooks.Http()) { Timeout = GoogleTimeout };
                 var google = new GoogleSheets(http, hooks.Client);
                 var access = await google.AccessTokenAsync(token, stop);
@@ -500,10 +502,10 @@ public static class SheetText
         + "The app talks to oauth2.googleapis.com to sign in, sheets.googleapis.com to write, and www.googleapis.com (Drive) "
         + "to find the spreadsheet it made before and whether it is in the trash, only when you press Connect, "
         + "Export now or Disconnect - and, with \"Export on its own\" ticked (it is, once you connect), once the game has been "
-        + "closed that many minutes after AltStable saved something new. The spreadsheet shows class, profession, coin and faction icons, and with portraits "
-        + "from the armory on each character's armory picture (its silhouette until the armory has drawn it): Google's "
-        + "servers fetch them from Blizzard's, once you open the spreadsheet and choose Allow access, which Google asks "
-        + "for once. The sign-in is kept for this Windows user only. "
+        + "closed that many minutes after AltStable saved something new. The spreadsheet shows AltStable's section icons, "
+        + "and with portraits from the armory on each character's armory picture (its silhouette until the armory has drawn "
+        + "it): Google's servers fetch them from GitHub and Blizzard's, once you open the spreadsheet and choose Allow access, "
+        + "which Google asks for once. The sign-in is kept for this Windows user only. "
         + "Disconnect deletes it and asks Google to cancel it; the spreadsheet stays yours. Tabs you add to the spreadsheet "
         + "are never touched.";
 

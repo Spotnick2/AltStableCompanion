@@ -257,6 +257,25 @@ public sealed class SheetsAutoTests
     }
 
     [Fact]
+    public void The_theme_is_kept_and_the_next_export_uses_it()
+    {
+        using var w = new World();
+
+        w.C.SetSheetTheme("light");
+        w.C.ExportSheet();
+        SheetsControllerTests.Until(() => w.Exports == 1, "the export");
+
+        Assert.Equal(SheetPalette.LightName, Settings.Load(SheetsControllerTests.Data(w.T)).SheetTheme);
+        Assert.Equal(SheetPalette.LightName, w.C.Current.Sheets.Theme);
+        // The masthead's colour, as the batch writes it.
+        var cells = w.Google.Batches.Single().Select(r => r!["updateCells"]).OfType<System.Text.Json.Nodes.JsonNode>().First();
+        var red = (double)cells["rows"]![0]!["values"]![1]!["userEnteredFormat"]!["backgroundColor"]!["red"]!;
+        Assert.Equal(Convert.ToInt32(SheetPalette.Light.Masthead[..2], 16) / 255.0, red, 9);
+        w.C.SetSheetTheme("anything");
+        Assert.Equal(SheetPalette.DarkName, w.C.Current.Sheets.Theme);
+    }
+
+    [Fact]
     public void The_minutes_are_five_to_a_hundred_and_twenty()
     {
         using var w = new World();

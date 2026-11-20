@@ -358,6 +358,10 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         {
             var id = sheetIds[t.Title];
             var columns = Math.Max(t.Columns, 1);
+            // First what the last export laid over the tab - its merges, its filter - so nothing of
+            // it is left on a smaller grid, or stands in the way of shrinking it.
+            requests.Add(new JsonObject { ["unmergeCells"] = new JsonObject { ["range"] = new JsonObject { ["sheetId"] = id } } });
+            requests.Add(new JsonObject { ["clearBasicFilter"] = new JsonObject { ["sheetId"] = id } });
             requests.Add(new JsonObject
             {
                 ["updateSheetProperties"] = new JsonObject
@@ -416,9 +420,33 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
                 });
                 from = to;
             }
+            // Then this export's merges and filter, on the grid it just sized.
+            foreach (var m in t.Merges ?? [])
+                requests.Add(new JsonObject
+                {
+                    ["mergeCells"] = new JsonObject
+                    {
+                        ["range"] = Range(id, m.Row, m.Row + m.Rows, m.Column, m.Column + m.Columns),
+                        ["mergeType"] = "MERGE_ALL",
+                    },
+                });
+            if (t.Filter is { } f && f.ToRow > f.FromRow)
+                requests.Add(new JsonObject
+                {
+                    ["setBasicFilter"] = new JsonObject
+                    {
+                        ["filter"] = new JsonObject { ["range"] = Range(id, f.FromRow, f.ToRow, 0, columns) },
+                    },
+                });
         }
         return requests;
     }
+
+    private static JsonObject Range(long sheetId, int fromRow, int toRow, int fromColumn, int toColumn) => new()
+    {
+        ["sheetId"] = sheetId, ["startRowIndex"] = fromRow, ["endRowIndex"] = toRow,
+        ["startColumnIndex"] = fromColumn, ["endColumnIndex"] = toColumn,
+    };
 
     private static int Height(SheetTable t, int row) =>
         t.RowHeights is { } h && row < h.Count && h[row] is { } px ? px : DefaultRowHeight;
@@ -452,15 +480,20 @@ public sealed class GoogleSheets(HttpClient http, GoogleClient client)
         // In the middle of its row, which is tall beside a picture; centred when it asks.
         var format = new JsonObject { ["verticalAlignment"] = "MIDDLE" };
         if (c.Center) format["horizontalAlignment"] = "CENTER";
+        else if (c.Left) format["horizontalAlignment"] = "LEFT";
         if (c.Fill is not null) format["backgroundColor"] = Color(c.Fill);
-        if (c.Bold || c.Color is not null || c.Link is not null)
+        if (c.Bold || c.Color is not null || c.Link is not null || c.FontSize is not null)
         {
             var text = new JsonObject();
             if (c.Bold) text["bold"] = true;
             if (c.Color is not null) text["foregroundColor"] = Color(c.Color);
             if (c.Link is not null) text["link"] = new JsonObject { ["uri"] = c.Link };
+            if (c.FontSize is { } size) text["fontSize"] = size;
             format["textFormat"] = text;
         }
+        if (c.Wrap) format["wrapStrategy"] = "WRAP";
+        if (c.BorderTop is { } line)
+            format["borders"] = new JsonObject { ["top"] = new JsonObject { ["style"] = "SOLID", ["color"] = Color(line) } };
         if (c.NumberFormat is not null)
             format["numberFormat"] = new JsonObject
             {

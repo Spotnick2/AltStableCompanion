@@ -275,6 +275,19 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
         set { if (value != _sheets.Auto) _controller.SetSheetAuto(value, _sheets.AutoMinutes); }
     }
 
+    /// <summary>The sheet's colours: dark or light, a radio pair.</summary>
+    public bool SheetsDark
+    {
+        get => _sheets.Theme != SheetPalette.LightName;
+        set { if (value) _controller.SetSheetTheme(SheetPalette.DarkName); }
+    }
+
+    public bool SheetsLight
+    {
+        get => _sheets.Theme == SheetPalette.LightName;
+        set { if (value) _controller.SetSheetTheme(SheetPalette.LightName); }
+    }
+
     public decimal? SheetsAutoMinutes
     {
         get => _sheets.AutoMinutes;
@@ -1038,7 +1051,7 @@ internal sealed class MainViewModel : ObservableObject, IDisposable
                      {
                          nameof(SheetsAvailable), nameof(SheetsNotConnected), nameof(SheetsConnecting), nameof(SheetsConnected),
                          nameof(SheetHasUrl), nameof(SheetsStatus), nameof(SheetsProblem), nameof(SheetsFine),
-                         nameof(SheetsAuto), nameof(SheetsAutoMinutes),
+                         nameof(SheetsAuto), nameof(SheetsAutoMinutes), nameof(SheetsDark), nameof(SheetsLight),
                      })
             {
                 Raise(name);
