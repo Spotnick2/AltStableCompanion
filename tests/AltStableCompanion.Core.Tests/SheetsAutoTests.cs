@@ -213,10 +213,12 @@ public sealed class SheetsAutoTests
         w.C.StartAutoForTest(T0.ToUniversalTime());
         Thread.Sleep(100);
         Assert.Equal(0, w.Exports);
-        // Nor when the game was seen again after the quiet the tick counted from.
-        w.C.SetSheetAuto(true, 5);
+        // Nor when the game was seen again after the quiet the tick counted from. The game is
+        // running, and the timer has seen it, before the delay is lowered, so the timer itself
+        // never finds it due in between.
         w.Running = true;
         World.Ticks();
+        w.C.SetSheetAuto(true, 5);
         w.Running = false;
         w.C.StartAutoForTest(T0.ToUniversalTime());
         Thread.Sleep(100);
