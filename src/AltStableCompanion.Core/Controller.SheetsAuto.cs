@@ -43,14 +43,34 @@ public static class WowProcess
 ///   ago - the game writes the file as it closes, so a start of the app after a session counts
 ///   too - one export, as Export now would. A failed one waits that long again.</item>
 /// </list>
-/// Not while paused, disconnected, or with the setting off.
+/// Not while paused, disconnected, or with the setting off. Times are UTC: a save after the
+/// autumn clock change is not "older" than one before it (Codex on #87).
 /// </summary>
 public sealed partial class Controller
 {
     private Timer? _sheetsTimer;
-    private DateTime? _gameSeenAt;          // under _gate: the last tick that saw the game running
-    private DateTime _autoRetryAfter;       // under _gate: a failed automatic export waits until then
+    private DateTime? _gameSeenAt;          // under _gate, UTC: the last tick that saw the game running
+    private DateTime _autoRetryAfter;       // under _gate, UTC: a failed automatic export waits until then
     private int _ticking;
+
+    // What a tick saw when it found an export due: the install it looked at and its newest save.
+    private sealed record AutoClaim(WowInstall Install, DateTime Newest);
+
+    private DateTime UtcNow() => _clock().ToUniversalTime();
+
+    /// <summary>A tick's findings handed straight to the start, as if the player acted in between: tests.</summary>
+    internal void StartAutoForTest(DateTime newestUtc)
+    {
+        if (Current.Shell.Install is { } install) StartExport(new AutoClaim(install, newestUtc));
+    }
+
+    // Under _gate: the tick's findings still hold - the same install, the setting on, not paused,
+    // not held after a failure, and the save it saw still newer than the last export.
+    private bool StillDue(AutoClaim claim) =>
+        _settings.SheetAutoExport && !_current.Shell.Paused && UtcNow() >= _autoRetryAfter
+        && _current.Shell.Install is { } now
+        && string.Equals(now.FlavorDir, claim.Install.FlavorDir, StringComparison.OrdinalIgnoreCase)
+        && (_settings.SheetExportedThrough is not { } done || claim.Newest > done);
 
     private void StartSheetsTimer(SheetHooks hooks) =>
         _sheetsTimer = new Timer(_ => SheetTick(), null, hooks.Tick, hooks.Tick);
@@ -77,7 +97,7 @@ public sealed partial class Controller
             if (_stopping || _current.Shell.Install is not { } i) return;
             (install, minutes, through) = (i, _settings.SheetAutoMinutes, _settings.SheetExportedThrough);
         }
-        var now = _clock();
+        var now = UtcNow();
         bool running;
         try { running = hooks.GameRunning(install); }
         catch (Exception) { running = true; }
@@ -93,17 +113,17 @@ public sealed partial class Controller
         var quietSince = seen is { } s && s > newest ? s : newest;
         if (now - quietSince < TimeSpan.FromMinutes(minutes)) return;
         _log?.Write($"google: exporting on its own, {minutes} minutes after the game closed");
-        StartExport(auto: true);
+        StartExport(new AutoClaim(install, newest));
     }
 
-    /// <summary>When an account's <c>AltStable.lua</c> was last written, or null for none.</summary>
+    /// <summary>When an account's <c>AltStable.lua</c> was last written, UTC, or null for none.</summary>
     internal static DateTime? NewestSave(WowInstall install)
     {
         DateTime? newest = null;
         foreach (var path in Leftovers.AccountFiles(install.AccountsDir))
         {
             if (!File.Exists(path)) continue;
-            var at = File.GetLastWriteTime(path);
+            var at = File.GetLastWriteTimeUtc(path);
             if (newest is not { } n || at > n) newest = at;
         }
         return newest;
@@ -138,6 +158,6 @@ public sealed partial class Controller
     // An automatic export that failed: not again for one more wait.
     private void HoldAuto()
     {
-        lock (_gate) _autoRetryAfter = _clock() + TimeSpan.FromMinutes(_settings.SheetAutoMinutes);
+        lock (_gate) _autoRetryAfter = UtcNow() + TimeSpan.FromMinutes(_settings.SheetAutoMinutes);
     }
 }

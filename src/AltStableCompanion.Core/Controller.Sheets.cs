@@ -276,10 +276,13 @@ public sealed partial class Controller
     /// when there is none yet, or the saved one is gone. Nothing is written unless every account
     /// was read: a missing one would drop its characters, and could show one it hides.
     /// </summary>
-    public void ExportSheet() => StartExport(auto: false);
+    public void ExportSheet() => StartExport(auto: null);
 
-    // Export now, or the automatic one (Controller.SheetsAuto.cs): the same export.
-    private void StartExport(bool auto)
+    // Export now (auto null), or the automatic one (Controller.SheetsAuto.cs) with what its tick
+    // saw: the same export. The automatic one is claimed only if, under the gate that sets
+    // Exporting, it is still due - the player may have paused, turned it off or changed install
+    // while the tick looked at the files (Codex on #87).
+    private void StartExport(AutoClaim? auto)
     {
         if (sheets is not { } hooks) return;
         string token;
@@ -291,6 +294,7 @@ public sealed partial class Controller
         lock (_gate)
         {
             if (_stopping || _current.Sheets is not { Google: GoogleState.Connected, Exporting: false } || _googleToken is not { } held) return;
+            if (auto is { } claim && !StillDue(claim)) return;
             if (_current.Shell.Install is not { } i)
             {
                 _current = _current with { Sheets = _current.Sheets with { Note = SheetText.NoInstall, Problem = true } };
@@ -304,7 +308,8 @@ public sealed partial class Controller
             session = _googleSession;
             cts = _exportCts = CancellationTokenSource.CreateLinkedTokenSource(_sheetsStop.Token);
             _current = _current with { Sheets = _current.Sheets with { Exporting = true, Note = null, Problem = false } };
-            _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, sheetId, session, cts, auto));
+            var isAuto = auto is not null;
+            _exportTask = Task.Run(() => ExportAsync(hooks, token, install, armory, sd, sheetId, session, cts, isAuto));
         }
         Changed?.Invoke();
     }
@@ -317,10 +322,13 @@ public sealed partial class Controller
         string? url = null;
         var signedOut = false;
         var stop = cts.Token;
-        // Before the files are read: a save written while this runs is newer, and is exported next time.
-        var through = NewestSave(install);
+        DateTime? through = null;
         try
         {
+            // Before the files are read: a save written while this runs is newer, and is exported
+            // next time. Inside the try: a scan that fails ends the export like any failure,
+            // never leaving it "exporting" (Codex on #87).
+            through = NewestSave(install);
             var roster = SheetExport.Load(install.AccountsDir);
             if (roster.NoAccounts)
             {

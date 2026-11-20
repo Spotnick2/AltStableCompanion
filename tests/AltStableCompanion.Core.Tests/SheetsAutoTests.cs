@@ -71,7 +71,7 @@ public sealed class SheetsAutoTests
         w.At(T0.AddMinutes(17));
         SheetsControllerTests.Until(() => w.Exports == 1, "the automatic export");
         Assert.StartsWith("Exported 2 characters", SheetsControllerTests.Exported(w.C));
-        Assert.Equal(T0, Settings.Load(SheetsControllerTests.Data(w.T)).SheetExportedThrough);
+        Assert.Equal(T0.ToUniversalTime(), Settings.Load(SheetsControllerTests.Data(w.T)).SheetExportedThrough);
         World.Ticks();
         Assert.Equal(1, w.Exports);                       // nothing new since
 
@@ -158,10 +158,78 @@ public sealed class SheetsAutoTests
         w.Saved(T0.AddMinutes(17));                       // the game wrote meanwhile
         w.Google.HoldListing!.Release(10);
         SheetsControllerTests.Until(() => w.Exports == 1, "the first export");
-        Assert.Equal(T0, Settings.Load(SheetsControllerTests.Data(w.T)).SheetExportedThrough);
+        SheetsControllerTests.Exported(w.C);              // its end: the save time is kept after Google's answer
+        Assert.Equal(T0.ToUniversalTime(), Settings.Load(SheetsControllerTests.Data(w.T)).SheetExportedThrough);
 
         w.At(T0.AddMinutes(33));
         SheetsControllerTests.Until(() => w.Exports == 2, "the save it did not read, exported");
+    }
+
+    [Fact]
+    public void A_save_after_the_autumn_clock_change_is_newer_than_one_before_it()
+    {
+        // Measured in UTC: 01:40 local before the change is later on the clock than 01:10 after it.
+        var before = new DateTime(2026, 11, 1, 5, 40, 0, DateTimeKind.Utc);
+        var after = new DateTime(2026, 11, 1, 6, 10, 0, DateTimeKind.Utc);
+        using var w = new World(s => s with { SheetExportedThrough = before });
+        File.SetLastWriteTimeUtc(Path.Combine(w.T.Install.AccountsDir, "ACCOUNT1", "SavedVariables", SavedVariablesReader.FileName), after);
+
+        w.At(after.AddMinutes(16).ToLocalTime());
+        SheetsControllerTests.Until(() => w.Exports == 1, "the save after the change, exported");
+    }
+
+    [Fact]
+    public void An_automatic_export_found_due_is_not_started_once_it_no_longer_is()
+    {
+        using var w = new World();
+        w.At(T0.AddMinutes(16));
+        // The tick saw an export due; the player paused before it was started.
+        w.C.SetPaused(true);
+        w.C.StartAutoForTest(T0.ToUniversalTime());
+        World.Ticks();
+        Assert.Equal(0, w.Exports);
+        // Or another install's, or a save already exported, or the setting turned off.
+        w.C.SetPaused(false);
+        w.C.SetSheetAuto(false, 15);
+        w.C.StartAutoForTest(T0.ToUniversalTime());
+        Thread.Sleep(100);
+        Assert.Equal(0, w.Exports);
+        Assert.False(w.C.Current.Sheets.Exporting);
+        // Export now is not held by any of it.
+        w.C.SetPaused(true);
+        w.C.ExportSheet();
+        SheetsControllerTests.Until(() => w.Exports == 1, "Export now");
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]     // the folder's ACL; the app is Windows-only
+    public void A_scan_that_fails_ends_the_export_instead_of_leaving_it_running()
+    {
+        using var w = new World();
+        // The account's folder unreadable for this user: listing it throws.
+        var saved = new DirectoryInfo(Path.Combine(w.T.Install.AccountsDir, "ACCOUNT1", "SavedVariables"));
+        var me = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(me,
+            System.Security.AccessControl.FileSystemRights.ListDirectory, System.Security.AccessControl.AccessControlType.Deny);
+        var acl = saved.GetAccessControl();
+        acl.AddAccessRule(deny);
+        saved.SetAccessControl(acl);
+        try
+        {
+            w.C.ExportSheet();
+            var note = SheetsControllerTests.Exported(w.C);
+
+            Assert.False(w.C.Current.Sheets.Exporting);
+            Assert.True(w.C.Current.Sheets.Problem, note);
+        }
+        finally
+        {
+            acl.RemoveAccessRule(deny);
+            saved.SetAccessControl(acl);
+        }
+        // And the next one goes ahead.
+        w.C.ExportSheet();
+        SheetsControllerTests.Until(() => w.Exports == 1, "the export once the folder reads again");
     }
 
     [Fact]

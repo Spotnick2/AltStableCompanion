@@ -393,7 +393,7 @@ public sealed class SheetsControllerTests
 
         // The old one's answer comes back: it ends, and the new export is still the one running.
         google.HoldListing.Release();
-        Until(() => File.ReadAllText(Path.Combine(Data(t), "log.txt")).Contains("google: the export was stopped"), "the old export's end");
+        Until(() => TestData.ReadShared(Path.Combine(Data(t), "log.txt")).Contains("google: the export was stopped"), "the old export's end");
         Thread.Sleep(100);                                  // past its last word
         Assert.True(c.Current.Sheets.Exporting);
         Assert.Equal(GoogleState.Connected, c.Current.Sheets.Google);

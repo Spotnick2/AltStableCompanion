@@ -10,6 +10,20 @@ namespace AltStableCompanion.Core.Tests;
 /// </summary>
 internal static class TestData
 {
+    /// <summary>A file the app may be writing at that moment (its log): read without locking it out.</summary>
+    public static string ReadShared(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return new StreamReader(stream).ReadToEnd();
+        }
+        catch (IOException)
+        {
+            return "";      // not there yet, or mid-rotation: the caller waits and reads again
+        }
+    }
+
     public static RgbaImage Solid(int w, int h, byte r, byte g, byte b, byte a = 255)
     {
         var img = new RgbaImage(w, h);
