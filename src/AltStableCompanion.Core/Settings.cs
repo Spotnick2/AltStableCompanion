@@ -166,7 +166,7 @@ public sealed record Settings
         init => field = Math.Clamp(value, MinSheetAutoMinutes, MaxSheetAutoMinutes);
     } = DefaultSheetAutoMinutes;
 
-    /// <summary>The newest save (an account's AltStable.lua, this PC's time) the last export read.</summary>
+    /// <summary>The newest save (an account's AltStable.lua, UTC) the last export read.</summary>
     public DateTime? SheetExportedThrough { get; init; }
 
     /// <summary>
