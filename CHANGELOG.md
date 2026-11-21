@@ -13,8 +13,6 @@ version's section, as it stands here, for the notes of its GitHub Release.
   tells addons the realm; the sheet now takes the ruleset AltStable 1.11.0 reads from the game
   (PvE, PvP, RP, RP-PvP, HC), and the realm's name only when that is missing. The realm's
   name still shows on hover when AltStable knows it.
-- Portraits from the armory keep working if the game's character IDs lose their realm part,
-  as addon authors expect after the same change.
 
 ## [1.3.0]
 
