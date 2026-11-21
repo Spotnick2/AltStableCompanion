@@ -6,11 +6,12 @@ the memories of the AltStable addon's sessions, so the rules that matter are rep
 
 ## Where things stand
 
-- The app is AltStable#89's endgame. 1.3.0 is the current release (2026-11-20). 1.0.0
+- The app is AltStable#89's endgame. 1.3.1 is the current release (2026-11-21). 1.0.0
   (2026-11-04) was the first for Forever live; 1.1.0 made portraits as tall as the Char page
   draws them; 1.2.0 added portraits from the Forever armory's renders (#63); 1.2.1 fixed
   which of capture and render is the portrait; 1.2.5 cleans up characters AltStable no
-  longer has; 1.3.0 added the Google Sheet export (#82), automatic after the game closes. Diagnostics, About, update checks and
+  longer has; 1.3.0 added the Google Sheet export (#82), automatic after the game closes;
+  1.3.1 takes the sheet's ruleset from AltStable 1.11.0 after the 2026-11-20 realm hotfix. Diagnostics, About, update checks and
   Codex-enhanced portraits shipped before that.
 - The armory (#63), in short:
   - Renders come from Blizzard's render CDN by GUID (US only, level 10+, the player's yes

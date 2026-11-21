@@ -6,6 +6,11 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.3.1]
+
+The Google Sheet's Ruleset column fills in again, now that the game no longer tells addons
+the realm.
+
 ### Fixed
 
 - **Google Sheet:** the Ruleset column no longer goes blank for characters whose realm
