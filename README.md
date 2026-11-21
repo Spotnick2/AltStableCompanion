@@ -192,8 +192,10 @@ you connect, in Settings → **Google Sheet**.
   Faction. Four tabs:
   - **Characters**: level, item level, rested XP, the coin purse (one sortable column,
     1g 02s 69c), when it was last played, where the hearthstone is set, guild, race, and the
-    realm's ruleset (its name when you hover it); below the table, each faction's count,
-    levels and coin, and everyone's;
+    realm's ruleset (the realm's name when you hover it, if AltStable knows it); below the
+    table, each faction's count, levels and coin, and everyone's. Since 20 November 2026 the
+    game no longer tells addons the realm: AltStable 1.11.0 or later reads the ruleset from
+    the game instead, once you have logged into the character with it;
   - **Skills**: the professions, then cooking, fishing, first aid and riding, each as
     current / trained cap (79 / 150); a skill at its cap is gold;
   - **Reputations**: the factions any of your characters has met, in words (Friendly,

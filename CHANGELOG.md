@@ -6,6 +6,14 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Google Sheet:** the Ruleset column no longer goes blank for characters whose realm
+  AltStable could not record. Since the server change of 20 November 2026 the game no longer
+  tells addons the realm; the sheet now takes the ruleset AltStable 1.11.0 reads from the game
+  (PvE, PvP, RP, RP-PvP, HC), and the realm's name only when that is missing. The realm's
+  name still shows on hover when AltStable knows it.
+
 ## [1.3.0]
 
 Your characters in a Google Sheet, in your own Drive, kept up to date on its own after you

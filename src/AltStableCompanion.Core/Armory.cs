@@ -66,6 +66,13 @@ public static class Armory
     /// <summary>
     /// The player number of a GUID, <c>Player-&lt;realm&gt;-&lt;hex&gt;</c>, or null for anything
     /// else. The CDN names the render after it.
+    /// <para>
+    /// Not <c>Player-&lt;hex&gt;</c>, though addon authors expect the realm id may leave the GUID
+    /// after the 2026-11-20 hotfix hid the realm. AltStable would make a second record under the
+    /// new GUID, while the player's hide flag stays on the old one, so the same character would
+    /// be asked for again - its picture, and with an API client its name (Codex on #90). That
+    /// waits for the portrait contract to cover the new shape and a hide flag that survives it.
+    /// </para>
     /// </summary>
     public static long? PlayerNumber(string guid)
     {

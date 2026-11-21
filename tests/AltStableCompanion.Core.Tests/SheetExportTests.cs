@@ -622,6 +622,30 @@ public sealed class SheetExportTests : IDisposable
     public void The_ruleset_is_read_from_the_realm_as_the_addon_reads_it(string? realm, string? expected) =>
         Assert.Equal(expected, SheetExport.Ruleset(realm));
 
+    // AltStable 1.11.0's ruleset, read from the game's rules, comes first; its keys become the badges.
+    [Theory]
+    [InlineData("Normal", "Forever PvP", "PvE")]
+    [InlineData("PvP", "Forever PvE", "PvP")]
+    [InlineData("RP", null, "RP")]
+    [InlineData("RPPvP", "", "RP-PvP")]
+    [InlineData("Hardcore", null, "HC")]
+    [InlineData("Unknown", "Forever RP", "RP")]          // a key it does not know: the realm decides
+    [InlineData(null, "Forever PvP", "PvP")]            // a record from before 1.11.0
+    [InlineData(null, "", null)]                        // stored "" on the hotfix's evening (AltStable #408)
+    [InlineData(null, null, null)]                      // first seen after the hotfix, on an older AltStable
+    public void The_ruleset_AltStable_read_from_the_game_comes_before_the_realm(string? ruleset, string? realm, string? expected)
+    {
+        var c = Char(("name", "K"), ("class", "MAGE"), ("faction", "Horde"));
+        if (ruleset is not null) c["ruleset"] = ruleset;
+        if (realm is not null) c["realm"] = realm;
+
+        Assert.Equal(expected, SheetExport.RulesetOf(c));
+        var table = SheetExport.BuildCharacters([c], 0);
+        var cell = RowOf(table, "K")[Col(table, "Ruleset")];
+        Assert.Equal(expected, cell.Value);
+        Assert.Equal(string.IsNullOrEmpty(realm) ? null : realm, cell.Note);   // the realm's name on hover, when known
+    }
+
     [Fact]
     public void A_character_is_numbered_for_the_account_that_scans_it_whichever_copy_is_newest()
     {
