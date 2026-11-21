@@ -509,7 +509,7 @@ public static class SheetExport
             view.Header("Level"), view.Header("iLvl"),
             view.Header("Rested XP", "Rested XP as a share of a level, carried forward to the export as AltStable's own column does"),
             view.Header("Coin purse"), view.Header("Last seen"), view.Header("Hearthstone"), view.Header("Guild"),
-            view.Header("Race"), view.Header("Ruleset", "The realm's ruleset; its name is the cell's note"),
+            view.Header("Race"), view.Header("Ruleset", "The realm's ruleset; the realm's name, when AltStable knows it, is the cell's note"),
         ];
         IEnumerable<SheetCell> Row(Dictionary<object, object?> c, string fill)
         {
@@ -523,7 +523,8 @@ public static class SheetExport
             yield return new SheetCell(Str(c, "bind"), fill, p.Text);
             yield return new SheetCell(Str(c, "guild"), fill, p.Text);
             yield return new SheetCell(Str(c, "raceName") ?? Str(c, "race"), fill, p.Text);
-            yield return Str(c, "realm") is { Length: > 0 } realm ? new SheetCell(Ruleset(realm), fill, p.Text, Note: realm) : new SheetCell(null, fill);
+            var realm = Str(c, "realm") is { Length: > 0 } r ? r : null;
+            yield return new SheetCell(RulesetOf(c), fill, p.Text, Note: realm);
         }
         // Below the table, outside its filter: each faction's figures, then everyone's - the whole
         // export, whatever the filter hides.
@@ -773,6 +774,25 @@ public static class SheetExport
     /// wants the ruleset in the cell and the realm's name only on hover (Codex on #85: a last-word
     /// parse got "Forever Roleplay PvP" and "Classic Beta PvP 2" wrong).
     /// </summary>
+    /// <summary>
+    /// A character's ruleset badge: the <c>ruleset</c> AltStable 1.11.0 reads from the game's rules
+    /// at each scan, else the one its realm's name gives, else none. Since the server hotfix of
+    /// 2026-11-20 the game no longer names the realm: a character first seen after it has no
+    /// <c>realm</c>, and a build from that evening stored <c>""</c> over a real one (AltStable
+    /// #408 / #412). AltStable's keys, not its labels: "Normal" is PvE, "RPPvP" is RP-PvP; any
+    /// other value is not known, and the realm decides.
+    /// </summary>
+    internal static string? RulesetOf(Dictionary<object, object?> c) =>
+        Str(c, "ruleset") switch
+        {
+            "Normal" => "PvE",
+            "PvP" => "PvP",
+            "RP" => "RP",
+            "RPPvP" => "RP-PvP",
+            "Hardcore" => "HC",
+            _ => Ruleset(Str(c, "realm")),
+        };
+
     internal static string? Ruleset(string? realm)
     {
         if (string.IsNullOrWhiteSpace(realm)) return null;

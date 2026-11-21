@@ -15,12 +15,20 @@ public class ArmoryRuleTests
         Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-main-raw.png", Armory.Url("Player-6796-000A598A", sd: false));
         Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-main-sd-raw.png", Armory.Url("Player-6796-000A598A", sd: true));
         Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/1/3674369-main-raw.png", Armory.Url("Player-6933-00381101", sd: false));
+        // Without the realm id, should the GUID lose it (the 2026-11-20 hotfix hid the realm): the same number.
+        Assert.Equal(678282, Armory.PlayerNumber("Player-000A598A"));
+        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/138/678282-main-raw.png", Armory.Url("Player-000A598A", sd: false));
     }
 
     [Theory]
     [InlineData("Pet-0-1234")]
-    [InlineData("Player-1")]
+    [InlineData("Player")]
+    [InlineData("Player-")]
+    [InlineData("Player--00AA")]
+    [InlineData("Player-1-2-00AA")]
     [InlineData("Player-x-00AA")]
+    [InlineData("Player-00000000")]
+    [InlineData("Player-123456789")]
     [InlineData("Player-1-00000000")]
     [InlineData("Player-1-123456789")]
     [InlineData("Player-1-00ZZ")]

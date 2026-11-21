@@ -65,13 +65,17 @@ public static class Armory
 
     /// <summary>
     /// The player number of a GUID, <c>Player-&lt;realm&gt;-&lt;hex&gt;</c>, or null for anything
-    /// else. The CDN names the render after it.
+    /// else. The CDN names the render after it. <c>Player-&lt;hex&gt;</c> is read too: since the
+    /// server hotfix of 2026-11-20 the game hides the realm, the GUID kept its realm id so far
+    /// (measured on one character), and addon authors expect it may leave the GUID next. The
+    /// number is the identity; the realm id is never read.
     /// </summary>
     public static long? PlayerNumber(string guid)
     {
         var parts = guid.Split('-');
-        if (parts.Length != 3 || parts[0] != "Player" || parts[1].Length == 0 || !parts[1].All(char.IsAsciiDigit)) return null;
-        var hex = parts[2];
+        if (parts.Length is not (2 or 3) || parts[0] != "Player") return null;
+        if (parts.Length == 3 && (parts[1].Length == 0 || !parts[1].All(char.IsAsciiDigit))) return null;
+        var hex = parts[^1];
         if (hex.Length is 0 or > 8 || !hex.All(char.IsAsciiHexDigit)) return null;
         var n = long.Parse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
         return n > 0 ? n : null;
