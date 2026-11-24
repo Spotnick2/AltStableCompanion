@@ -6,6 +6,12 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Enhanced portraits:** a hood, helm or hat is kept as worn. A character in a hood could
+  come back with long hair in its place. Troll tusks now grow from the lower jaw, not from
+  under the nose. Every enhanced portrait is made again once with the new words.
+
 ## [1.3.1]
 
 The Google Sheet's Ruleset column fills in again, now that the game no longer tells addons

@@ -324,6 +324,12 @@ public class EnhancementPromptTests
         Assert.Contains("Preserve the recognizable character:", p);
         // Prompt 3: a Skyborne's blue nails were lost from an armory picture.
         Assert.Contains("Keep the small details too, even where the reference shows them only a few pixels wide: nail color, makeup, tattoos, and jewelry.", p);
+        // Prompt 4: a Troll's green hood came back as green hair. A headpiece stays as worn, and
+        // the hair asked for is the hair that shows; no item is named (AltStable#485: transmog).
+        Assert.Contains("Anything worn on the head - a hood, helm, hat, mask, or circlet - stays exactly as the reference shows it: do not remove it or turn it into hair, and show hair only where the reference shows it.", p);
+        Assert.Contains("including all visible hair, boots, and equipment", p);
+        Assert.DoesNotContain("including all hair", p);
+        Assert.Contains("tusks growing from the lower jaw at the corners of the mouth and curving upward", p);
         Assert.Contains("Reinterpret the facial sculpt and rendering substantially.", p);
         Assert.Contains("Keep the race's signature features - stature, ears, nose, tusks, horns, head-to-body proportions", p);
         Assert.DoesNotContain("gnome", p, StringComparison.OrdinalIgnoreCase);
@@ -350,7 +356,9 @@ public class EnhancementPromptTests
         Assert.True(p.IndexOf("Preserve the recognizable", StringComparison.Ordinal) < p.IndexOf("Reinterpret the facial", StringComparison.Ordinal));
         Assert.True(p.IndexOf("Reinterpret the facial", StringComparison.Ordinal) < p.IndexOf("cinematic depth", StringComparison.Ordinal));
         Assert.True(p.IndexOf("cinematic depth", StringComparison.Ordinal) < p.IndexOf("ARTIFACT_PATH", StringComparison.Ordinal));
-        Assert.Equal(3, EnhancementPrompt.Version);
+        // The headpiece is with the other things to keep, before the reinterpretation.
+        Assert.True(p.IndexOf("Anything worn on the head", StringComparison.Ordinal) < p.IndexOf("Reinterpret the facial", StringComparison.Ordinal));
+        Assert.Equal(4, EnhancementPrompt.Version);
     }
 
     [Fact]
