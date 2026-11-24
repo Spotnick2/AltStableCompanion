@@ -6,6 +6,10 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+## [1.3.2]
+
+Enhanced portraits keep the hood, helm or hat a character wears.
+
 ### Fixed
 
 - **Enhanced portraits:** a hood, helm or hat is kept as worn. A character in a hood could
