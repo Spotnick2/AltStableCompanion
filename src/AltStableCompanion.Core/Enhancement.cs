@@ -162,7 +162,9 @@ public static class EnhancementPrompt
 {
     /// <summary>
     /// Bumped when the words change enough that a picture made with the old ones is not this
-    /// prompt's; the version is in the signature, so every eligible character is made again.
+    /// prompt's. The version is in the signature, so the new words apply to every attempt from
+    /// now on. A picture already made from the same portrait stays until the player asks for a
+    /// new one, which the Settings page offers (the hold rule in Controller.PlanLaunches).
     /// 2 (2026-09-30): version 1 said "copy it faithfully" six times and named the style once,
     /// and the pictures were the game model with better shading, realistic included. Now the
     /// design is preserved and the sculpt and the rendering are reinterpreted, in words
@@ -170,8 +172,14 @@ public static class EnhancementPrompt
     /// 3 (2026-11-14): the small details are named - nail color, makeup, tattoos, jewelry. A
     /// Skyborne's blue nails survived from a capture and were lost from an armory picture, whose
     /// hands are a few pixels tall: nothing in the words said to look for them.
+    /// 4 (2026-11-24): a headpiece is kept as worn. A Troll's green hood (the owner's Karuzo,
+    /// an armory render) came back as long green hair: the words asked for the hairstyle and
+    /// "all hair" and never named a headpiece. The same render with the line below kept the
+    /// hood, with and without the item's name; the name is not given, since the roster's is the
+    /// equipped item, not the look a transmog gives it (AltStable#485). And a Troll's tusks
+    /// grow from the lower jaw: "at the mouth" put them under the nose in one of those runs.
     /// </summary>
-    public const int Version = 3;
+    public const int Version = 4;
 
     public static string Build(RosterCharacter c, string style)
     {
@@ -197,6 +205,7 @@ public static class EnhancementPrompt
         sb.AppendLine();
         sb.AppendLine("Preserve the recognizable character: race, gender, apparent age, expression, skin tone, hair color and hairstyle, eye color, clothing, equipment, color palette, and pose.");
         sb.AppendLine("Keep the small details too, even where the reference shows them only a few pixels wide: nail color, makeup, tattoos, and jewelry.");
+        sb.AppendLine("Anything worn on the head - a hood, helm, hat, mask, or circlet - stays exactly as the reference shows it: do not remove it or turn it into hair, and show hair only where the reference shows it.");
         sb.AppendLine();
         sb.AppendLine(w.Reinterpret);
         sb.AppendLine();
@@ -213,7 +222,7 @@ public static class EnhancementPrompt
         sb.AppendLine();
         sb.AppendLine($"The transformation must be apparent at thumbnail size through facial structure, anatomy, hair, lighting, and material depth - not merely sharper textures. {w.Avoid}");
         sb.AppendLine();
-        sb.AppendLine("Keep the original costume and equipment design. Do not add armor, weapons, pets, companions, spell effects, glows, auras, scars, dirt, or age; one figure only. Show the full character, including all hair, boots, and equipment, with comfortable margins.");
+        sb.AppendLine("Keep the original costume and equipment design. Do not add armor, weapons, pets, companions, spell effects, glows, auras, scars, dirt, or age; one figure only. Show the full character, including all visible hair, boots, and equipment, with comfortable margins.");
         sb.AppendLine();
         sb.AppendLine("Output one image, 1024x1536, as a PNG on a genuinely transparent background. No scenery, floor, ground plane, ground shadow, glow, halo, vignette, text, or logos; lighting and shadows describe the character's surfaces only. Generate exactly one image in one call: do not generate variants, retry, or post-process the result with scripts, and do not create, edit, or modify any other files. After generating, report on its own line the exact absolute path of the generated image, prefixed with \"ARTIFACT_PATH: \". If the generation fails or no local path is available, say so plainly; do not invent a path or emit an ARTIFACT_PATH line.");
         return sb.ToString();
@@ -236,7 +245,7 @@ public static class EnhancementPrompt
     /// </summary>
     public static string? Anatomy(string race) => race.Trim().ToLowerInvariant() switch
     {
-        "troll" => "two toes on each foot, three fingers on each hand, long pointed ears, tusks at the mouth as small or large as in the reference, a tall lean build",
+        "troll" => "two toes on each foot, three fingers on each hand, long pointed ears, tusks growing from the lower jaw at the corners of the mouth and curving upward, as small or large as in the reference, a tall lean build",
         "orc" => "green skin as in the reference, prominent lower tusks, a heavy muscular build, five fingers and five toes",
         "tauren" => "hooves instead of feet, a bovine head with a muzzle and horns, a tail, three fingers on each hand, a massive build",
         "scourge" or "undead" => "greyish undead skin, a gaunt build, exposed bone at the joints or spine only where the reference shows it, five fingers and five toes",
