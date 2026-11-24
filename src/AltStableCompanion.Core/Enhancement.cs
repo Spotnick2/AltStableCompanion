@@ -162,7 +162,9 @@ public static class EnhancementPrompt
 {
     /// <summary>
     /// Bumped when the words change enough that a picture made with the old ones is not this
-    /// prompt's; the version is in the signature, so every eligible character is made again.
+    /// prompt's. The version is in the signature, so the new words apply to every attempt from
+    /// now on. A picture already made from the same portrait stays until the player asks for a
+    /// new one, which the Settings page offers (the hold rule in Controller.PlanLaunches).
     /// 2 (2026-09-30): version 1 said "copy it faithfully" six times and named the style once,
     /// and the pictures were the game model with better shading, realistic included. Now the
     /// design is preserved and the sculpt and the rendering are reinterpreted, in words
