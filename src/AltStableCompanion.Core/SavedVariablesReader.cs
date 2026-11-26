@@ -2,7 +2,12 @@ using System.Globalization;
 
 namespace AltStableCompanion.Core;
 
-/// <summary>One screenshot the addon recorded (docs/PORTRAIT-CONTRACT.md, section 1).</summary>
+/// <summary>
+/// One screenshot the addon recorded (docs/PORTRAIT-CONTRACT.md, section 1). <see cref="Look"/>
+/// is the equipped items, <see cref="DrawnLook"/> what the game draws (transmogs, hidden
+/// appearances) in the saved outfit <see cref="Outfit"/> (AltStable#497); none of them is read
+/// for conversion.
+/// </summary>
 public sealed record RenderRecord(
     string Guid,
     string Name,
@@ -14,7 +19,9 @@ public sealed record RenderRecord(
     string? Race,
     string? Class,
     string StorePath,
-    string? Look = null);
+    string? Look = null,
+    string? DrawnLook = null,
+    long? Outfit = null);
 
 /// <summary>
 /// What the addon's roster knows of a character (<c>AltStableDB[guid]</c>): what an enhanced
@@ -23,10 +30,14 @@ public sealed record RenderRecord(
 /// records of the same character. <see cref="Gear"/> is what it wears in the slots a portrait
 /// shows, written as a capture's <c>look</c> is (<see cref="PortraitJudge.GearOf"/>), or null
 /// when the record has no gear; <see cref="GearReadAt"/> and <see cref="LookAt"/> are the
-/// addon's <c>gearReadAt</c> and <c>lookAt</c>, 0 when missing.
+/// addon's <c>gearReadAt</c> and <c>lookAt</c>, 0 when missing. <see cref="DrawnGear"/> is the
+/// same slots as the game draws them (<see cref="PortraitJudge.DrawnGearOf"/>), read in the saved
+/// outfit <see cref="DrawnOutfit"/> and last changed at <see cref="DrawnLookAt"/> (AltStable#497;
+/// 0 when the addon has not read the drawn look).
 /// </summary>
 public sealed record RosterCharacter(string Guid, string Name, string? Class, string? Race, string? Gender, int Level, long Updated,
-    string? RaceName = null, long GearAt = 0, string? Gear = null, long GearReadAt = 0, long LookAt = 0);
+    string? RaceName = null, long GearAt = 0, string? Gear = null, long GearReadAt = 0, long LookAt = 0,
+    string? DrawnGear = null, long? DrawnOutfit = null, long DrawnLookAt = 0);
 
 /// <summary>One account's capture store. <see cref="Refused"/> is set for a version this app does not know.</summary>
 public sealed record PortraitStore(string Path, int Version, IReadOnlyList<RenderRecord> Renders, string? Refused = null);
@@ -113,7 +124,8 @@ public static class SavedVariablesReader
                     Num(e, "epoch") is double ep ? (long)ep : null,
                     Num(e, "screenW") is double sw ? (int)sw : null,
                     Num(e, "screenH") is double sh ? (int)sh : null,
-                    Str(e, "race"), Str(e, "class"), path, Str(e, "look")));
+                    Str(e, "race"), Str(e, "class"), path, Str(e, "look"), Str(e, "drawnLook"),
+                    Num(e, "outfit") is double outfit ? (long)outfit : null));
             }
         }
         return new PortraitStore(path, version, renders);
@@ -168,7 +180,9 @@ public static class SavedVariablesReader
                 Num(e, "level") is double lv ? (int)lv : 0, Num(e, "lastUpdate") is double up ? (long)up : 0,
                 Str(e, "raceName"), Num(e, "gearAt") is double gear ? (long)gear : 0,
                 PortraitJudge.GearOf(key => Num(e, key)),
-                Num(e, "gearReadAt") is double read ? (long)read : 0, Num(e, "lookAt") is double look ? (long)look : 0));
+                Num(e, "gearReadAt") is double read ? (long)read : 0, Num(e, "lookAt") is double look ? (long)look : 0,
+                PortraitJudge.DrawnGearOf(key => Num(e, key)), Num(e, "drawnOutfit") is double outfit ? (long)outfit : null,
+                Num(e, "drawnLookAt") is double drawnAt ? (long)drawnAt : 0));
         }
         return chars;
     }

@@ -20,7 +20,8 @@ With the player's yes, it also takes a portrait from the Forever armory's render
 character (#63): a public file on Blizzard's CDN, named after the GUID's player number,
 fetched conditionally and kept in `Cutouts\Armory\` beside the capture's cutout. The capture
 stays the portrait until the roster says the character changed since it (gear against the
-capture record's `look`, or `lookAt`), and the render is newer than the capture:
+capture record's `drawnLook` within one saved outfit, else its `look` (AltStable#497, #94), or
+`lookAt`), and the render is newer than the capture:
 `PortraitJudge.cs` (contract section 4, AltStable#310, amended 2026-11-14 - before, the render
 had to show the latest change). The schedule and the measurements it rests on are in
 `Armory.cs`. A player who saves their own Battle.net API client also has

@@ -16,13 +16,14 @@ public class PortraitJudgeTests
     private static CutoutMeta Render() => new() { W = 4, H = 8, TexW = 4, TexH = 8, Guid = A, LastModified = Made.ToString("R") };
 
     private static RosterCharacter Roster(string? gear = "1:100;3:0;5:300;15:400;16:500", long gearAt = E - 100, long gearReadAt = 0,
-        long updated = E + 50, long lookAt = 0) =>
-        new(A, "Karuzo Macphisto", "WARLOCK", "Troll", "Female", 25, updated, Gear: gear, GearAt: gearAt, GearReadAt: gearReadAt, LookAt: lookAt);
+        long updated = E + 50, long lookAt = 0, string? drawnGear = null, long? drawnOutfit = null, long drawnLookAt = 0) =>
+        new(A, "Karuzo Macphisto", "WARLOCK", "Troll", "Female", 25, updated, Gear: gear, GearAt: gearAt, GearReadAt: gearReadAt, LookAt: lookAt,
+            DrawnGear: drawnGear, DrawnOutfit: drawnOutfit, DrawnLookAt: drawnLookAt);
 
     private static PortraitJudge Judge(RosterCharacter? character, string? look = Look, IReadOnlyList<string>? skipped = null,
-        params RosterCharacter[] more)
+        string? drawn = null, long? outfit = null, params RosterCharacter[] more)
     {
-        var record = new RenderRecord(A, "Karuzo Macphisto", 1, DateTime.Now, E, null, null, null, null, "a.lua", look);
+        var record = new RenderRecord(A, "Karuzo Macphisto", 1, DateTime.Now, E, null, null, null, null, "a.lua", look, drawn, outfit);
         var rosters = new List<RosterStore>();
         if (character is not null) rosters.Add(new RosterStore("a.lua", [character], new HashSet<string>()));
         if (more.Length > 0) rosters.Add(new RosterStore("b.lua", more, new HashSet<string>()));
@@ -140,6 +141,63 @@ public class PortraitJudgeTests
         Assert.False(Judge(Roster(gear: "1:101", gearAt: 1)).RenderWins(A, E, Render() with { LastModified = null }));
     }
 
+    // The drawn look (AltStable#497): the chest transmogrified to 900, the cloak's appearance hidden;
+    // the shirt and tabard too, as the addon writes it. The roster's, with the same slots drawn the same.
+    private const string Drawn = "1:100;3:0;4:7;5:900;15:h;16:500;19:9";
+    private const string DrawnNow = "1:100;3:0;5:900;15:h;16:500";
+
+    [Fact]
+    public void An_equipped_swap_under_the_same_transmog_keeps_the_capture()
+    {
+        // A new chest under the same transmog, after the time the render shows: equipped, a change.
+        var swapped = Roster(gear: "1:100;3:0;5:301;15:400;16:500", gearAt: AsOf + 60, updated: AsOf + 60, drawnGear: DrawnNow, drawnLookAt: E - 100);
+        Assert.True(RenderWins(Judge(swapped)));
+        // Drawn, nothing changed: the portrait looks the same.
+        Assert.False(RenderWins(Judge(swapped, drawn: Drawn)));
+        // The drawn look read again since the capture (drawnLookAt counts the reading itself), still the same.
+        Assert.False(RenderWins(Judge(swapped with { DrawnLookAt = AsOf + 60 }, drawn: Drawn)));
+        // A roster the addon never read the drawn look into: the equipped compare, as before.
+        Assert.True(RenderWins(Judge(swapped with { DrawnLookAt = 0 }, drawn: Drawn)));
+    }
+
+    [Theory]
+    [InlineData(+1, true)]     // after the capture: a change
+    [InlineData(-1, false)]    // at or before it: the capture drew it itself
+    public void A_transmog_or_a_hidden_appearance_changed_is_a_change_dated_by_drawn_look_at(int side, bool render)
+    {
+        // The equipped gear has not changed since long before the capture, nor been read since: only drawnLookAt dates it.
+        var at = E + side * 60;
+        Assert.Equal(render, RenderWins(Judge(Roster(drawnGear: "1:100;3:0;5:901;15:h;16:500", drawnLookAt: at), drawn: Drawn)));
+        // The cloak shown again: dated by drawnLookAt, not by gearReadAt, which is on the other side of the capture.
+        Assert.Equal(render, RenderWins(Judge(Roster(drawnGear: "1:100;3:0;5:900;15:400;16:500", gearReadAt: E - side * 60, drawnLookAt: at),
+            drawn: Drawn)));
+        // Gloves hidden: any slot can be.
+        Assert.Equal(render, RenderWins(Judge(Roster(drawnGear: "1:100;5:900;10:h", drawnLookAt: at), drawn: "1:100;5:900;10:250")));
+    }
+
+    [Fact]
+    public void A_drawn_look_in_another_saved_outfit_is_the_old_estimate()
+    {
+        var changed = Roster(drawnGear: "1:100;3:0;5:901;15:h;16:500", drawnOutfit: 3, drawnLookAt: E + 60);
+        var same = changed with { DrawnGear = DrawnNow };
+        Assert.True(RenderWins(Judge(changed, drawn: Drawn, outfit: 3)));
+        Assert.False(RenderWins(Judge(same, drawn: Drawn, outfit: 3)));
+        Assert.False(RenderWins(Judge(same, look: null, drawn: Drawn, outfit: 3)));   // the drawn look alone is enough
+        // Another outfit: no verdict about the gear, the same look or not - a render newer than the capture.
+        Assert.True(Armory.RenderWins(E, Render()));
+        Assert.True(RenderWins(Judge(same, drawn: Drawn, outfit: 2)));
+        var older = new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A,
+            LastModified = (DateTimeOffset.FromUnixTimeSeconds(E - 60) + Armory.RenderDelay).ToString("R"),
+        };
+        Assert.False(Judge(changed, drawn: Drawn, outfit: 2).RenderWins(A, E, older));
+        // An outfit one side does not name is compared.
+        Assert.False(RenderWins(Judge(same, drawn: Drawn)));
+        Assert.False(RenderWins(Judge(same with { DrawnOutfit = null }, drawn: Drawn, outfit: 2)));
+        Assert.True(RenderWins(Judge(changed with { DrawnOutfit = null }, drawn: Drawn, outfit: 2)));
+    }
+
     [Fact]
     public void The_roster_s_gear_and_the_capture_s_look_are_read_from_the_file()
     {
@@ -160,6 +218,33 @@ public class PortraitJudgeTests
             TestData.Record("Karuzo Macphisto", A, 1, new DateTime(2026, 11, 11, 4, 0, 0)).Replace("[\"shot\"]", "[\"look\"] = \"" + Look + "\",\n[\"shot\"]"),
         ]), "a.lua");
         Assert.Equal(Look, Assert.Single(store!.Renders).Look);
+        Assert.Equal((null, null), (store.Renders[0].DrawnLook, store.Renders[0].Outfit));
+        // Without the drawn fields the drawn gear is the equipped gear, and nothing dates it.
+        Assert.Equal((c.Gear, null, 0L), (c.DrawnGear, c.DrawnOutfit, c.DrawnLookAt));
+    }
+
+    [Fact]
+    public void The_drawn_look_is_read_from_the_file()
+    {
+        // AltStable#497: the shoulders' appearance hidden, the chest drawn as 900, gloves drawn
+        // with no equipped id read, the helm hidden by hidehelm and the cloak drawn as equipped.
+        var text = "AltStableDB = {\n[\"" + A + "\"] = {\n[\"name\"] = \"Karuzo Macphisto\",\n[\"level\"] = 25,\n[\"lastUpdate\"] = 1794400050,\n"
+            + "[\"gearid_head\"] = 100,\n[\"gearid_shoulder\"] = 200,\n[\"gearid_chest\"] = 300,\n[\"gearid_back\"] = 400,\n[\"gearid_legs\"] = 0,\n"
+            + "[\"gearlook_shoulder\"] = 0,\n[\"gearlook_chest\"] = 900,\n[\"gearlook_hands\"] = 250,\n[\"hidehelm\"] = 1,\n"
+            + "[\"drawnOutfit\"] = 3,\n[\"drawnLookAt\"] = 1794400030,\n[\"gearlookSig\"] = \"o3;3:0;5:900;10:250\",\n},\n}\n";
+        var c = Assert.Single(SavedVariablesReader.ParseRoster(text, "a.lua").Characters);
+        Assert.Equal("1:h;3:h;5:900;7:0;10:250;15:400", c.DrawnGear);
+        Assert.Equal("1:h;3:200;5:300;7:0;15:400", c.Gear);                  // the equipped gear is unchanged
+        Assert.Equal((3L, 1794400030L), (c.DrawnOutfit, c.DrawnLookAt));
+        Assert.Null(PortraitJudge.DrawnGearOf(_ => null));
+
+        const string drawn = "1:h;3:h;4:7;5:900;15:400;19:0";
+        var store = SavedVariablesReader.Parse(TestData.SavedVariables([
+            TestData.Record("Karuzo Macphisto", A, 1, new DateTime(2026, 11, 11, 4, 0, 0))
+                .Replace("[\"shot\"]", "[\"look\"] = \"" + Look + "\",\n[\"drawnLook\"] = \"" + drawn + "\",\n[\"outfit\"] = 3,\n[\"shot\"]"),
+        ]), "a.lua");
+        var record = Assert.Single(store!.Renders);
+        Assert.Equal((Look, drawn, 3L), (record.Look, record.DrawnLook, record.Outfit));
     }
 }
 
