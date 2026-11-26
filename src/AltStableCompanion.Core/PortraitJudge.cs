@@ -13,8 +13,8 @@ namespace AltStableCompanion.Core;
 /// <item>Changed since the capture? Gear: what the portrait shows against the character's most
 /// recently updated roster record, slot by slot (a slot one side lacks is not a change). That
 /// is the capture's <c>drawnLook</c> against the roster's drawn look (<see cref="DrawnGearOf"/>,
-/// AltStable#497) when both have one, since the portrait draws transmogs and hidden slots;
-/// else the capture's <c>look</c> against the equipped gear (<see cref="GearOf"/>).
+/// AltStable#497), since the portrait draws transmogs and hidden slots; a capture without a
+/// <c>drawnLook</c> is its <c>look</c> against the equipped gear (<see cref="GearOf"/>).
 /// Appearance: <c>lookAt</c> later than the capture's <c>epoch</c>.</item>
 /// <item>Not changed: the capture.</item>
 /// <item>Changed: the render once it is newer than the capture - its <c>Last-Modified</c> minus
@@ -27,7 +27,8 @@ namespace AltStableCompanion.Core;
 /// cloak's visibility's <c>gearReadAt</c> (else <c>lastUpdate</c>); the appearance's
 /// <c>lookAt</c>.</item>
 /// <item>Cannot tell (no <c>look</c> on the capture's record, no gear in the roster, no time for
-/// the change, an account file that could not be read, a drawn look read in another saved
+/// the change, an account file that could not be read, a capture's <c>drawnLook</c> with no
+/// drawn reading in the roster (no <c>drawnLookAt</c>), a drawn look read in another saved
 /// outfit than the capture's - Forever switches outfits by itself, by weather and time of day,
 /// at random among those that fit, so there is no verdict about the gear): the old estimate,
 /// <see cref="Armory.RenderWins"/>.</item>
@@ -145,8 +146,12 @@ public sealed partial class PortraitJudge
     {
         if (!_looks.TryGetValue((guid, epoch), out var capture) || !_roster.TryGetValue(guid, out var c)) return null;
         bool? gear;
-        if (capture.DrawnLook is { } drawn && c.DrawnGear is { } drawnNow && ArmoryEligibility.Seconds(c.DrawnLookAt) is > 0 and var at)
+        if (capture.DrawnLook is { } drawn)
         {
+            // A capture drawn from the posed stage before the roster's first drawn reading: the
+            // equipped ids would miss a transmog, so no verdict (Codex on #95).
+            var at = ArmoryEligibility.Seconds(c.DrawnLookAt);
+            if (c.DrawnGear is not { } drawnNow || at == 0) return null;
             // Another saved outfit than the capture's: no verdict about the gear.
             if (capture.Outfit is { } then && c.DrawnOutfit is { } now && then != now) return null;
             gear = DrawnChanged(drawn, drawnNow, at, epoch);

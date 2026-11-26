@@ -156,8 +156,25 @@ public class PortraitJudgeTests
         Assert.False(RenderWins(Judge(swapped, drawn: Drawn)));
         // The drawn look read again since the capture (drawnLookAt counts the reading itself), still the same.
         Assert.False(RenderWins(Judge(swapped with { DrawnLookAt = AsOf + 60 }, drawn: Drawn)));
-        // A roster the addon never read the drawn look into: the equipped compare, as before.
-        Assert.True(RenderWins(Judge(swapped with { DrawnLookAt = 0 }, drawn: Drawn)));
+    }
+
+    [Fact]
+    public void A_drawn_capture_with_no_drawn_reading_in_the_roster_is_the_old_estimate()
+    {
+        // Codex on #95: the capture drew its look from the posed stage before the roster's first
+        // drawn reading. The equipped ids match, but the transmog may not: not the equipped compare.
+        Assert.True(Armory.RenderWins(E, Render()));
+        Assert.False(RenderWins(Judge(Roster())));                                          // equipped, the same
+        Assert.True(RenderWins(Judge(Roster(), drawn: Drawn)));                              // drawn, cannot tell
+        Assert.True(RenderWins(Judge(Roster(drawnGear: DrawnNow), drawn: Drawn)));           // gearlook_ but no drawnLookAt
+        Assert.False(RenderWins(Judge(Roster(drawnGear: DrawnNow, drawnLookAt: E - 100), drawn: Drawn)));
+        // A render from before the capture still loses, as the old estimate has it.
+        var older = new CutoutMeta
+        {
+            W = 4, H = 8, TexW = 4, TexH = 8, Guid = A,
+            LastModified = (DateTimeOffset.FromUnixTimeSeconds(E - 60) + Armory.RenderDelay).ToString("R"),
+        };
+        Assert.False(Judge(Roster(), drawn: Drawn).RenderWins(A, E, older));
     }
 
     [Theory]
