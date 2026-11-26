@@ -6,6 +6,17 @@ version's section, as it stands here, for the notes of its GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Which picture shows:** a capture is now compared with what the game draws, not only with
+  the items worn. A new transmog, or an appearance hidden or shown again on any slot, lets a
+  newer armory picture take over. A new item under the same transmog keeps the capture,
+  since the portrait looks the same. Forever switches saved outfits on its own, so a capture
+  taken in another outfit than the one AltStable last read falls back to the date alone, and
+  so does a capture taken before AltStable first read the character's look. This needs
+  AltStable's next release (after 1.14.0). Captures from before it are compared by the items
+  worn, as before.
+
 ## [1.3.2]
 
 Enhanced portraits keep the hood, helm or hat a character wears.

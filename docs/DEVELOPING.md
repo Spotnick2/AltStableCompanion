@@ -19,9 +19,13 @@ folder. This app does that part outside the game:
 With the player's yes, it also takes a portrait from the Forever armory's render of each
 character (#63): a public file on Blizzard's CDN, named after the GUID's player number,
 fetched conditionally and kept in `Cutouts\Armory\` beside the capture's cutout. The capture
-stays the portrait until the roster says the character changed since it (gear against the
-capture record's `look`, or `lookAt`), and the render is newer than the capture:
-`PortraitJudge.cs` (contract section 4, AltStable#310, amended 2026-11-14 - before, the render
+stays the portrait until the roster says the character changed since it (gear, or `lookAt`),
+and the render is newer than the capture. The gear is the capture record's `drawnLook` against
+the roster's drawn look (AltStable#497, #94); a capture without `drawnLook` is compared by its
+`look` against the equipped ids. A drawn capture whose roster record has no drawn reading yet,
+or one taken in another saved outfit than the roster's `drawnOutfit`, gets no verdict about
+the gear: the date-only estimate, so a render newer than the capture wins even when the gear
+matches. See `PortraitJudge.cs` (contract section 4, AltStable#310, amended 2026-11-14 - before, the render
 had to show the latest change). The schedule and the measurements it rests on are in
 `Armory.cs`. A player who saves their own Battle.net API client also has
 the profile API asked about every character not hidden, every 6 hours (`BlizzardApi.cs`):
